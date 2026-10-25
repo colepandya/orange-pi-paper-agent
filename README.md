@@ -2,6 +2,18 @@
 
 > **Canonical context:** This private repository is the single source of truth. Future Copilot/AI sessions must read this README, `CURRENT_STATE.md`, `DECISIONS.md`, `CHANGELOG.md`, the latest release notes, and the relevant source/tests before proposing changes. Work from the latest deployed tag, not old ZIP files or remembered chat context.
 
+
+# Chat Prompt for the future
+Use my private orange-pi-paper-agent repository as the authoritative source.
+
+Read README.md, CURRENT_STATE.md, DECISIONS.md and CHANGELOG.md first.
+Work only from the latest deployed tag. Preserve virtual-only operation,
+Pi-hole protections, the full US equity universe, minimum entry score 65,
+minimum 20% virtual purchase, quote retries and Auckland dashboard time.
+
+Run the complete offline suite and define Orange Pi live probes before
+providing deployment commands.
+
 ## Purpose
 
 A fully virtual, news-driven US equity trading experiment running on an Orange Pi Zero 3. The application monitors broad public information, maps events to verified US-listed companies, records a thesis before the outcome, makes purchases only inside its SQLite ledger, tracks prices for 1–15 trading days, virtually exits, measures profit/loss, and records lessons.
