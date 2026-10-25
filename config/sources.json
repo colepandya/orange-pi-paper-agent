@@ -1,0 +1,110 @@
+{
+  "poll_seconds": 600,
+  "max_items_per_source": 100,
+  "sources": [
+    {
+      "id": "sec_latest",
+      "name": "SEC EDGAR Latest Filings",
+      "type": "atom",
+      "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&output=atom&count=100",
+      "trust": 1.0,
+      "interval": 300
+    },
+    {
+      "id": "federal_register_pi",
+      "name": "Federal Register Public Inspection",
+      "type": "federal_register",
+      "url": "https://www.federalregister.gov/api/v1/public-inspection-documents/current.json",
+      "trust": 0.95,
+      "interval": 900
+    },
+    {
+      "id": "usaspending_awards",
+      "name": "USAspending New Awards",
+      "type": "usaspending",
+      "url": "https://api.usaspending.gov/api/v2/search/spending_by_award/",
+      "trust": 0.95,
+      "interval": 3600
+    },
+    {
+      "id": "ftc_press",
+      "name": "FTC Press Releases",
+      "type": "rss",
+      "url": "https://www.ftc.gov/feeds/press-release.xml",
+      "trust": 0.95,
+      "interval": 900
+    },
+    {
+      "id": "openfda_drug",
+      "name": "openFDA Drug Enforcement",
+      "type": "openfda",
+      "url": "https://api.fda.gov/drug/enforcement.json?limit=100&sort=report_date:desc",
+      "trust": 0.9,
+      "interval": 3600
+    },
+    {
+      "id": "openfda_device",
+      "name": "openFDA Device Enforcement",
+      "type": "openfda",
+      "url": "https://api.fda.gov/device/enforcement.json?limit=100&sort=report_date:desc",
+      "trust": 0.9,
+      "interval": 3600
+    },
+    {
+      "id": "techcrunch",
+      "name": "TechCrunch",
+      "type": "rss",
+      "url": "https://techcrunch.com/feed/",
+      "trust": 0.7,
+      "interval": 600
+    },
+    {
+      "id": "ars_tech",
+      "name": "Ars Technica",
+      "type": "rss",
+      "url": "https://feeds.arstechnica.com/arstechnica/index",
+      "trust": 0.7,
+      "interval": 900
+    },
+    {
+      "id": "the_verge",
+      "name": "The Verge",
+      "type": "rss",
+      "url": "https://www.theverge.com/rss/index.xml",
+      "trust": 0.65,
+      "interval": 900
+    },
+    {
+      "id": "techmeme",
+      "name": "Techmeme",
+      "type": "rss",
+      "url": "https://www.techmeme.com/feed.xml",
+      "trust": 0.6,
+      "interval": 600
+    },
+    {
+      "id": "hacker_news",
+      "name": "Hacker News",
+      "type": "rss",
+      "url": "https://news.ycombinator.com/rss",
+      "trust": 0.4,
+      "interval": 600
+    },
+    {
+      "id": "geekwire",
+      "name": "GeekWire",
+      "type": "rss",
+      "url": "https://www.geekwire.com/feed/",
+      "trust": 0.65,
+      "interval": 900
+    },
+    {
+      "id": "nvidia_news",
+      "name": "NVIDIA Newsroom",
+      "type": "rss",
+      "url": "https://nvidianews.nvidia.com/rss.xml",
+      "trust": 0.9,
+      "interval": 600
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+[Unit]
+Description=Broad keyless intelligence collector for virtual paper agent
+After=network-online.target pihole-FTL.service paper-agent.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=paperagent
+Group=paperagent
+WorkingDirectory=/opt/paper-agent
+ExecStart=/usr/bin/python3 /opt/paper-agent/app/broad_collector.py /etc/paper-agent/broad-sources.json
+Nice=12
+IOSchedulingClass=idle
+MemoryMax=150M
+CPUQuota=30%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/paper-agent /var/log/paper-agent

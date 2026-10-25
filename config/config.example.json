@@ -1,0 +1,72 @@
+{
+  "portfolio": {
+    "starting_cash": 1000000.0,
+    "max_single_stock_pct": 0.5,
+    "max_theme_pct": 0.8,
+    "max_deployed_pct": 0.9,
+    "standard_position_pct": 0.2,
+    "high_confidence_position_pct": 0.25,
+    "max_hold_trading_days": 15,
+    "hard_stop_pct": 0.12,
+    "profit_take_pct": 0.2,
+    "portfolio_drawdown_pause_pct": 0.25,
+    "entry_score": 65,
+    "high_confidence_score": 88,
+    "slippage_bps": 15
+  },
+  "runtime": {
+    "loop_seconds": 900,
+    "price_refresh_seconds": 3600,
+    "min_available_memory_mb": 180,
+    "max_load_per_core": 1.25,
+    "pihole_health_required": true,
+    "bind_host": "0.0.0.0",
+    "bind_port": 8088
+  },
+  "feeds": [
+    {
+      "name": "SEC Press Releases",
+      "url": "https://www.sec.gov/news/pressreleases.rss",
+      "trust": 1.0,
+      "type": "rss"
+    },
+    {
+      "name": "Federal Reserve Press",
+      "url": "https://www.federalreserve.gov/feeds/press_all.xml",
+      "trust": 1.0,
+      "type": "rss"
+    },
+    {
+      "name": "FDA Press",
+      "url": "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml",
+      "trust": 1.0,
+      "type": "rss"
+    },
+    {
+      "name": "CNBC US Top News",
+      "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+      "trust": 0.85,
+      "type": "rss"
+    },
+    {
+      "name": "MarketWatch Top Stories",
+      "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+      "trust": 0.85,
+      "type": "rss"
+    }
+  ],
+  "gdelt": {
+    "enabled": false,
+    "trust": 0.65,
+    "max_records_per_query": 25,
+    "queries": [
+      "(NVIDIA OR Microsoft OR Amazon OR Tesla OR AMD OR Broadcom)"
+    ]
+  },
+  "finnhub": {
+    "enabled": false,
+    "api_key_env": "REDACTED",
+    "trust": 0.85,
+    "lookback_days": 2
+  }
+}

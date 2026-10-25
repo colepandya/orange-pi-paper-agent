@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.zip
+*.log
+.env
+.env.*
+config/config.json
+config/watchlist.json
+backups/
+build/
+dist/
+.DS_Store

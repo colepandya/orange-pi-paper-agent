@@ -1,0 +1,42 @@
+import html, json, os, subprocess
+from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+from urllib.parse import urlparse
+
+STYLE="body{font-family:system-ui;margin:24px;background:#101418;color:#e8edf2}a{color:#7cc7ff}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.card,table{background:#182029;border:1px solid #2c3947;border-radius:8px;padding:12px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{text-align:left;padding:8px;border-bottom:1px solid #2c3947}button{padding:10px 14px;margin-right:8px}small{color:#9fb0c0}"
+def money(x): return f"${float(x or 0):,.2f}"
+def timer_times():
+    values={"LastTriggerUSec":"Unavailable","NextElapseUSecRealtime":"Unavailable"}
+    try:
+        result=subprocess.run(
+            ["systemctl","show","paper-agent-broad.timer","-p","LastTriggerUSec","-p","NextElapseUSecRealtime","--no-pager"],
+            capture_output=True,text=True,timeout=2,check=False,
+        )
+        if result.returncode==0:
+            for line in result.stdout.splitlines():
+                if "=" in line:
+                    key,value=line.split("=",1)
+                    if key in values and value.strip(): values[key]=value.strip()
+    except (OSError,subprocess.SubprocessError):
+        pass
+    return values["LastTriggerUSec"],values["NextElapseUSecRealtime"]
+
+class Handler(BaseHTTPRequestHandler):
+    store=None; watchlist=None
+    def log_message(self,*a): pass
+    def do_POST(self):
+        if self.client_address[0] not in ('127.0.0.1','::1') and not self.client_address[0].startswith(('192.168.','10.','172.')): self.send_error(403); return
+        if self.path=='/pause': open('/var/lib/paper-agent/PAUSE_TRADES','a').close()
+        elif self.path=='/resume':
+            try: os.remove('/var/lib/paper-agent/PAUSE_TRADES')
+            except FileNotFoundError: pass
+        self.send_response(303); self.send_header('Location','/'); self.end_headers()
+    def do_GET(self):
+        if self.path=='/health': self._send('application/json',json.dumps({'ok':True,'cash':self.store.cash()})); return
+        db=self.store.db; cash=self.store.cash(); pos=db.execute("SELECT * FROM positions WHERE status='OPEN' ORDER BY opened DESC").fetchall(); closed=db.execute("SELECT * FROM positions WHERE status='CLOSED' ORDER BY closed DESC LIMIT 20").fetchall(); dec=db.execute("SELECT d.*,n.title,n.source FROM decisions d LEFT JOIN news n ON n.uid=d.news_uid ORDER BY d.id DESC LIMIT 30").fetchall(); snap=db.execute("SELECT * FROM daily_values ORDER BY day DESC LIMIT 1").fetchone(); paused=os.path.exists('/var/lib/paper-agent/PAUSE_TRADES'); last_refresh,next_refresh=timer_times()
+        equity=snap['equity'] if snap else cash; deployed=snap['deployed'] if snap else 0
+        rows=lambda rr: ''.join(f"<tr><td>{html.escape(str(r['ticker']))}</td><td>{html.escape(str(r['theme']))}</td><td>{money(r['cost'])}</td><td>{html.escape(str(r['status']))}</td></tr>" for r in rr) or '<tr><td colspan=4>None</td></tr>'
+        drows=''.join(f"<tr><td>{r['created']}</td><td>{html.escape(r['ticker'] or '-')}</td><td>{r['action']}</td><td>{r['score']:.0f}</td><td>{html.escape((r['title'] or '')[:100])}</td><td>{r['status']}</td></tr>" for r in dec)
+        body=f"<h1>Orange Pi Paper Agent</h1><p><small>Virtual only. No broker connection.</small></p><div class=cards><div class=card><b>Equity</b><br>{money(equity)}</div><div class=card><b>Cash</b><br>{money(cash)}</div><div class=card><b>Deployed</b><br>{money(deployed)}</div><div class=card><b>Mode</b><br>{'PAUSED' if paused else 'ACTIVE'}</div><div class=card><b>Last broad refresh</b><br>{html.escape(last_refresh)}</div><div class=card><b>Next scheduled refresh</b><br>{html.escape(next_refresh)}</div></div><form method=post action=/pause><button>Pause new trades</button></form><form method=post action=/resume><button>Resume</button></form><h2>Open virtual positions</h2><table><tr><th>Ticker</th><th>Theme</th><th>Cost</th><th>Status</th></tr>{rows(pos)}</table><h2>Recent decisions</h2><table><tr><th>Time</th><th>Ticker</th><th>Action</th><th>Score</th><th>News</th><th>Status</th></tr>{drows}</table>"
+        self._send('text/html',f"<!doctype html><meta name=viewport content='width=device-width'><style>{STYLE}</style>{body}")
+    def _send(self,ctype,data): self.send_response(200); self.send_header('Content-Type',ctype); self.end_headers(); self.wfile.write(data.encode())
+def serve(store,watchlist,host,port): Handler.store=store; Handler.watchlist=watchlist; ThreadingHTTPServer((host,port),Handler).serve_forever()

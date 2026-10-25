@@ -1,0 +1,12 @@
+[Unit]
+Description=Run broad intelligence collector every ten minutes
+
+[Timer]
+OnCalendar=*-*-* *:0/10:00
+AccuracySec=15s
+RandomizedDelaySec=30
+Persistent=true
+Unit=paper-agent-broad.service
+
+[Install]
+WantedBy=timers.target

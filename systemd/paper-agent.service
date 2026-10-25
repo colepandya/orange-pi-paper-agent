@@ -1,0 +1,38 @@
+[Unit]
+Description=News-driven virtual paper trading experiment
+After=network-online.target pihole-FTL.service
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=4
+
+[Service]
+Type=simple
+User=paperagent
+Group=paperagent
+WorkingDirectory=/opt/paper-agent
+EnvironmentFile=-/etc/paper-agent/paper-agent.env
+ExecStart=/usr/bin/python3 /opt/paper-agent/app/main.py --config /etc/paper-agent/config.json --watchlist /etc/paper-agent/watchlist.json --db /var/lib/paper-agent/paper-agent.db
+Restart=on-failure
+RestartSec=30
+MemoryHigh=150M
+MemoryMax=180M
+CPUQuota=35%
+Nice=10
+IOSchedulingClass=idle
+OOMScoreAdjust=500
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/paper-agent /var/log/paper-agent
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

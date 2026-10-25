@@ -1,0 +1,194 @@
+import datetime as dt, hashlib, json, math, os, re, sqlite3, urllib.parse, urllib.request, xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
+
+SCHEMA = """
+PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS news(id INTEGER PRIMARY KEY,uid TEXT UNIQUE,source TEXT,title TEXT,summary TEXT,url TEXT,published TEXT,ingested TEXT,trust REAL);
+CREATE TABLE IF NOT EXISTS decisions(id INTEGER PRIMARY KEY,created TEXT,news_uid TEXT,ticker TEXT,action TEXT,score REAL,reason TEXT,rules_version TEXT,status TEXT,entry_price REAL,shares INTEGER,amount REAL,theme TEXT,FOREIGN KEY(news_uid) REFERENCES news(uid));
+CREATE TABLE IF NOT EXISTS positions(id INTEGER PRIMARY KEY,ticker TEXT,theme TEXT,opened TEXT,entry_price REAL,shares INTEGER,cost REAL,decision_id INTEGER,status TEXT,closed TEXT,exit_price REAL,pnl REAL,review_code TEXT,FOREIGN KEY(decision_id) REFERENCES decisions(id));
+CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY,created TEXT,kind TEXT,amount REAL,ref TEXT,balance REAL);
+CREATE TABLE IF NOT EXISTS daily_values(day TEXT PRIMARY KEY,equity REAL,cash REAL,deployed REAL,drawdown REAL);
+CREATE TABLE IF NOT EXISTS lessons(id INTEGER PRIMARY KEY,created TEXT,category TEXT,ticker TEXT,detail TEXT,evidence_count INTEGER DEFAULT 1,status TEXT DEFAULT 'candidate');
+CREATE TABLE IF NOT EXISTS rule_stats(rule_key TEXT PRIMARY KEY,wins INTEGER DEFAULT 0,losses INTEGER DEFAULT 0,total_pnl REAL DEFAULT 0,updated TEXT);
+"""
+
+POSITIVE = {"award":14,"contract":16,"approval":16,"approved":16,"launch":8,"partnership":9,"buyback":12,"raises guidance":20,"record revenue":14,"investment":8,"expand":7,"subsidy":12,"grant":12,"order":10,"selected":10,"milestone":8}
+NEGATIVE = {"recall":-18,"investigation":-16,"sued":-10,"lawsuit":-8,"ban":-20,"sanction":-18,"delay":-14,"cuts guidance":-22,"layoff":-8,"breach":-16,"fraud":-25,"warning":-10,"reject":-18,"rejected":-18}
+FORWARD = {"will":5,"plans":6,"expects":5,"scheduled":8,"upcoming":7,"next quarter":8,"next year":5,"by 20":5,"deadline":8,"hearing":6,"decision date":9,"launch date":9}
+MATERIAL = {"billion":14,"million":5,"percent":4,"government":4,"fda":8,"sec":5,"federal reserve":6,"department of defense":7}
+
+class Store:
+    def __init__(self,path,starting_cash):
+        os.makedirs(os.path.dirname(path) or '.',exist_ok=True); self.db=sqlite3.connect(path,timeout=20,check_same_thread=False); self.db.row_factory=sqlite3.Row
+        self.db.executescript(SCHEMA)
+        if not self.db.execute("SELECT 1 FROM meta WHERE key='initialized'").fetchone():
+            now=utcnow(); self.db.execute("INSERT INTO meta VALUES('initialized',?)",(now,)); self.db.execute("INSERT INTO meta VALUES('rules_version','1.0.0')")
+            self.db.execute("INSERT INTO ledger(created,kind,amount,ref,balance) VALUES(?,?,?,?,?)",(now,'START',starting_cash,'initial virtual capital',starting_cash)); self.db.commit()
+    def cash(self): return float(self.db.execute("SELECT balance FROM ledger ORDER BY id DESC LIMIT 1").fetchone()[0])
+    def rules_version(self): return self.db.execute("SELECT value FROM meta WHERE key='rules_version'").fetchone()[0]
+
+def utcnow(): return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+def text(el,tag):
+    x=el.find(tag); return ''.join(x.itertext()).strip() if x is not None else ''
+def clean_html(s): return re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',s or '')).strip()
+
+def fetch_feed(feed,timeout=12):
+    req=urllib.request.Request(feed['url'],headers={'User-Agent':'OrangePiPaperAgent/1.0 admin@example.invalid','Accept':'application/rss+xml, application/atom+xml, application/xml, text/xml'})
+    with urllib.request.urlopen(req,timeout=timeout) as r: data=r.read(2_000_000)
+    root=ET.fromstring(data); out=[]
+    for item in root.findall('.//item')[:50]:
+        title=text(item,'title'); link=text(item,'link'); summary=clean_html(text(item,'description')); pub=text(item,'pubDate') or utcnow()
+        out.append((title,summary,link,pub))
+    ns='{http://www.w3.org/2005/Atom}'
+    for item in root.findall('.//'+ns+'entry')[:50]:
+        title=text(item,ns+'title'); summary=clean_html(text(item,ns+'summary') or text(item,ns+'content')); link=''
+        linkel=item.find(ns+'link'); link=linkel.attrib.get('href','') if linkel is not None else ''
+        pub=text(item,ns+'published') or text(item,ns+'updated') or utcnow(); out.append((title,summary,link,pub))
+    return out
+
+def fetch_gdelt(query,max_records=25,timeout=15):
+    params=urllib.parse.urlencode({'query':query,'mode':'artlist','maxrecords':max_records,'format':'json','sort':'datedesc'})
+    req=urllib.request.Request('https://api.gdeltproject.org/api/v2/doc/doc?'+params,headers={'User-Agent':'OrangePiPaperAgent/1.1'})
+    with urllib.request.urlopen(req,timeout=timeout) as r: data=json.loads(r.read(2_000_000))
+    out=[]
+    for a in data.get('articles',[]):
+        out.append((a.get('title',''),a.get('seendate','')+' '+a.get('domain',''),a.get('url',''),a.get('seendate') or utcnow()))
+    return out
+
+def fetch_finnhub(ticker,api_key,lookback_days=2,timeout=12):
+    today=dt.datetime.now(dt.timezone.utc).date(); start=today-dt.timedelta(days=lookback_days)
+    params=urllib.parse.urlencode({'symbol':ticker,'from':start.isoformat(),'to':today.isoformat(),'token':api_key})
+    req=urllib.request.Request('https://finnhub.io/api/v1/company-news?'+params,headers={'User-Agent':'OrangePiPaperAgent/1.1'})
+    with urllib.request.urlopen(req,timeout=timeout) as r: data=json.loads(r.read(2_000_000))
+    return [(a.get('headline',''),clean_html(a.get('summary','')),a.get('url',''),dt.datetime.fromtimestamp(a.get('datetime',0),dt.timezone.utc).isoformat()) for a in data[:20]]
+
+def map_tickers(blob,watchlist):
+    low=' '+blob.lower()+' '; found=[]
+    for ticker,meta in watchlist.items():
+        aliases=meta.get('aliases',[])+[meta.get('name','')]
+        if any(a and re.search(r'(?<![a-z0-9])'+re.escape(a.lower())+r'(?![a-z0-9])',low) for a in aliases): found.append(ticker)
+    return found
+
+def score_event(blob,trust):
+    low=blob.lower(); score=12+round(18*trust); reasons=[]
+    for dictionary,label in ((POSITIVE,'positive'),(NEGATIVE,'negative'),(FORWARD,'forward'),(MATERIAL,'material')):
+        for phrase,points in dictionary.items():
+            if phrase in low: score+=points; reasons.append(f"{label}:{phrase}({points:+d})")
+    age_penalty=0
+    return max(0,min(100,score-age_penalty)), reasons
+
+def direction(blob):
+    low=blob.lower(); p=sum(v for k,v in POSITIVE.items() if k in low); n=sum(v for k,v in NEGATIVE.items() if k in low)
+    return 'BUY' if p+abs(min(0,n)) and p >= abs(n)*1.2 else 'NO_TRADE'
+
+def stooq_price(ticker,timeout=10):
+    url=f"https://stooq.com/q/l/?s={ticker.lower()}.us&f=sd2t2ohlcv&h&e=csv"
+    req=urllib.request.Request(url,headers={'User-Agent':'OrangePiPaperAgent/1.0'})
+    with urllib.request.urlopen(req,timeout=timeout) as r: lines=r.read(4096).decode('utf-8','replace').strip().splitlines()
+    if len(lines)<2: return None
+    parts=lines[1].split(',')
+    try: return float(parts[6])
+    except (ValueError,IndexError): return None
+
+def resource_ok(cfg):
+    mem=None
+    try:
+        with open('/proc/meminfo') as f:
+            vals={k.rstrip(':'):int(v.split()[0]) for line in f if (v:=line.strip()) for k in [v.split(':',1)[0]]}
+        mem=vals.get('MemAvailable',0)/1024
+    except Exception: pass
+    cores=os.cpu_count() or 1; load=os.getloadavg()[0]/cores
+    return (mem is None or mem>=cfg['runtime']['min_available_memory_mb']) and load<=cfg['runtime']['max_load_per_core'], {'available_mb':mem,'load_per_core':load}
+
+def pihole_ok():
+    import socket
+    try: socket.getaddrinfo('pi.hole',80); return True
+    except OSError: return False
+
+def ingest_and_decide(store,cfg,watchlist):
+    stats={'feeds':0,'items':0,'new':0,'decisions':0,'errors':[]}
+    ok,res=resource_ok(cfg)
+    if not ok: stats['errors'].append('resource_guard:'+json.dumps(res)); return stats
+    if cfg['runtime'].get('pihole_health_required') and not pihole_ok(): stats['errors'].append('pihole_dns_health_failed'); return stats
+    batches=[]
+    for feed in cfg.get('feeds',[]):
+        try: batches.append((feed['name'],feed['trust'],fetch_feed(feed))); stats['feeds']+=1
+        except Exception as e: stats['errors'].append(feed['name']+':'+type(e).__name__+':'+str(getattr(e,'code','')))
+    gd=cfg.get('gdelt',{})
+    if gd.get('enabled'):
+        for q in gd.get('queries',[]):
+            try: batches.append(('GDELT:'+q,gd.get('trust',.65),fetch_gdelt(q,gd.get('max_records_per_query',25)))); stats['feeds']+=1
+            except Exception as e: stats['errors'].append('GDELT:'+type(e).__name__+':'+str(getattr(e,'code','')))
+    fh=cfg.get('finnhub',{}); key=os.getenv(fh.get('api_key_env','FINNHUB_API_KEY'),'')
+    if fh.get('enabled') and key:
+        for ticker in watchlist:
+            try: batches.append(('Finnhub:'+ticker,fh.get('trust',.85),fetch_finnhub(ticker,key,fh.get('lookback_days',2)))); stats['feeds']+=1
+            except Exception as e: stats['errors'].append('Finnhub:'+ticker+':'+type(e).__name__)
+    for source,trust,items in batches:
+        stats['items']+=len(items)
+        for title,summary,url,pub in items:
+            if not title: continue
+            uid=hashlib.sha256((source+'|'+url+'|'+title).encode()).hexdigest()
+            try:
+                store.db.execute("INSERT INTO news(uid,source,title,summary,url,published,ingested,trust) VALUES(?,?,?,?,?,?,?,?)",(uid,source,title,summary,url,pub,utcnow(),trust)); store.db.commit(); stats['new']+=1
+            except sqlite3.IntegrityError: continue
+            blob=f"{title}. {summary}"; tickers=map_tickers(blob,watchlist); score,reasons=score_event(blob,trust); act=direction(blob)
+            if not tickers:
+                store.db.execute("INSERT INTO decisions(created,news_uid,ticker,action,score,reason,rules_version,status,theme) VALUES(?,?,?,?,?,?,?,?,?)",(utcnow(),uid,'','NO_TRADE',score,'No watched ticker mapped; '+'; '.join(reasons),store.rules_version(),'REJECTED','')); store.db.commit(); continue
+            for ticker in tickers:
+                action=act if score>=cfg['portfolio']['entry_score'] else 'NO_TRADE'; status='PROPOSED' if action=='BUY' else 'REJECTED'; meta=watchlist[ticker]
+                cur=store.db.execute("INSERT INTO decisions(created,news_uid,ticker,action,score,reason,rules_version,status,theme) VALUES(?,?,?,?,?,?,?,?,?)",(utcnow(),uid,ticker,action,score,'; '.join(reasons),store.rules_version(),status,meta['theme'])); store.db.commit(); stats['decisions']+=1
+                if action=='BUY' and not os.path.exists('/var/lib/paper-agent/PAUSE_TRADES'): execute_virtual_buy(store,cfg,watchlist,ticker,score,cur.lastrowid)
+    return stats
+
+def exposure(store,watchlist):
+    rows=store.db.execute("SELECT ticker,theme,cost FROM positions WHERE status='OPEN'").fetchall(); total=sum(r['cost'] for r in rows); by_ticker={}; by_theme={}
+    for r in rows: by_ticker[r['ticker']]=by_ticker.get(r['ticker'],0)+r['cost']; by_theme[r['theme']]=by_theme.get(r['theme'],0)+r['cost']
+    return total,by_ticker,by_theme
+
+def execute_virtual_buy(store,cfg,watchlist,ticker,score,decision_id,price_provider=stooq_price):
+    price=price_provider(ticker)
+    if not price or price<=0: store.db.execute("UPDATE decisions SET status='NO_PRICE' WHERE id=?",(decision_id,)); store.db.commit(); return
+    p=cfg['portfolio']; start=p['starting_cash']; total,bt,bth=exposure(store,watchlist); cash=store.cash(); theme=watchlist[ticker]['theme']
+    pct=p['high_confidence_position_pct'] if score>=p['high_confidence_score'] else p['standard_position_pct']; target=start*pct
+    room_stock=start*p['max_single_stock_pct']-bt.get(ticker,0); room_theme=start*p['max_theme_pct']-bth.get(theme,0); room_total=start*p['max_deployed_pct']-total
+    amount=max(0,min(target,room_stock,room_theme,room_total,cash-start*(1-p['max_deployed_pct'])))
+    fill=price*(1+p['slippage_bps']/10000); shares=math.floor(amount/fill)
+    if shares<1: store.db.execute("UPDATE decisions SET status='RISK_REJECTED' WHERE id=?",(decision_id,)); store.db.commit(); return
+    cost=round(shares*fill,2); newbal=round(cash-cost,2); now=utcnow()
+    store.db.execute("INSERT INTO ledger(created,kind,amount,ref,balance) VALUES(?,?,?,?,?)",(now,'VIRTUAL_BUY',-cost,f'{ticker}:{decision_id}',newbal))
+    store.db.execute("INSERT INTO positions(ticker,theme,opened,entry_price,shares,cost,decision_id,status) VALUES(?,?,?,?,?,?,?,'OPEN')",(ticker,theme,now,fill,shares,cost,decision_id))
+    store.db.execute("UPDATE decisions SET status='EXECUTED',entry_price=?,shares=?,amount=? WHERE id=?",(fill,shares,cost,decision_id)); store.db.commit()
+
+def trading_days_since(iso):
+    start=dt.datetime.fromisoformat(iso).date(); today=dt.datetime.now(dt.timezone.utc).date(); days=0; cur=start
+    while cur<today:
+        cur+=dt.timedelta(days=1)
+        if cur.weekday()<5: days+=1
+    return days
+
+def review_positions(store,cfg,price_provider=stooq_price):
+    p=cfg['portfolio']; changed=0
+    for row in store.db.execute("SELECT * FROM positions WHERE status='OPEN'").fetchall():
+        price=price_provider(row['ticker']);
+        if not price: continue
+        ret=price/row['entry_price']-1; held=trading_days_since(row['opened']); reason=None
+        if ret<=-p['hard_stop_pct']: reason='LOSS_LIMIT'
+        elif ret>=p['profit_take_pct']: reason='PROFIT_TARGET'
+        elif held>=p['max_hold_trading_days']: reason='TIME_EXIT'
+        if reason:
+            fill=price*(1-p['slippage_bps']/10000); proceeds=round(fill*row['shares'],2); pnl=round(proceeds-row['cost'],2); cash=store.cash(); now=utcnow(); code=reason if pnl>=0 else reason+'_LOSS'
+            store.db.execute("INSERT INTO ledger(created,kind,amount,ref,balance) VALUES(?,?,?,?,?)",(now,'VIRTUAL_SELL',proceeds,f"{row['ticker']}:{row['id']}",round(cash+proceeds,2)))
+            store.db.execute("UPDATE positions SET status='CLOSED',closed=?,exit_price=?,pnl=?,review_code=? WHERE id=?",(now,fill,pnl,code,row['id']))
+            store.db.execute("INSERT INTO lessons(created,category,ticker,detail) VALUES(?,?,?,?)",(now,code,row['ticker'],f"held={held}; return={ret:.4f}"))
+            key='event_trade'; win=1 if pnl>0 else 0; loss=1-win
+            store.db.execute("INSERT INTO rule_stats(rule_key,wins,losses,total_pnl,updated) VALUES(?,?,?,?,?) ON CONFLICT(rule_key) DO UPDATE SET wins=wins+?,losses=losses+?,total_pnl=total_pnl+?,updated=?",(key,win,loss,pnl,now,win,loss,pnl,now)); store.db.commit(); changed+=1
+    return changed
+
+def snapshot(store,watchlist):
+    cash=store.cash(); market=0
+    for r in store.db.execute("SELECT * FROM positions WHERE status='OPEN'").fetchall():
+        price=stooq_price(r['ticker']) or r['entry_price']; market+=price*r['shares']
+    equity=cash+market; start=float(store.db.execute("SELECT amount FROM ledger WHERE kind='START' LIMIT 1").fetchone()[0]); draw=max(0,1-equity/start)
+    day=dt.datetime.now(dt.timezone.utc).date().isoformat(); store.db.execute("INSERT OR REPLACE INTO daily_values(day,equity,cash,deployed,drawdown) VALUES(?,?,?,?,?)",(day,equity,cash,market,draw)); store.db.commit(); return equity
