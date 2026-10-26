@@ -1,0 +1,10 @@
+[Unit]
+Description=Execute virtual position lifecycle after each position review
+[Timer]
+OnCalendar=*-*-* *:07/10:00
+AccuracySec=15s
+RandomizedDelaySec=10
+Persistent=true
+Unit=paper-agent-executor-v363.service
+[Install]
+WantedBy=timers.target

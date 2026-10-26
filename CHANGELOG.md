@@ -111,3 +111,16 @@ All notable changes to the Orange Pi Paper Agent are recorded here. The platform
 ## Earlier releases
 
 Earlier V2.x and V3.0/V3.1 work established broad-source collection, verified equity mapping, source-scoped UIDs, quote fallbacks, allocation ladders, duplicate/stale controls, event classifications, watermarking, exit-rule scaffolding, and outcome research foundations. Consult Git history and release tags for exact changes.
+
+## [3.6.3] - 2026-10-26
+
+### Added
+- End-to-end virtual position lifecycle executor running after each position-monitor cycle.
+- Fresh-quote gating, thesis invalidation, stop, target, maximum-hold, runner-target, runner-stop, and runner-time triggers.
+- Rapid target-hit reforecast: extend and hold only when price velocity, remaining bull-case return, confidence, and evidence justify it; otherwise follow the planned exit.
+- Atomic full and partial virtual exits, proportional cost-basis release, realised P&L, virtual cash ledger updates, runner plans, and final closure.
+- Idempotent action identity, action reservations, restart-safe retry, writer locking, plan/evidence snapshots, and execution audit trail.
+- Conservative stop-first handling when a price range crossed target and stop but ordering is unknown.
+- Simulated adverse slippage and observed-price/fill-price separation.
+- Position Lifecycle dashboard section and per-position lifecycle/reforecast status.
+- V3.6.3 executor service and timer at minute 07 of each ten-minute cycle.

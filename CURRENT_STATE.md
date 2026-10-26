@@ -103,3 +103,7 @@ At verification time, the open lots were SPCX, VINP, and two MSFT lots. Each had
 - Intended branch: `main`
 - Intended release tag: `v3.6.2`
 - Runtime database, WAL/SHM files, configuration, watchlist, secrets, caches, and transient state are excluded from Git.
+
+## V3.6.3 target state
+
+V3.6.3 adds `paper-agent-executor-v363.service` and `paper-agent-executor-v363.timer`. The timer runs at approximately `:07/:17/:27/:37/:47/:57`, after collection, forecasting, and position monitoring. New tables are `position_lifecycle`, `virtual_exit_actions`, `target_reforecasts`, `executor_runs`, and `v363_price_ranges`. The dashboard health identity becomes `3.6.3` and includes lifecycle and virtual-exit history. This state becomes current only after target-device installation and verification.

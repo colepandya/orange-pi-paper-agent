@@ -14,9 +14,9 @@ Paper Agent is a fully virtual, news-driven US-equity research platform running 
 
 ## Current release
 
-**Deployed version:** `v3.6.2`
+**Release package:** `v3.6.3` (deployed state must be verified after installation)
 
-V3.6.2 adds a live open-position event monitor on top of V3.6 event-impact forecasting and the V3.6.1 single-page dashboard hotfix.
+V3.6.3 adds an end-to-end virtual lifecycle executor on top of live open-position monitoring on top of V3.6 event-impact forecasting and the V3.6.1 single-page dashboard hotfix.
 
 The platform now:
 
@@ -314,3 +314,10 @@ __pycache__/
 5. Improve entity, theme, sector, and macro relevance beyond keyword matching.
 6. Calibrate forecast probabilities and uncertainty against realised outcomes.
 7. Preserve performance and memory limits suitable for the Orange Pi Zero 3.
+
+
+## V3.6.3 end-to-end lifecycle
+
+After the position monitor, the executor evaluates fresh quotes and the frozen active plan. It handles thesis invalidation, stops, targets, partial exits, runners, and time expiry. If a target is reached unusually early, the system reforecasts first and may extend the target only when remaining bull-case upside, confidence, velocity, and evidence support continued holding. Otherwise, the plan is executed. All virtual cash, cost basis, realised P&L, position phase, and action history updates are atomic and idempotent.
+
+The executor runs after the monitor at minute 07 of each ten-minute cycle. Quotes older than 180 seconds block execution. If target and stop both crossed but ordering is unknown, the conservative stop-first policy applies.

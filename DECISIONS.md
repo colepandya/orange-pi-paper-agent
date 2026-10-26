@@ -86,3 +86,9 @@ Every deployment must include:
 8. Health endpoint verification.
 9. Database integrity and active-plan coverage checks.
 10. A documented rollback path.
+
+## V3.6.3 lifecycle execution decision
+
+Dynamic virtual exits are now operational through a dedicated executor after the position monitor. Trigger precedence is thesis invalidation, stop, target/runner target, and time expiry. A target reached unusually early invokes a bounded reforecast before sale. Holding is extended only when the observed target velocity is high, remaining bull-case upside is material, forecast confidence is at least 65%, the quote is fresh, and no adverse linked event exists.
+
+Partial exits release cost basis proportionally and create a protected runner plan. All ledger, lifecycle, position, and action changes are committed atomically and keyed idempotently. Unknown target/stop ordering uses the conservative stop-first assumption. Installation initializes lifecycle records but does not execute exits; the first action-capable run is timer-driven after the next collector, forecast, and monitor cycle.

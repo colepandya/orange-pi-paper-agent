@@ -1,0 +1,19 @@
+[Unit]
+Description=Paper Agent V3.6.3 virtual lifecycle executor
+After=paper-agent-position-monitor-v362.service
+[Service]
+Type=oneshot
+User=paperagent
+Group=paperagent
+WorkingDirectory=/opt/paper-agent
+Environment=PYTHONPATH=/opt/paper-agent/app
+Environment=PYTHONPYCACHEPREFIX=/tmp/paper-agent-pycache
+ExecStart=/usr/bin/python3 /opt/paper-agent/app/lifecycle_executor_v363.py
+Nice=16
+CPUQuota=40%
+MemoryMax=180M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/paper-agent /run/lock /tmp
