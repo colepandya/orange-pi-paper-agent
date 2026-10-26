@@ -8,10 +8,42 @@ DEFAULT_RULE=(10,.15,.10)
 def dbopen(path=DB):
  d=sqlite3.connect(path,timeout=10);d.row_factory=sqlite3.Row;d.execute('PRAGMA busy_timeout=10000');return d
 def utc(v):
- if not v:return None
+ if not v:
+  return None
+
+ value = str(v).strip()
+
+ if not value or value.lower() in (
+  'n/a',
+  'never',
+  'none',
+  'unset',
+ ):
+  return None
+
+ parts = value.split()
+
+ if (
+  len(parts) >= 4
+  and parts[0][:3].title()
+  in ('Mon','Tue','Wed','Thu','Fri','Sat','Sun')
+ ):
+  value = ' '.join(parts[1:])
+
+ if value.endswith(' UTC'):
+  value = value[:-4] + '+00:00'
+
+ value = value.replace('Z', '+00:00')
+
  try:
-  x=dt.datetime.fromisoformat(str(v).replace('Z','+00:00'));return x if x.tzinfo else x.replace(tzinfo=dt.timezone.utc)
- except ValueError:return None
+  parsed = dt.datetime.fromisoformat(value)
+ except ValueError:
+  return None
+
+ if parsed.tzinfo is None:
+  parsed = parsed.replace(tzinfo=dt.timezone.utc)
+
+ return parsed.astimezone(dt.timezone.utc)
 def nz(v):
  x=utc(v)
  if not x:return 'Unavailable'
