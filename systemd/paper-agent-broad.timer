@@ -1,5 +1,5 @@
 [Unit]
-Description=Run broad intelligence collector every ten minutes
+Description=Run paper-agent broad collector every ten minutes
 
 [Timer]
 OnCalendar=*-*-* *:0/10:00

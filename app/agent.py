@@ -20,7 +20,7 @@ MATERIAL = {"billion":14,"million":5,"percent":4,"government":4,"fda":8,"sec":5,
 
 class Store:
     def __init__(self,path,starting_cash):
-        os.makedirs(os.path.dirname(path) or '.',exist_ok=True); self.db=sqlite3.connect(path,timeout=20,check_same_thread=False); self.db.row_factory=sqlite3.Row
+        os.makedirs(os.path.dirname(path) or '.',exist_ok=True); self.db=sqlite3.connect(path,timeout=20,check_same_thread=False); self.db.row_factory=sqlite3.Row; self.db.execute('PRAGMA busy_timeout = 60000'); self.db.execute('PRAGMA journal_mode = WAL'); self.db.execute('PRAGMA synchronous = NORMAL')
         self.db.executescript(SCHEMA)
         if not self.db.execute("SELECT 1 FROM meta WHERE key='initialized'").fetchone():
             now=utcnow(); self.db.execute("INSERT INTO meta VALUES('initialized',?)",(now,)); self.db.execute("INSERT INTO meta VALUES('rules_version','1.0.0')")
