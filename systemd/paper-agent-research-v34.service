@@ -1,0 +1,16 @@
+[Unit]
+Description=Paper Agent V3.4 bounded challenger research
+[Service]
+Type=oneshot
+User=paperagent
+Group=paperagent
+WorkingDirectory=/opt/paper-agent
+ExecStart=/usr/bin/python3 /opt/paper-agent/scripts/paper_agent_v34.py research
+Nice=18
+CPUQuota=50%
+MemoryMax=220M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/paper-agent /run/lock

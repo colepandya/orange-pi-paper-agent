@@ -1,0 +1,3 @@
+#!/usr/bin/env python3
+import datetime as dt,hashlib,json,os,sqlite3
+src='/var/lib/paper-agent/paper-agent.db';root='/var/backups/paper-agent';stamp=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ');dst=f'{root}/daily/paper-agent-{stamp}.db';os.makedirs(os.path.dirname(dst),exist_ok=True);s=sqlite3.connect(src,timeout=60);d=sqlite3.connect(dst);s.backup(d);d.close();s.close();h=hashlib.sha256(open(dst,'rb').read()).hexdigest();open(dst+'.sha256','w').write(h+'  '+os.path.basename(dst)+'\n');files=sorted([os.path.join(os.path.dirname(dst),x) for x in os.listdir(os.path.dirname(dst)) if x.endswith('.db')],key=os.path.getmtime,reverse=True);[os.remove(x) for x in files[7:]];print(json.dumps({'backup':dst,'sha256':h}))

@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup Orange Pi paper agent database
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/paper-agent/scripts/backup.sh
+Nice=15
+IOSchedulingClass=idle

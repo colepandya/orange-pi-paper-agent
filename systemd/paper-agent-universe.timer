@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily verified US equity universe refresh
+
+[Timer]
+OnCalendar=*-*-* 06:20:00
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=Paper Agent SQLite online backup
+[Service]
+Type=oneshot
+User=paperagent
+Group=paperagent
+ExecStart=/usr/bin/python3 /opt/paper-agent/scripts/backup_v34.py
+Nice=18
+CPUQuota=30%
+MemoryMax=120M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/paper-agent /var/backups/paper-agent
