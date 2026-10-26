@@ -1,0 +1,17 @@
+[Unit]
+Description=Paper Agent V3.4 local job
+After=network-online.target
+[Service]
+Type=oneshot
+User=paperagent
+Group=paperagent
+WorkingDirectory=/opt/paper-agent
+ExecStart=/usr/bin/python3 /opt/paper-agent/scripts/paper_agent_v34.py reconcile
+Nice=15
+CPUQuota=40%
+MemoryMax=180M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/paper-agent /var/backups/paper-agent /run/lock

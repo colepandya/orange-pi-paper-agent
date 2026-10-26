@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily backup for Orange Pi paper agent
+
+[Timer]
+OnCalendar=*-*-* 03:35:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

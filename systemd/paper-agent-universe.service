@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh verified US equity universe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /opt/paper-agent/scripts/refresh_universe.py /etc/paper-agent/watchlist.json
+Nice=15
+IOSchedulingClass=idle
+MemoryMax=120M
+CPUQuota=25%

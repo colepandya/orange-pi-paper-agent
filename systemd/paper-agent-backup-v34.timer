@@ -1,0 +1,9 @@
+[Unit]
+Description=Run Paper Agent online backup daily
+[Timer]
+OnCalendar=*-*-* 12:00:00 Pacific/Auckland
+Persistent=true
+RandomizedDelaySec=120
+Unit=paper-agent-backup-v34.service
+[Install]
+WantedBy=timers.target
