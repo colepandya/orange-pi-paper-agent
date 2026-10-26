@@ -55,14 +55,14 @@ def resolve_quote(db,ticker,meta):
  if q:return {'price':q[0],'source':q[1],'quoted_at':q[2],'detail':'local cache','errors':errors}
  return {'price':None,'source':'NONE','quoted_at':None,'detail':None,'errors':errors}
 def allocation_pct(score):
- return 0 if score<65 else .20 if score<80 else .25 if score<90 else .35 if score<95 else .50
+ return 0 if score<65 else .10 if score<80 else .20 if score<90 else .35 if score<95 else .50
 def book_equity(store):return float(store.cash())+float(store.db.execute("select coalesce(sum(cost),0) from positions where status='OPEN'").fetchone()[0])
 def exposures(store):
  rows=store.db.execute("select ticker,theme,cost from positions where status='OPEN'").fetchall();bt={};bh={}
  for r in rows:bt[r['ticker']]=bt.get(r['ticker'],0)+r['cost'];bh[r['theme']]=bh.get(r['theme'],0)+r['cost']
  return sum(r['cost'] for r in rows),bt,bh
 def execute_virtual_buy(store,cfg,watch,ticker,score,decision_id):
- p=cfg['portfolio'];meta=watch[ticker];eq=book_equity(store);pct=allocation_pct(float(score));minimum=eq*.20;target=eq*pct
+ p=cfg['portfolio'];meta=watch[ticker];eq=book_equity(store);pct=allocation_pct(float(score));minimum=eq*.10;target=eq*pct
  if not pct:store.db.execute("update decisions set status='REJECTED',reason=reason||'; score below 65' where id=?",(decision_id,));store.db.commit();return
  q=resolve_quote(store.db,ticker,meta)
  if q['price'] is None:store.db.execute("update decisions set status='AWAITING_PRICE',amount=?,reason=reason||? where id=?",(target,'; awaiting price; '+', '.join(q['errors']),decision_id));store.db.commit();return
