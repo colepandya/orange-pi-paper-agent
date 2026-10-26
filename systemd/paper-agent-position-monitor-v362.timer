@@ -1,0 +1,10 @@
+[Unit]
+Description=Review open positions after every collector cycle
+[Timer]
+OnCalendar=*-*-* *:06/10:00
+AccuracySec=15s
+RandomizedDelaySec=15
+Persistent=true
+Unit=paper-agent-position-monitor-v362.service
+[Install]
+WantedBy=timers.target

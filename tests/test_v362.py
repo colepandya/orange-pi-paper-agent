@@ -1,0 +1,20 @@
+import os,tempfile,unittest
+from pathlib import Path
+from app import impact_v36 as impact
+from app import position_monitor_v362 as monitor
+class V362(unittest.TestCase):
+ def db(self):
+  t=tempfile.TemporaryDirectory();d=impact.connect(os.path.join(t.name,'x.db'));d.executescript("""create table decisions(id integer primary key,created text,news_uid text,ticker text,action text,score real,reason text,rules_version text,status text,entry_price real,shares integer,amount real,theme text);create table news(id integer primary key,uid text unique,source text,title text,summary text,url text,published text,ingested text,trust real);create table theses(decision_id integer,event_type text,thesis_json text,model_version text);create table positions(id integer primary key,ticker text,theme text,opened text,entry_price real,shares integer,cost real,decision_id integer,status text);create table ledger(id integer primary key,balance real);insert into ledger values(1,900000);create table company_fundamentals(ticker text primary key,cik text,revenue real,operating_income real,cash real,debt real,shares real,market_cap real,backlog real,as_of text,source_url text);insert into company_fundamentals values('TEST','1',1000000000,100000000,1,1,10000000,2000000000,400000000,'2026-01-01','SEC');insert into news values(1,'origin','USAspending','TEST wins $500 million contract','award','u','2026-01-01','2026-01-01',1);insert into decisions values(1,'2026-01-01','origin','TEST','BUY',85,'reason','3.6','EXECUTED',100,100,10000,'Aerospace Defense');insert into theses values(1,'government_contract','{"source_quality":15,"entity_evidence":20,"novelty":15}','3.0');insert into positions values(1,'TEST','Aerospace Defense','2026-01-01T00:00:00+00:00',100,100,10000,1,'OPEN');""");d.commit();return t,d
+ def test_company_adverse_news_tightens(self):
+  t,d=self.db();monitor.monitor(d);before=d.execute('select * from position_forecast_plans where active=1').fetchone();d.execute("insert into news values(2,'later','SEC','TEST investigation and contract cancellation','probe','u','2026-01-02','2099-01-02',1)");d.commit();out=monitor.monitor(d);after=d.execute('select * from position_forecast_plans where active=1').fetchone();self.assertEqual(out['plans_changed'],1);self.assertLess(after['target_return'],before['target_return']);self.assertLess(after['max_hold_days'],before['max_hold_days']);t.cleanup()
+ def test_world_news_links(self):
+  t,d=self.db();monitor.monitor(d);d.execute("insert into news values(2,'macro','Reuters','New sanctions and war disrupt aerospace supply','conflict','u','2026-01-02','2099-01-02',1)");d.commit();out=monitor.monitor(d);self.assertGreaterEqual(out['events_reviewed'],1);self.assertEqual(d.execute("select scope from position_event_links where news_uid='macro'").fetchone()[0] in ('theme','world'),True);t.cleanup()
+ def test_no_new_event_no_new_plan(self):
+  t,d=self.db();monitor.monitor(d);n=d.execute('select count(*) from position_forecast_plans').fetchone()[0];monitor.monitor(d);self.assertEqual(d.execute('select count(*) from position_forecast_plans').fetchone()[0],n);t.cleanup()
+ def test_bounded_change(self):
+  t,d=self.db();monitor.monitor(d);b=d.execute('select target_return from position_forecast_plans where active=1').fetchone()[0];d.execute("insert into news values(2,'later','SEC','TEST approved award partnership contract','good','u','2026','2099',1)");d.commit();monitor.monitor(d);a=d.execute('select target_return from position_forecast_plans where active=1').fetchone()[0];self.assertLessEqual(a,b*1.35+1e-9);t.cleanup()
+ def test_dashboard_top_right(self):
+  s=Path(os.path.join(os.path.dirname(__file__),'..','app','dashboard_v361.py')).read_text();self.assertIn('Last collector',s);self.assertIn('Next collector',s);self.assertIn('Position review',s)
+ def test_timer_same_cycle(self):
+  s=Path(os.path.join(os.path.dirname(__file__),'..','systemd-paper-agent-position-monitor-v362.timer')).read_text();self.assertIn('*:06/10:00',s)
+if __name__=='__main__':unittest.main()
