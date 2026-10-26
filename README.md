@@ -9,7 +9,7 @@ Use my private orange-pi-paper-agent repository as the authoritative source.
 Read README.md, CURRENT_STATE.md, DECISIONS.md and CHANGELOG.md first.
 Work only from the latest deployed tag. Preserve virtual-only operation,
 Pi-hole protections, the full US equity universe, minimum entry score 65,
-minimum 20% virtual purchase, quote retries and Auckland dashboard time.
+minimum 10% virtual purchase, quote retries and Auckland dashboard time.
 
 Run the complete offline suite and define Orange Pi live probes before
 providing deployment commands.
@@ -81,14 +81,14 @@ Starting virtual capital: **USD 1,000,000**.
 | Score | Action | Target allocation of current equity |
 |---:|---|---:|
 | Below 65 | Reject/watch | 0% |
-| 65–79 | BUY | 20% |
-| 80–89 | BUY | 25% |
+| 65–79 | BUY | 10% |
+| 80–89 | BUY | 20% |
 | 90–94 | BUY | 35% |
 | 95–100 | BUY | 50% |
 
 Additional rules:
 
-- Minimum executed BUY: **20% of current virtual equity**.
+- Minimum executed BUY: **10% of current virtual equity**.
 - Maximum one stock: **50%**.
 - Maximum one theme: **80%**.
 - Maximum total deployment: **90%**.
@@ -96,7 +96,7 @@ Additional rules:
 - Maximum holding period: **15 trading days**.
 - Hard loss boundary: **12%**.
 - Current profit target: **20%**, unless changed by a tested release.
-- If less than 20% capacity is available, use `CAPACITY_DEFERRED`; never silently shrink a BUY below 20%.
+- If less than 10% capacity is available, use `CAPACITY_DEFERRED`; never silently shrink a BUY below 20%.
 
 ## Decision statuses
 
@@ -105,7 +105,7 @@ Additional rules:
 | `REJECTED` | Event did not qualify |
 | `PROPOSED` | Temporary internal state only; must not remain stranded |
 | `AWAITING_PRICE` | Qualified decision waiting for a quote |
-| `CAPACITY_DEFERRED` | Qualified decision waiting for at least 20% capacity |
+| `CAPACITY_DEFERRED` | Qualified decision waiting for at least 10% capacity |
 | `NO_PRICE` | Legacy/final quote failure from older releases |
 | `RISK_REJECTED` | Exposure rules prevented execution |
 | `EXECUTION_ERROR` | Unexpected execution failure |
@@ -283,8 +283,8 @@ Every applicable release must test:
 - SEC forms including 8-K, 10-K, 6-K, SC 13D, SC 13G, NT 10-Q and NT 10-K
 - full-universe matching and ambiguous short-ticker protection
 - score boundaries 64/65/79/80/89/90/94/95
-- 20% minimum purchase
-- 25/35/50% allocations
+- 10% minimum purchase
+- 20/35/50% allocations
 - exposure limits
 - quote fallback order
 - awaiting-price retry
@@ -411,7 +411,7 @@ Use the private orange-pi-paper-agent repository as the authoritative source.
 Read README.md, CURRENT_STATE.md, DECISIONS.md and CHANGELOG.md first.
 Work only from the latest deployed tag. Preserve virtual-only operation,
 Pi-hole protections, the full US equity universe, minimum entry score 65,
-minimum 20% virtual purchase, quote retries and Auckland dashboard time.
+minimum 10% virtual purchase, quote retries and Auckland dashboard time.
 Run the complete offline suite and define Orange Pi live probes before giving
 any deployment commands.
 ```

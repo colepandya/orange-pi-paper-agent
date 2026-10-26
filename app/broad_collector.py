@@ -89,8 +89,10 @@ def process(core,store,cfg,watch,src,item):
   store.db.execute("insert into decisions(created,news_uid,ticker,action,score,reason,rules_version,status,theme) values(?,?,?,?,?,?,?,?,?)",(now(),uid,'','NO_TRADE',score,'No verified company mapped; '+'; '.join(reasons),store.rules_version(),'REJECTED','')); store.db.commit(); return {'result':'unmapped'}
  result={'result':'mapped','executed':0,'no_price':0,'risk_rejected':0,'execution_error':0}
  for ticker in tickers[:8]:
-  action=act if score>=cfg['portfolio']['entry_score'] else 'NO_TRADE'; status='PROPOSED' if action=='BUY' else 'REJECTED'; meta=watch[ticker]
-  cur=store.db.execute("insert into decisions(created,news_uid,ticker,action,score,reason,rules_version,status,theme) values(?,?,?,?,?,?,?,?,?)",(now(),uid,ticker,action,score,'; '.join(reasons),store.rules_version(),status,meta.get('theme','Unclassified'))); store.db.commit()
+  sys.path.insert(0,os.path.dirname(__file__)) if os.path.dirname(__file__) not in sys.path else None
+  from strategy_v3 import evaluate,record
+  meta=watch[ticker]; structured=evaluate(store.db,ticker,meta,src['name'],src['trust'],title,summary,pub,now()); score=structured['score']; action=act if score>=cfg['portfolio']['entry_score'] else 'NO_TRADE'; status='PROPOSED' if action=='BUY' else 'REJECTED'
+  cur=store.db.execute("insert into decisions(created,news_uid,ticker,action,score,reason,rules_version,status,theme) values(?,?,?,?,?,?,?,?,?)",(now(),uid,ticker,action,score,json.dumps(structured['thesis'],sort_keys=True),store.rules_version(),status,meta.get('theme','Unclassified'))); store.db.commit(); record(store.db,cur.lastrowid,structured)
   if action!='BUY' or os.path.exists('/var/lib/paper-agent/PAUSE_TRADES'): continue
   try:
    core.execute_virtual_buy(store,cfg,watch,ticker,score,cur.lastrowid)
@@ -130,6 +132,12 @@ def cycle(config_path='/etc/paper-agent/broad-sources.json'):
   from experiment_execution import retry_pending
   totals['pending_retry']=retry_pending(store,cfg,watch)
  except Exception as e: totals['pending_retry']={'error':type(e).__name__+': '+str(e)[:120]}
+ 
+ try:
+  from strategy_v3 import check_invariants
+  totals['invariants']=check_invariants(store.db,cfg)
+  if any(x[2]=='CRITICAL' for x in totals['invariants']): open('/var/lib/paper-agent/PAUSE_TRADES','a').close()
+ except Exception as e: totals['invariants']=[('CHECK_ERROR',str(e)[:120],'HIGH')]
  print(json.dumps({'broad_cycle':totals,'time':now()}),flush=True); return totals
 
 if __name__=='__main__': cycle(sys.argv[1] if len(sys.argv)>1 else '/etc/paper-agent/broad-sources.json')
