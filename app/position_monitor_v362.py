@@ -2,6 +2,10 @@
 """Reassess open-position plans after every collector cycle using newly ingested events."""
 import datetime as dt,json,re
 try:
+ from . import v4_safety as safe
+except ImportError:
+ import v4_safety as safe
+try:
  from . import impact_v36 as impact
  from . import position_plans_v361 as plans
 except ImportError:
@@ -19,12 +23,11 @@ def now():return impact.now()
 def parse(v):
  try:return dt.datetime.fromisoformat(str(v).replace('Z','+00:00'))
  except Exception:return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
-def direction(text):
- t=text.lower();p=sum(x in t for x in POS);n=sum(x in t for x in NEG);return max(-1,min(1,(p-n)/max(1,p+n)))
+def direction(text): return safe.direction(text)
 def relevance(position,event):
  text=' '.join(str(event[k] or '') for k in ('title','summary')).lower();ticker=str(position['ticker']).lower();theme=str(position['theme'] or '').lower();tokens=[x for x in re.findall(r'[a-z]{4,}',theme) if x not in ('unclassified','and','the')]
  direct=1.0 if re.search(r'(?<![a-z0-9])'+re.escape(ticker)+r'(?![a-z0-9])',text) else 0
- thematic=min(.65,.18*sum(x in text for x in tokens));macro=.32 if any(x in text for x in MACRO) else 0
+ thematic=min(.65,.18*sum(x in text for x in tokens));macro=.32 if any(safe.phrase(text,x) for x in MACRO) else 0
  score=max(direct,thematic,macro);scope='company' if direct else 'theme' if thematic>=macro and thematic else 'world' if macro else 'none';return score,scope
 def monitor(d):
  impact.init(d);d.executescript(SCHEMA);
@@ -42,7 +45,7 @@ def monitor(d):
   weighted=sum(rel*dr for _,rel,dr,_,_ in linked)/sum(rel for _,rel,_,_,_ in linked);prior_id=current['id'];prior_target=float(current['target_return']);prior_stop=float(current['stop_return']);prior_days=int(current['max_hold_days'])
   # bounded evidence update: ±35% target change, stop tightens on adverse news, hold changes by at most 2 sessions per cycle
   new_target=max(.005,min(.20,prior_target*(1+max(-.35,min(.35,weighted*.35)))))
-  new_stop=prior_stop if weighted>=0 else min(-.012,prior_stop*(1-max(-.25,weighted*.20)))
+  new_stop=safe.tighten_stop(prior_stop,weighted)
   new_days=max(1,min(15,prior_days+(1 if weighted>.35 else -2 if weighted<-.35 else -1 if weighted<-.10 else 0)))
   material=abs(new_target-prior_target)>=.0025 or abs(new_stop-prior_stop)>=.0025 or new_days!=prior_days
   change='UNCHANGED'

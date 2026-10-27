@@ -20,7 +20,7 @@ def yahoo_chart_quote(ticker):
 
 def stooq_quote(ticker):
  url=f'https://stooq.com/q/?s={urllib.parse.quote(ticker.lower())}.us';data,_=get(url);text=data.decode('utf-8','replace')
- patterns=[r'Last[^0-9]{0,80}([0-9][0-9,]*(?:\.[0-9]+)?)',r'Apple Inc.*?([0-9][0-9,]*(?:\.[0-9]+)?)']
+ patterns=[r'Last[^0-9]{0,80}([0-9][0-9,]*(?:\.[0-9]+)?)']
  for pattern in patterns:
   m=re.search(pattern,text,re.I|re.S)
   if m:
@@ -42,7 +42,7 @@ def google_finance_quote(ticker,exchange):
    p=float(m.group(1).replace(',',''))
    if math.isfinite(p) and p>0:return p,'GOOGLE_FINANCE_PAGE',url
  raise ValueError('Google Finance price marker not found')
-def cached_quote(db,ticker,max_age=86400):
+def cached_quote(db,ticker,max_age=180):
  row=db.execute('select price,source,quoted_at,updated_epoch from quote_cache where ticker=?',(ticker,)).fetchone()
  if row and time.time()-float(row[3])<=max_age:return float(row[0]),'CACHE:'+row[1],row[2]
 def resolve_quote(db,ticker,meta):
@@ -66,13 +66,14 @@ def execute_virtual_buy(store,cfg,watch,ticker,score,decision_id):
  if not pct:store.db.execute("update decisions set status='REJECTED',reason=reason||'; score below 65' where id=?",(decision_id,));store.db.commit();return
  q=resolve_quote(store.db,ticker,meta)
  if q['price'] is None:store.db.execute("update decisions set status='AWAITING_PRICE',amount=?,reason=reason||? where id=?",(target,'; awaiting price; '+', '.join(q['errors']),decision_id));store.db.commit();return
- total,bt,bh=exposures(store);cash=store.cash();theme=meta.get('theme','Unclassified');amount=min(target,eq*p['max_single_stock_pct']-bt.get(ticker,0),eq*p['max_theme_pct']-bh.get(theme,0),eq*p['max_deployed_pct']-total,cash)
+ total,bt,bh=exposures(store);theme=meta.get('theme','Unclassified');amount=min(target,eq*p['max_single_stock_pct']-bt.get(ticker,0),eq*p['max_theme_pct']-bh.get(theme,0),eq*p['max_deployed_pct']-total,cash)
  if amount+.01<minimum:store.db.execute("update decisions set status='CAPACITY_DEFERRED',amount=?,reason=reason||? where id=?",(target,f'; minimum={minimum:.2f}; capacity={amount:.2f}',decision_id));store.db.commit();return
  fill=q['price']*(1+p.get('slippage_bps',15)/10000);shares=math.floor(amount/fill)
  if shares<1:store.db.execute("update decisions set status='CAPACITY_DEFERRED' where id=?",(decision_id,));store.db.commit();return
  cost=round(shares*fill,2);ts=now()
  store.db.execute('begin immediate')
  try:
+  cash=float(store.db.execute("select balance from ledger order by id desc limit 1").fetchone()[0])
   store.db.execute("insert into ledger(created,kind,amount,ref,balance) values(?,?,?,?,?)",(ts,'VIRTUAL_BUY',-cost,f'{ticker}:{decision_id}',round(cash-cost,2)));store.db.execute("insert into positions(ticker,theme,opened,entry_price,shares,cost,decision_id,status) values(?,?,?,?,?,?,?,'OPEN')",(ticker,theme,ts,fill,shares,cost,decision_id));store.db.execute("update decisions set status='EXECUTED',entry_price=?,shares=?,amount=?,reason=reason||? where id=?",(fill,shares,cost,f'; quote={q["source"]}; quote_time={q["quoted_at"]}; allocation={pct:.0%}',decision_id));store.db.commit()
  except Exception:store.db.rollback();raise
 def retry_pending(store,cfg,watch,limit=50):

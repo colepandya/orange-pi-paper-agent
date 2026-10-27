@@ -24,13 +24,14 @@ def enrich(data):
   forecasts={r['decision_id']:dict(r) for r in d.execute('SELECT * FROM event_impact_forecasts')} if hasf else {}
   plans={r['position_id']:dict(r) for r in d.execute('SELECT * FROM position_forecast_plans WHERE active=1')} if hasp else {}
   for x in data['decisions']:x['forecast']=forecasts.get(x['id'])
+  monitor=d.execute("SELECT * FROM position_monitor_runs ORDER BY id DESC LIMIT 1").fetchone() if d.execute("SELECT 1 FROM sqlite_master WHERE name='position_monitor_runs'").fetchone() else None
   for x in data['positions']:
    p=plans.get(x['id']);f=forecasts.get(x['decision_id']);x['forecast_plan']=p;x['forecast']=f
    if p:
     x['target']=p['target_price'];x['stop']=p['stop_price'];x['days']=p['max_hold_days'];x['exit']=p['estimated_exit']
    elif f:
     x['target']=float(x['entry_price'])*(1+float(f['target_return']));x['stop']=float(x['entry_price'])*(1+float(f['stop_return']));x['days']=int(f['max_hold_days']);x['exit']=add_trading_days(x['opened'],x['days'])
-   monitor=d.execute("SELECT * FROM position_monitor_runs ORDER BY id DESC LIMIT 1").fetchone() if d.execute("SELECT 1 FROM sqlite_master WHERE name='position_monitor_runs'").fetchone() else None
+
   data['monitor_run']=dict(monitor) if monitor else None
   lifecycle={r['position_id']:dict(r) for r in d.execute("SELECT * FROM position_lifecycle")} if d.execute("SELECT 1 FROM sqlite_master WHERE name='position_lifecycle'").fetchone() else {}
   actions={r['position_id']:dict(r) for r in d.execute("SELECT a.* FROM virtual_exit_actions a JOIN (SELECT position_id,MAX(created) created FROM virtual_exit_actions GROUP BY position_id) x ON x.position_id=a.position_id AND x.created=a.created")} if d.execute("SELECT 1 FROM sqlite_master WHERE name='virtual_exit_actions'").fetchone() else {}

@@ -1,0 +1,21 @@
+[Unit]
+Description=Paper Agent V4 authoritative virtual trading cycle
+After=network-online.target pihole-FTL.service
+Wants=network-online.target
+[Service]
+Type=oneshot
+User=paperagent
+Group=paperagent
+WorkingDirectory=/opt/paper-agent
+Environment=PYTHONPATH=/opt/paper-agent/app
+Environment=PAPER_AGENT_V4=1
+Environment=PYTHONPYCACHEPREFIX=/tmp/paper-agent-pycache
+ExecStart=/usr/bin/python3 /opt/paper-agent/app/v4_cycle.py
+Nice=15
+CPUQuota=40%
+MemoryMax=200M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/paper-agent /var/log/paper-agent /run/lock /tmp

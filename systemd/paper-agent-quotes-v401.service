@@ -1,0 +1,23 @@
+[Unit]
+Description=Paper Agent V4.0.1 live quote refresh
+After=network-online.target pihole-FTL.service
+Wants=network-online.target
+[Service]
+Type=simple
+User=paperagent
+Group=paperagent
+WorkingDirectory=/opt/paper-agent
+Environment=PYTHONPATH=/opt/paper-agent/app
+Environment=PYTHONPYCACHEPREFIX=/tmp/paper-agent-pycache
+ExecStart=/usr/bin/python3 /opt/paper-agent/app/quote_daemon_v401.py
+Restart=always
+RestartSec=10
+CPUQuota=20%
+MemoryMax=100M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/paper-agent /tmp
+[Install]
+WantedBy=multi-user.target

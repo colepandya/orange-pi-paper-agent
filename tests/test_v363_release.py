@@ -3,7 +3,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 class Release(unittest.TestCase):
  def test_executor_after_monitor(self):
-  s=(ROOT/'systemd-paper-agent-executor-v363.timer').read_text();self.assertIn('*:07/10:00',s)
+  s=(ROOT/'systemd/paper-agent-executor-v363.timer').read_text();self.assertIn('*:07/10:00',s)
  def test_no_install_time_execution(self):
   s=(ROOT/'scripts/install_v363.sh').read_text();self.assertNotIn('lifecycle_executor_v363.py\n',s);self.assertIn('e.init(d)',s)
  def test_dashboard_lifecycle(self):

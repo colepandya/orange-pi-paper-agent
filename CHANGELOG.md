@@ -124,3 +124,27 @@ Earlier V2.x and V3.0/V3.1 work established broad-source collection, verified eq
 - Simulated adverse slippage and observed-price/fill-price separation.
 - Position Lifecycle dashboard section and per-position lifecycle/reforecast status.
 - V3.6.3 executor service and timer at minute 07 of each ten-minute cycle.
+
+### [4.0.0] - 2026-10-27
+- Consolidated one-writer V4 virtual cycle.
+- Added synchronous forecast and independent risk gating before entry.
+- Added strict event phrase, timestamp and quote controls.
+- Added open-position quote refresh before monitoring/execution.
+- Corrected stop-tightening and transaction-order defects.
+- Removed unsafe quote parser fallback and immortal pending retries.
+- Added V4 installer, rollback, systemd units and regression suite.
+
+### [4.0.1] - 2026-10-27
+- Added dedicated session-aware quote daemon.
+- Added regular/pre-market/after-hours field selection.
+- Added 60-second open/extended and five-minute closed cadence.
+- Added identity, timestamp, price and spread validation.
+- Added explicit quote quality and execution eligibility.
+- Added forced refresh before monitoring and lifecycle execution.
+
+### [4.0.2] - 2026-10-27
+- Replaced single-provider quote dependency with seven documented adapters.
+- Added concurrent quote retrieval, validation, consensus and outlier rejection.
+- Added provider health, authentication/rate-limit state, readiness and provenance tables.
+- Added hard full-position quote coverage gate and fail-closed V4 execution pause.
+- Added plan repair workflow blocked until validated quote quorum passes.

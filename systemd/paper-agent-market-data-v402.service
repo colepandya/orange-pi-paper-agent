@@ -1,0 +1,24 @@
+[Unit]
+Description=Paper Agent V4.0.2 multi-provider market data fabric
+After=network-online.target pihole-FTL.service
+Wants=network-online.target
+[Service]
+Type=simple
+User=paperagent
+Group=paperagent
+WorkingDirectory=/opt/paper-agent
+EnvironmentFile=-/etc/paper-agent/market-data.env
+Environment=PYTHONPATH=/opt/paper-agent/app
+Environment=PYTHONPYCACHEPREFIX=/tmp/paper-agent-pycache
+ExecStart=/usr/bin/python3 /opt/paper-agent/app/market_data_daemon_v402.py
+Restart=always
+RestartSec=15
+CPUQuota=35%
+MemoryMax=140M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/paper-agent /tmp
+[Install]
+WantedBy=multi-user.target

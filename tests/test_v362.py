@@ -16,5 +16,5 @@ class V362(unittest.TestCase):
  def test_dashboard_top_right(self):
   s=Path(os.path.join(os.path.dirname(__file__),'..','app','dashboard_v361.py')).read_text();self.assertIn('Last collector',s);self.assertIn('Next collector',s);self.assertIn('Position review',s)
  def test_timer_same_cycle(self):
-  s=Path(os.path.join(os.path.dirname(__file__),'..','systemd-paper-agent-position-monitor-v362.timer')).read_text();self.assertIn('*:06/10:00',s)
+  s=Path(os.path.join(os.path.dirname(__file__),'..','systemd','paper-agent-position-monitor-v362.timer')).read_text();self.assertIn('*:06/10:00',s)
 if __name__=='__main__':unittest.main()

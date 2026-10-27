@@ -111,8 +111,9 @@ def commit_action(d,p,lifecycle,plan,trigger,reason,q,shares,aid):
  current=d.execute('SELECT * FROM virtual_exit_actions WHERE action_id=?',(aid,)).fetchone()
  if current['status']=='COMMITTED':return dict(current)
  fill=simulate_fill(trigger,q['price']);remaining_shares=float(lifecycle['remaining_shares']);remaining_cost=float(lifecycle['remaining_cost']);shares=min(float(shares),remaining_shares);fraction=shares/remaining_shares;released=round(remaining_cost*fraction,2);proceeds=round(fill*shares,2);pnl=round(proceeds-released,2)
- cashrow=d.execute('SELECT balance FROM ledger ORDER BY id DESC LIMIT 1').fetchone();prior_cash=float(cashrow[0]) if cashrow else 0;new_cash=round(prior_cash+proceeds,2);left_shares=round(remaining_shares-shares,8);left_cost=round(remaining_cost-released,2);partial=left_shares>1e-8;phase_after='RUNNER_OPEN' if partial else 'CLOSED';kind='VIRTUAL_PARTIAL_SELL' if partial else 'VIRTUAL_SELL_V363'
+ new_cash=None;left_shares=round(remaining_shares-shares,8);left_cost=round(remaining_cost-released,2);partial=left_shares>1e-8;phase_after='RUNNER_OPEN' if partial else 'CLOSED';kind='VIRTUAL_PARTIAL_SELL' if partial else 'VIRTUAL_SELL_V363'
  d.execute('BEGIN IMMEDIATE')
+ cashrow=d.execute('SELECT balance FROM ledger ORDER BY id DESC LIMIT 1').fetchone();prior_cash=float(cashrow[0]) if cashrow else 0;new_cash=round(prior_cash+proceeds,2)
  row=d.execute('SELECT status FROM virtual_exit_actions WHERE action_id=?',(aid,)).fetchone()
  if row['status']=='COMMITTED':d.rollback();return dict(d.execute('SELECT * FROM virtual_exit_actions WHERE action_id=?',(aid,)).fetchone())
  d.execute('INSERT INTO ledger(created,kind,amount,ref,balance) VALUES(?,?,?,?,?)',(now(),kind,proceeds,f"{p['ticker']}:{p['id']}:{aid[:16]}",new_cash))

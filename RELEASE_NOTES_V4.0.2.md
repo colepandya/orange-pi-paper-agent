@@ -1,0 +1,2 @@
+# Paper Agent V4.0.2
+Cumulative multi-provider market-data remediation. Supports documented adapters for Twelve Data, Finnhub, Alpaca, Massive, Alpha Vantage, Tiingo and EODHD. Requires two agreeing current providers for execution eligibility, rejects outliers beyond 0.50%, records provider health, and pauses V4 monitoring/execution unless all open positions meet quote quorum. Installation intentionally leaves V4 execution paused until API keys are configured and readiness is verified.

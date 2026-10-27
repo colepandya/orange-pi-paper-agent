@@ -97,6 +97,19 @@ def process(core,store,cfg,watch,src,item):
   meta=watch[ticker]; structured=evaluate(store.db,ticker,meta,src['name'],src['trust'],title,summary,pub,now()); score=structured['score']; action=act if score>=cfg['portfolio']['entry_score'] and not baseline else 'NO_TRADE'; status='PROPOSED' if action=='BUY' else ('BASELINE' if baseline else 'REJECTED')
   cur=store.db.execute("insert into decisions(created,news_uid,ticker,action,score,reason,rules_version,status,theme) values(?,?,?,?,?,?,?,?,?)",(now(),uid,ticker,action,score,json.dumps(structured['thesis'],sort_keys=True),store.rules_version(),status,meta.get('theme','Unclassified'))); store.db.commit(); record(store.db,cur.lastrowid,structured)
   if action!='BUY' or os.path.exists('/var/lib/paper-agent/PAUSE_TRADES'): continue
+  # V4: the impact forecast and independent risk gate are synchronous prerequisites.
+  if os.getenv('PAPER_AGENT_V4','0')=='1':
+   try:
+    from impact_v36 import init as init36,forecast as make_forecast
+    from v4_safety import forecast_gate
+    init36(store.db)
+    fr=make_forecast(store.db,store.db.execute('''SELECT x.*,n.source,n.title,n.summary,n.url,n.published,t.event_type,t.thesis_json FROM decisions x LEFT JOIN news n ON n.uid=x.news_uid LEFT JOIN theses t ON t.decision_id=x.id WHERE x.id=?''',(cur.lastrowid,)).fetchone())
+    cols=['decision_id','created','forecast_version','event_type','eligibility','impact_score','confidence','data_completeness','economic_impact','priced_in','residual_return','bear_return','base_return','bull_return','expected_return','target_return','stop_return','max_hold_days','target_probability','allocation_pct','partial_exit_pct','runner_target','runner_stop','decision','invalidation_json','inputs_json','derivation_json','forecast_hash']
+    store.db.execute('INSERT OR REPLACE INTO event_impact_forecasts('+','.join(cols)+') VALUES('+','.join('?'*len(fr))+')',fr);store.db.commit()
+    fd=dict(store.db.execute('SELECT * FROM event_impact_forecasts WHERE decision_id=?',(cur.lastrowid,)).fetchone());gate,approved,why=forecast_gate(fd)
+    if gate!='APPROVE':store.db.execute("UPDATE decisions SET status='RISK_REJECTED',reason=reason||? WHERE id=?",('; V4 gate: '+','.join(why),cur.lastrowid));store.db.commit();result['risk_rejected']+=1;continue
+   except Exception as e:
+    store.db.execute("UPDATE decisions SET status='EXECUTION_ERROR',reason=reason||? WHERE id=?",('; V4 gate error '+type(e).__name__,cur.lastrowid));store.db.commit();result['execution_error']+=1;continue
   try:
    core.execute_virtual_buy(store,cfg,watch,ticker,score,cur.lastrowid)
    final=store.db.execute('select status from decisions where id=?',(cur.lastrowid,)).fetchone()[0]
@@ -133,7 +146,7 @@ def cycle(config_path='/etc/paper-agent/broad-sources.json'):
  
  try:
   from experiment_execution import retry_pending
-  totals['pending_retry']=retry_pending(store,cfg,watch)
+  totals['pending_retry']={'disabled':'V4 expires legacy pending decisions'} if os.getenv('PAPER_AGENT_V4','0')=='1' else retry_pending(store,cfg,watch)
  except Exception as e: totals['pending_retry']={'error':type(e).__name__+': '+str(e)[:120]}
  
  try:

@@ -1,0 +1,10 @@
+[Unit]
+Description=Paper Agent V4 cycle every ten minutes
+[Timer]
+OnCalendar=*-*-* *:0/10:00
+AccuracySec=15s
+RandomizedDelaySec=20
+Persistent=true
+Unit=paper-agent-v4.service
+[Install]
+WantedBy=timers.target
