@@ -36,7 +36,7 @@ See `docs/INTELLIGENCE.md` for design, cost and honest limits.
 `python3 -m paper_agent` + `doctor [--fix]` · `llm-test` · `llm-eval` · `cycle` (full pipeline, every 10 min) · `guard` (exit checks, every 2 min, regular hours only) · `serve` · `status` · `probe` · `quote T` · `keys` · `learn` · `universe` · `backup` · `migrate`
 
 ## Tests
-`python3 -m unittest discover -s tests -t .` (~115 tests, fully offline). Includes a 20-day randomised soak test asserting the ledger reconciles after every cycle.
+`python3 -m unittest discover -s tests -t .` (~115 tests, fully offline; `soak_twenty_days.py` is the slow 20-day simulation, run by the installer only with FULL_TESTS=1). Includes a 20-day randomised soak test asserting the ledger reconciles after every cycle.
 
 ## Key defaults you should review (`/etc/paper-agent/config.json`)
 | Setting | Default | Legacy |

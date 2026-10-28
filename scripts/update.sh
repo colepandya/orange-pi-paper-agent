@@ -20,4 +20,8 @@ if [[ "${FORCE:-0}" != "1" && -f /opt/paper-agent/.version && "$(cat /opt/paper-
 tar xzf "$W/src.tar.gz" -C "$W"
 SRC="$(find "$W" -maxdepth 3 -name install.sh -path '*scripts*' | head -1 | xargs -r dirname | xargs -r dirname)"
 [[ -n "$SRC" && -d "$SRC/paper_agent" ]] || { echo "Archive does not look like Paper Agent; aborting"; exit 1; }
+NEW_BUILD="$(cat "$SRC/BUILD" 2>/dev/null || echo 0)"; OLD_BUILD="$(cat /opt/paper-agent/BUILD 2>/dev/null || echo 0)"
+if [[ "${FORCE_DOWNGRADE:-0}" != "1" && "$NEW_BUILD" -lt "$OLD_BUILD" ]]; then
+  echo "GitHub has build $NEW_BUILD but build $OLD_BUILD is installed: refusing to downgrade (is the repo stale or incomplete?). Re-upload the latest files. Override: FORCE_DOWNGRADE=1"; exit 0
+fi
 VERSION_ID="$ID" AUTO=1 bash "$SRC/scripts/install.sh"
