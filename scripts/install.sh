@@ -4,7 +4,12 @@ set -Eeuo pipefail
 [[ $EUID -eq 0 ]] || { echo "Run with sudo"; exit 1; }
 R="$(cd "$(dirname "$0")/.." && pwd)"; TS="$(date -u +%Y%m%dT%H%M%SZ)"; B="/var/backups/paper-agent/v5-$TS"
 export PYTHONPYCACHEPREFIX="/tmp/pa-pycache-$$" PYTHONDONTWRITEBYTECODE=1   # keep root-owned __pycache__ OUT of the source tree
-trap 'rm -rf "/tmp/pa-pycache-$$"' EXIT
+TEST_TMPDIR=""
+cleanup() {
+  rm -rf "/tmp/pa-pycache-$$"
+  [[ -z "$TEST_TMPDIR" ]] || rm -rf -- "$TEST_TMPDIR"
+}
+trap cleanup EXIT HUP INT TERM
 DB=/var/lib/paper-agent/paper-agent.db
 # ---- completeness check: GitHub's web uploader can silently drop files; detect that BEFORE changing anything
 if [[ -f "$R/MANIFEST.txt" ]]; then
@@ -29,7 +34,9 @@ if [[ "${SKIP_TESTS:-0}" == "1" ]]; then
   echo "SKIP_TESTS=1: skipping tests"
 else
   START=$(date +%s)
-  TD=/dev/shm; [[ -w /dev/shm ]] || TD=/tmp          # RAM-backed temp: SQLite on the SD card made tests take ~2 min
+  TD_BASE=${PAPER_AGENT_TEST_TMP_BASE:-/tmp}              # disk-backed: never consume limited /dev/shm RAM
+  TEST_TMPDIR="$(mktemp -d "$TD_BASE/pa-tests.XXXXXX")"
+  TD="$TEST_TMPDIR"
   # hermetic: tests must never read this Pi's real config, dashboard settings, keys or admin file
   HERM="PAPER_AGENT_CONFIG_DIR=$TD/pa-t-etc PAPER_AGENT_STATE_DIR=$TD/pa-t-state PAPER_AGENT_SETTINGS=$TD/pa-t-state/settings.json PAPER_AGENT_SECRETS=$TD/pa-t-state/secrets.env PAPER_AGENT_ADMIN=$TD/pa-t-state/admin.json PAPER_AGENT_CONTROL=$TD/pa-t-state/control PYTHONWARNINGS=ignore::ResourceWarning"
   if [[ "${FULL_TESTS:-0}" == "1" ]]; then
