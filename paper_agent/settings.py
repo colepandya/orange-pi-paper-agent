@@ -190,6 +190,37 @@ def _parse(f: Field, raw: str):
     return x
 
 
+def cross_check(new: dict, current: dict) -> Tuple[List[str], List[str]]:
+    """Rules that span several settings. Used by dashboard saves AND release (deploy) entries, so neither can create an inconsistent config.
+    Only problems the NEW config INTRODUCES are reported: a pre-existing inconsistency must not block an unrelated change."""
+    e_new, w_new = _cross_rules(new, current)
+    e_old, _ = _cross_rules(current, current)
+    return [e for e in e_new if e not in e_old], w_new
+
+
+def _cross_rules(new: dict, current: dict) -> Tuple[List[str], List[str]]:
+    errors: List[str] = []
+    warnings: List[str] = []
+    r, q, i = new["risk"], new["quotes"], new["intelligence"]
+    if r["max_position_pct"] > r["max_issuer_pct"]:
+        errors.append("Max position size cannot exceed max exposure to one company")
+    if r["min_position_pct"] > r["max_position_pct"]:
+        errors.append("Smallest position cannot exceed the max position size")
+    if r["max_gross_pct"] + r["min_cash_pct"] > 1.0 + 1e-9:
+        errors.append("Max invested + minimum cash reserve cannot exceed 100%")
+    if r["daily_loss_pause_pct"] > r["drawdown_pause_pct"]:
+        errors.append("Daily-loss pause cannot exceed the drawdown pause")
+    if q["entry_max_age_seconds"] > q["max_age_seconds"]:
+        errors.append("Entry quote age cannot exceed the exit quote age")
+    if i["llm_daily_budget_usd"] > i["llm_monthly_budget_usd"]:
+        errors.append("Daily LLM budget cannot exceed the monthly budget")
+    if q["allow_single_source"] and not current["quotes"]["allow_single_source"]:
+        warnings.append("Single-source quotes enabled: trades will no longer be cross-checked between providers.")
+    if r["max_position_pct"] > 0.25:
+        warnings.append("Max position above 25% of equity is very concentrated.")
+    return errors, warnings
+
+
 def apply_form(form: Dict[str, str], current: dict, base: dict, source_defaults) -> Tuple[dict, List[str], List[str]]:
     """Returns (new_effective_cfg, errors, warnings). Nothing is written here.
     ``source_defaults``: {feed id: default poll interval seconds} (a plain list of ids is accepted too)."""
@@ -252,23 +283,9 @@ def apply_form(form: Dict[str, str], current: dict, base: dict, source_defaults)
         else:
             so.pop(sid, None)
     new["source_overrides"] = so
-    r, q, i = new["risk"], new["quotes"], new["intelligence"]
-    if r["max_position_pct"] > r["max_issuer_pct"]:
-        errors.append("Max position size cannot exceed max exposure to one company")
-    if r["min_position_pct"] > r["max_position_pct"]:
-        errors.append("Smallest position cannot exceed the max position size")
-    if r["max_gross_pct"] + r["min_cash_pct"] > 1.0 + 1e-9:
-        errors.append("Max invested + minimum cash reserve cannot exceed 100%")
-    if r["daily_loss_pause_pct"] > r["drawdown_pause_pct"]:
-        errors.append("Daily-loss pause cannot exceed the drawdown pause")
-    if q["entry_max_age_seconds"] > q["max_age_seconds"]:
-        errors.append("Entry quote age cannot exceed the exit quote age")
-    if i["llm_daily_budget_usd"] > i["llm_monthly_budget_usd"]:
-        errors.append("Daily LLM budget cannot exceed the monthly budget")
-    if q["allow_single_source"] and not current["quotes"]["allow_single_source"]:
-        warnings.append("Single-source quotes enabled: trades will no longer be cross-checked between providers.")
-    if r["max_position_pct"] > 0.25:
-        warnings.append("Max position above 25% of equity is very concentrated.")
+    e2, w2 = cross_check(new, current)
+    errors += e2
+    warnings += w2
     return new, errors, warnings
 
 
@@ -365,3 +382,214 @@ def apply_secret_form(form: Dict[str, str], path: Optional[str] = None, environ=
     if changed and not errors:
         _atomic_write(path or config.SECRETS_PATH, "# Managed by the dashboard. Do not edit by hand.\n" + "".join("%s=%s\n" % (k, v) for k, v in sorted(cur.items())), 0o600)
     return changed, errors
+
+
+# =============================================================================================================
+# Modified-on tracking + release (deploy) entries.
+#
+# Rule of the road: a deployment NEVER silently overwrites something you changed.
+#   * every change records (path -> modified timestamp, who) in settings.meta.json
+#   * a release may ship entries in deploy-settings.json: {id, key, value, released, force, note}
+#       - key never changed by you          -> applied (recorded as 'deploy')
+#       - you changed it, entry not forced   -> NOT applied; becomes a suggestion you can Accept / Dismiss
+#                                                (and if your change is NEWER than the release, it is dropped silently)
+#       - force=true                         -> applied, exactly once per entry id (a later redeploy never re-forces it)
+# =============================================================================================================
+from .timeutil import iso as _iso, parse_ts as _parse_ts, utcnow as _utcnow  # noqa: E402
+
+
+def _state_dir() -> str:
+    return os.path.dirname(config.SETTINGS_PATH) or "."
+
+
+def meta_path() -> str:
+    return os.path.join(_state_dir(), "settings.meta.json")
+
+
+def applied_path() -> str:
+    return os.path.join(_state_dir(), "deploy-applied.json")
+
+
+def pending_path() -> str:
+    return os.path.join(_state_dir(), "deploy-pending.json")
+
+
+def _load_json(path: str, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def flat(d, prefix: str = "") -> Dict[str, object]:
+    """{'risk': {'max_position_pct': 0.08}} -> {'risk.max_position_pct': 0.08}"""
+    out: Dict[str, object] = {}
+    if isinstance(d, dict):
+        for k, v in d.items():
+            if isinstance(v, dict):
+                out.update(flat(v, prefix + k + "."))
+            else:
+                out[prefix + k] = v
+    return out
+
+
+def _unset(d: dict, path: str) -> None:
+    """Remove one dotted path from a nested dict and prune any dicts left empty."""
+    ks = path.split(".")
+    stack = [d]
+    for k in ks[:-1]:
+        nxt = stack[-1].get(k)
+        if not isinstance(nxt, dict):
+            return
+        stack.append(nxt)
+    stack[-1].pop(ks[-1], None)
+    for i in range(len(ks) - 2, -1, -1):
+        if not stack[i + 1]:
+            stack[i].pop(ks[i], None)
+
+
+def load_overrides(path: Optional[str] = None) -> dict:
+    ov = _load_json(path or config.SETTINGS_PATH, {})
+    return ov if isinstance(ov, dict) else {}
+
+
+def load_meta() -> Dict[str, dict]:
+    m = _load_json(meta_path(), {})
+    return m if isinstance(m, dict) else {}
+
+
+def record_changes(old_ov: dict, new_ov: dict, who: str = "user", note: str = "", now=None) -> List[str]:
+    """Stamp every added / changed / removed setting with (modified time, who). Returns the changed paths."""
+    o, n = flat(old_ov), flat(new_ov)
+    changed = sorted(k for k in set(o) | set(n) if o.get(k) != n.get(k))
+    if changed:
+        meta = load_meta()
+        for k in changed:
+            meta[k] = {"modified": _iso(now), "by": who, **({"removed": True} if k not in n else {}), **({"note": note} if note else {})}
+        _atomic_write(meta_path(), json.dumps(meta, indent=1, sort_keys=True), 0o640)
+    return changed
+
+
+def record_secret_change(names: List[str], now=None) -> None:
+    if names:
+        meta = load_meta()
+        for k in names:
+            meta["secret." + k] = {"modified": _iso(now), "by": "user"}
+        _atomic_write(meta_path(), json.dumps(meta, indent=1, sort_keys=True), 0o640)
+
+
+def save_overrides_tracked(new_ov: dict, who: str = "user", note: str = "", now=None) -> List[str]:
+    old = load_overrides()
+    save_overrides(new_ov)
+    return record_changes(old, new_ov, who, note, now)
+
+
+BY_PATH = {f.path: f for f in FIELDS}
+
+
+def validate_native(f: Field, value):
+    """Validate a value given in native units (percent settings are FRACTIONS here, as stored)."""
+    if f.kind == "bool":
+        if not isinstance(value, bool):
+            raise ValueError("must be true/false")
+        return value
+    if f.kind == "hostlist":
+        return _parse(f, ", ".join(value) if isinstance(value, list) else str(value))
+    if f.kind == "email":
+        return _parse(f, str(value))
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("must be a number")
+    if f.kind == "int" and value != int(value):
+        raise ValueError("must be a whole number")
+    v = int(value) if f.kind == "int" else float(value)
+    if (f.lo is not None and v < f.lo - 1e-12) or (f.hi is not None and v > f.hi + 1e-12):
+        raise ValueError("outside the allowed range")
+    return v
+
+
+def _effective(ov: dict) -> dict:
+    return config.deep_merge(config.load_config(with_overrides=False), ov)
+
+
+def _apply_value(ov: dict, f: Field, value, who: str, note: str, now=None) -> Tuple[bool, str]:
+    """Set one setting (validated + cross-checked). Returns (ok, message)."""
+    cur_eff = _effective(ov)
+    new_eff = copy.deepcopy(cur_eff)
+    set_path(new_eff, f.path, value)
+    errs, _ = cross_check(new_eff, cur_eff)
+    if errs:
+        return False, "; ".join(errs)
+    base = config.load_config(with_overrides=False)
+    new_ov = copy.deepcopy(ov)
+    if get_path(base, f.path) == value:
+        _unset(new_ov, f.path)             # back at the shipped default: drop the override instead of pinning the value
+    else:
+        set_path(new_ov, f.path, value)
+    save_overrides_tracked(new_ov, who, note, now)
+    return True, "ok"
+
+
+def apply_deploy(entries: List[dict], now=None) -> List[dict]:
+    """Process release entries under the rules above. Idempotent: every entry id is decided at most once."""
+    now = now or _utcnow()
+    applied = _load_json(applied_path(), {})
+    pending = _load_json(pending_path(), [])
+    report: List[dict] = []
+    for e in entries or []:
+        eid, key = str(e.get("id", "")), str(e.get("key", ""))
+        rec = {"id": eid, "key": key}
+        f = BY_PATH.get(key)
+        if not eid or f is None or "value" not in e:
+            report.append({**rec, "status": "rejected", "detail": "unknown setting or malformed entry"})
+            continue
+        if eid in applied or any(p["id"] == eid for p in pending):
+            report.append({**rec, "status": "already_decided", "detail": applied.get(eid, {}).get("status", "pending")})
+            continue
+        try:
+            value = validate_native(f, e["value"])
+        except ValueError as ex:
+            applied[eid] = {"status": "rejected", "at": _iso(now), "detail": str(ex)}
+            report.append({**rec, "status": "rejected", "detail": str(ex)})
+            continue
+        meta = load_meta().get(key)
+        user_mod = bool(meta and meta.get("by") == "user")
+        force = bool(e.get("force"))
+        if user_mod and not force:
+            released, mod = _parse_ts(e.get("released")), _parse_ts(meta.get("modified"))
+            if released and mod and mod >= released:
+                applied[eid] = {"status": "superseded_by_user", "at": _iso(now)}
+                report.append({**rec, "status": "superseded_by_user", "detail": "you changed it after this release"})
+            else:
+                pending.append({"id": eid, "key": key, "label": f.label, "value": value, "note": str(e.get("note", ""))[:300], "released": e.get("released"),
+                                "your_value": get_path(_effective(load_overrides()), key), "your_change": meta.get("modified"), "suggested_at": _iso(now)})
+                report.append({**rec, "status": "suggested", "detail": "you changed this setting; the release value is offered, not applied"})
+            continue
+        ok, msg = _apply_value(load_overrides(), f, value, "deploy", "release %s%s" % (eid, " (forced)" if force else ""), now)
+        applied[eid] = {"status": "applied" if ok else "rejected", "at": _iso(now), "forced": force, **({} if ok else {"detail": msg})}
+        report.append({**rec, "status": "applied" if ok else "rejected", "detail": ("forced" if force else "default for an untouched setting") if ok else msg})
+    _atomic_write(applied_path(), json.dumps(applied, indent=1, sort_keys=True), 0o640)
+    _atomic_write(pending_path(), json.dumps(pending, indent=1), 0o640)
+    return report
+
+
+def pending_suggestions() -> List[dict]:
+    p = _load_json(pending_path(), [])
+    return p if isinstance(p, list) else []
+
+
+def resolve_suggestion(eid: str, accept: bool, now=None) -> Tuple[bool, str]:
+    pending, applied = pending_suggestions(), _load_json(applied_path(), {})
+    item = next((p for p in pending if p["id"] == eid), None)
+    if not item:
+        return False, "no such suggestion"
+    msg = "dismissed"
+    ok = True
+    if accept:
+        f = BY_PATH.get(item["key"])
+        ok, msg = _apply_value(load_overrides(), f, item["value"], "user", "accepted release suggestion %s" % eid, now) if f else (False, "unknown setting")
+    if ok:
+        applied[eid] = {"status": "accepted" if accept else "dismissed", "at": _iso(now)}
+        _atomic_write(applied_path(), json.dumps(applied, indent=1, sort_keys=True), 0o640)
+        _atomic_write(pending_path(), json.dumps([p for p in pending if p["id"] != eid], indent=1), 0o640)
+    return ok, msg

@@ -7,4 +7,9 @@ Wants=network-online.target
 Type=oneshot
 User=root
 TimeoutStartSec=1200
+# the update runs the installer (and tests): keep it from ever starving the live bot on a 730 MB machine
+Nice=15
+IOSchedulingClass=idle
+MemoryMax=380M
+CPUQuota=70%
 ExecStart=/bin/bash /opt/paper-agent/scripts/update.sh

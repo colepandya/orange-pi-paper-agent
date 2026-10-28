@@ -2,7 +2,8 @@
 Description=Run the Paper Agent intelligence cycle every 10 minutes (24/7: the world does not close)
 
 [Timer]
-OnBootSec=2min
+# OnActiveSec (not OnBootSec): restarting this timer re-arms it 2 minutes ahead instead of firing instantly because "boot was long ago"
+OnActiveSec=2min
 OnUnitInactiveSec=10min
 AccuracySec=20s
 

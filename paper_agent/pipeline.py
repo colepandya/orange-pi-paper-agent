@@ -119,6 +119,19 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     intel = {"client": client} if client.enabled("triage") else None
     report["llm"] = {"enabled": bool(intel)}
 
+    def heal_schedule():
+        from . import control
+        st = control.schedule_status(cfg.get("schedule", {}))
+        drift = [k for k, v in st.items() if not v["in_sync"]]
+        if drift and db.due(conn, "schedule_reconcile", 0.5, now):
+            try:
+                control.send_request("set_schedule", dict(cfg["schedule"]))
+            except OSError:
+                pass                                    # control dir missing/unwritable: reported by the doctor, must never fail a cycle
+            db.mark_run(conn, "schedule_reconcile", ",".join(drift))
+        return {"drift": drift}
+    report["schedule"] = _stage(report, "schedule", heal_schedule)
+
     # ---- world state
     reg = regime_engine.current(conn)
     if db.due(conn, "regime", icfg["regime_refresh_hours"], now):

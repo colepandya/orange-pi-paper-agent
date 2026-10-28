@@ -188,39 +188,58 @@ def candidate_from_decision(row) -> Optional[dict]:
     return c
 
 
+def _defer(conn, c: dict, now, why: str) -> int:
+    """Record a candidate we have no capacity to trade THIS cycle, so it is retried next cycle instead of silently vanishing (the old loop just `break`-ed)."""
+    reason = {"candidate": {k: c.get(k) for k in ("event_id", "news_uid", "event_type", "direction", "magnitude", "conf", "credibility", "age_hours", "headline", "source", "amount_usd", "horizon", "origin", "thesis_key", "p", "mechanism", "chain_order")},
+              "gates": [why]}
+    with db.tx(conn):
+        return _decision(conn, c, "AWAITING_CAPACITY", "BUY", reason, eligibility_score(c), now, None, None, None, "", c.get("thesis_key"))
+
+
 def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict, now, quote_fn: Callable, md_fetch=None, intel: Optional[dict] = None) -> dict:
-    out = {"processed": 0, "executed": 0, "retried": 0, "by_status": {}}
+    out = {"processed": 0, "executed": 0, "retried": 0, "deferred": 0, "by_status": {}}
     icfg = cfg["intelligence"]
-    # 1. retry pending decisions while the underlying event is still fresh
-    for row in conn.execute("SELECT * FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_CAPACITY') ORDER BY id LIMIT 30").fetchall():
+    cap = int(cfg["risk"]["max_new_per_cycle"])
+    new_exec = 0                                    # executions this cycle (retries AND fresh) count against the per-cycle cap
+
+    def tally(r):
+        nonlocal new_exec
+        out["by_status"][r["status"]] = out["by_status"].get(r["status"], 0) + 1
+        if r["status"] == "EXECUTED":
+            out["executed"] += 1
+            new_exec += 1
+
+    # 1. retry pending decisions while the underlying event is still fresh (skipped cheaply once the cap is used up)
+    for row in conn.execute("SELECT * FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_CAPACITY') ORDER BY id LIMIT 60").fetchall():
         c = candidate_from_decision(row)
         age = (now - parse_ts(row["created"])).total_seconds() / 3600 if parse_ts(row["created"]) else 999
         if not c or age > icfg["trade_event_max_age_hours"]:
             with db.tx(conn):
                 conn.execute("UPDATE decisions SET status='EXPIRED' WHERE id=?", (row["id"],))
             continue
+        if new_exec >= cap:
+            out["deferred"] += 1                    # still pending; will be retried next cycle
+            continue
         c["age_hours"] = (c.get("age_hours") or 0) + age
         if conn.execute("SELECT 1 FROM positions WHERE decision_id=?", (row["id"],)).fetchone():
             continue
         r = process_candidate(conn, cfg, universe, c, regime, now, quote_fn, md_fetch, existing_decision=row["id"], intel=intel)
         out["retried"] += 1
-        out["by_status"][r["status"]] = out["by_status"].get(r["status"], 0) + 1
-        out["executed"] += r["status"] == "EXECUTED"
-    # 2. fresh candidates, best first, bounded per cycle
-    new_exec = 0
+        tally(r)
+    # 2. fresh candidates, best first. Beyond the per-cycle cap they are DEFERRED (recorded, retried next cycle), never dropped.
     for c in sorted(candidates, key=lambda x: -(x["magnitude"] * abs(x["direction"]) * x.get("credibility", 0.5))):
-        if new_exec >= cfg["risk"]["max_new_per_cycle"]:
-            break
         if c.get("event_id") and conn.execute("SELECT 1 FROM decisions WHERE event_id=? AND ticker=? AND origin!='thesis'", (c["event_id"], c["ticker"])).fetchone():
             continue
         if c.get("origin") == "thesis" and conn.execute("SELECT 1 FROM decisions WHERE ticker=? AND origin='thesis' AND created>?", (c["ticker"], iso(now - dt.timedelta(hours=24)))).fetchone():
             continue
+        if new_exec >= cap:
+            _defer(conn, c, now, "per-cycle new-position cap (%d) reached; retried next cycle" % cap)
+            out["deferred"] += 1
+            out["by_status"]["AWAITING_CAPACITY"] = out["by_status"].get("AWAITING_CAPACITY", 0) + 1
+            continue
         r = process_candidate(conn, cfg, universe, c, regime, now, quote_fn, md_fetch, intel=intel)
         out["processed"] += 1
-        out["by_status"][r["status"]] = out["by_status"].get(r["status"], 0) + 1
-        if r["status"] == "EXECUTED":
-            out["executed"] += 1
-            new_exec += 1
+        tally(r)
     return out
 
 

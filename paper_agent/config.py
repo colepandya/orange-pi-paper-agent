@@ -12,6 +12,7 @@ DB_PATH = os.getenv("PAPER_AGENT_DB", os.path.join(STATE_DIR, "paper-agent.db"))
 SETTINGS_PATH = os.getenv("PAPER_AGENT_SETTINGS", os.path.join(STATE_DIR, "settings.json"))     # dashboard-managed overrides (written by the unprivileged dashboard)
 SECRETS_PATH = os.getenv("PAPER_AGENT_SECRETS", os.path.join(STATE_DIR, "secrets.env"))         # dashboard-managed API keys (0600)
 CONTROL_DIR = os.getenv("PAPER_AGENT_CONTROL", os.path.join(STATE_DIR, "control"))              # request/result files for the root control worker
+SYSTEMD_DIR = os.getenv("PAPER_AGENT_SYSTEMD_DIR", "/etc/systemd/system")                       # where timer drop-ins live (injectable for tests)
 ADMIN_PATH = os.getenv("PAPER_AGENT_ADMIN", os.path.join(STATE_DIR, "admin.json"))              # dashboard login (salted PBKDF2 hash)
 
 DEFAULTS: Dict[str, Any] = {

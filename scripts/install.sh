@@ -3,14 +3,34 @@
 set -Eeuo pipefail
 [[ $EUID -eq 0 ]] || { echo "Run with sudo"; exit 1; }
 R="$(cd "$(dirname "$0")/.." && pwd)"; TS="$(date -u +%Y%m%dT%H%M%SZ)"; B="/var/backups/paper-agent/v5-$TS"
-export PYTHONPYCACHEPREFIX="/tmp/pa-pycache-$$" PYTHONDONTWRITEBYTECODE=1   # keep root-owned __pycache__ OUT of the source tree
+DB=/var/lib/paper-agent/paper-agent.db
+
+# ---- only one install at a time (the auto-update timer and a manual run must never overlap)
+mkdir -p /var/lock; exec 9>/var/lock/paper-agent-install.lock
+flock -n 9 || { echo "Another Paper Agent install/update is already running; exiting."; [[ "${AUTO:-0}" == "1" ]] && exit 0 || exit 1; }
+
+# ---- a DEDICATED temp directory on DISK (never RAM): /var/lib/paper-agent/tmp, verified not to be tmpfs/ramfs
+TMPROOT=/var/lib/paper-agent/tmp
+mkdir -p "$TMPROOT" 2>/dev/null || TMPROOT=/var/tmp/paper-agent-tmp
+mkdir -p "$TMPROOT"
+case "$(stat -f -c %T "$TMPROOT" 2>/dev/null || echo unknown)" in
+  tmpfs|ramfs|devtmpfs) echo "WARN: $TMPROOT is RAM-backed; using /var/tmp instead"; TMPROOT=/var/tmp/paper-agent-tmp; mkdir -p "$TMPROOT" ;;
+esac
+chmod 0700 "$TMPROOT"
 TEST_TMPDIR=""
 cleanup() {
-  rm -rf "/tmp/pa-pycache-$$"
   [[ -z "$TEST_TMPDIR" ]] || rm -rf -- "$TEST_TMPDIR"
+  rm -rf -- "$TMPROOT/pycache-$$"
 }
 trap cleanup EXIT HUP INT TERM
-DB=/var/lib/paper-agent/paper-agent.db
+export PYTHONPYCACHEPREFIX="$TMPROOT/pycache-$$" PYTHONDONTWRITEBYTECODE=1   # keep bytecode (and root-owned __pycache__) OUT of the source tree and out of RAM
+
+# ---- janitor: free leftovers from earlier runs (old versions put test files in RAM-backed /dev/shm and never removed them)
+find "$TMPROOT" -mindepth 1 -maxdepth 1 -mmin +30 -exec rm -rf -- {} + 2>/dev/null || true
+bash "$R/scripts/cleanup-ram.sh" >/dev/null 2>&1 || true
+avail_mb() { awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo; }
+echo "memory available: $(avail_mb) MB  |  RAM-disk in use: $(du -sm /dev/shm 2>/dev/null | cut -f1) MB"
+
 # ---- completeness check: GitHub's web uploader can silently drop files; detect that BEFORE changing anything
 if [[ -f "$R/MANIFEST.txt" ]]; then
   MISSING="$(cd "$R" && while read -r f; do [[ -f "$f" ]] || echo "  $f"; done < MANIFEST.txt)"
@@ -25,6 +45,11 @@ fi
 mkdir -p "$B" /opt/paper-agent /etc/paper-agent /var/lib/paper-agent /var/log/paper-agent
 id paperagent >/dev/null 2>&1 || useradd --system --home /var/lib/paper-agent --shell /usr/sbin/nologin paperagent
 
+# ---- low memory: an unattended update must not run the (memory-hungry) tests and risk starving the live bot
+if [[ "${AUTO:-0}" == "1" && "$(avail_mb)" -lt 250 ]]; then
+  echo "Only $(avail_mb) MB RAM available: postponing this unattended update (the timer will retry later)."; exit 0
+fi
+
 echo "[1/7] Pre-flight tests (nothing is changed if these fail)..."
 python3 - <<'PY'
 import sys; assert sys.version_info >= (3, 9), "Python 3.9+ required"
@@ -34,11 +59,10 @@ if [[ "${SKIP_TESTS:-0}" == "1" ]]; then
   echo "SKIP_TESTS=1: skipping tests"
 else
   START=$(date +%s)
-  TD_BASE=${PAPER_AGENT_TEST_TMP_BASE:-/tmp}              # disk-backed: never consume limited /dev/shm RAM
-  TEST_TMPDIR="$(mktemp -d "$TD_BASE/pa-tests.XXXXXX")"
+  TEST_TMPDIR="$(mktemp -d "$TMPROOT/pa-tests.XXXXXX")"        # disk-backed, removed on exit (even on error / Ctrl-C)
   TD="$TEST_TMPDIR"
   # hermetic: tests must never read this Pi's real config, dashboard settings, keys or admin file
-  HERM="PAPER_AGENT_CONFIG_DIR=$TD/pa-t-etc PAPER_AGENT_STATE_DIR=$TD/pa-t-state PAPER_AGENT_SETTINGS=$TD/pa-t-state/settings.json PAPER_AGENT_SECRETS=$TD/pa-t-state/secrets.env PAPER_AGENT_ADMIN=$TD/pa-t-state/admin.json PAPER_AGENT_CONTROL=$TD/pa-t-state/control PYTHONWARNINGS=ignore::ResourceWarning"
+  HERM="PAPER_AGENT_CONFIG_DIR=$TD/pa-t-etc PAPER_AGENT_STATE_DIR=$TD/pa-t-state PAPER_AGENT_SETTINGS=$TD/pa-t-state/settings.json PAPER_AGENT_SECRETS=$TD/pa-t-state/secrets.env PAPER_AGENT_ADMIN=$TD/pa-t-state/admin.json PAPER_AGENT_CONTROL=$TD/pa-t-state/control PAPER_AGENT_SYSTEMD_DIR=$TD/pa-t-systemd PYTHONWARNINGS=ignore::ResourceWarning"
   if [[ "${FULL_TESTS:-0}" == "1" ]]; then
     MODS=(discover -s tests -t . -p "test_*.py"); LABEL="full suite"
   else
@@ -52,6 +76,7 @@ else
     (cd "$R" && env $HERM TMPDIR="$TD" PYTHONPATH="$R" python3 -m unittest discover -s tests -t . -p "soak_*.py" 2>&1 | tail -3) || { echo "FAIL: soak test failed"; exit 1; }
   fi
   echo "$OUT" | grep -E "^(Ran|OK)" ; echo "tests passed in $(( $(date +%s) - START ))s"
+  rm -rf -- "$TEST_TMPDIR"; TEST_TMPDIR=""                       # free the disk space immediately
 fi
 
 echo "[2/7] Backup -> $B"
@@ -67,8 +92,8 @@ cp -a /etc/paper-agent "$B/etc-paper-agent" 2>/dev/null || true
 mkdir -p "$B/units"; cp -a /etc/systemd/system/paper-agent* "$B/units/" 2>/dev/null || true
 systemctl list-units 'paper-agent*' --all --no-legend 2>/dev/null | awk '{print $1}' > "$B/active-units.txt" || true
 
-echo "[3/7] Stopping and disabling legacy units"
-for u in /etc/systemd/system/paper-agent*.service /etc/systemd/system/paper-agent*.timer; do
+echo "[3/7] Removing legacy units (never the current ones)"
+for u in /etc/systemd/system/paper-agent*.service /etc/systemd/system/paper-agent*.timer /etc/systemd/system/paper-agent*.path; do
   [[ -e "$u" ]] || continue
   u="$(basename "$u")"
   case "$u" in
@@ -78,7 +103,7 @@ for u in /etc/systemd/system/paper-agent*.service /etc/systemd/system/paper-agen
     paper-agent-backup.service|paper-agent-backup.timer|\
     paper-agent-universe.service|paper-agent-universe.timer|\
     paper-agent-update.service|paper-agent-update.timer|\
-    paper-agent-control.service)
+    paper-agent-control.service|paper-agent-control.path)
       ;;
     *)
       echo "Removing legacy unit: $u"
@@ -97,7 +122,7 @@ install -m0644 "$R/config/sources.json" /etc/paper-agent/sources.json
 if [[ -f "$R/config/market-data.env" ]]; then
   [[ -f /etc/paper-agent/market-data.env ]] && cp /etc/paper-agent/market-data.env "$B/market-data.env.old"
   # MERGE (never overwrite): keys already on the Pi survive unless the repo supplies a non-empty value
-  if python3 "$R/paper_agent/envmerge.py" /etc/paper-agent/market-data.env "$R/config/market-data.env" /etc/paper-agent/market-data.env.new; then
+  if python3 "$R/paper_agent/envmerge.py" /etc/paper-agent/market-data.env "$R/config/market-data.env" /etc/paper-agent/market-data.env.new /etc/paper-agent/.forced-ids; then
     install -m0640 -o root -g paperagent /etc/paper-agent/market-data.env.new /etc/paper-agent/market-data.env
   else
     echo "WARN: key merge failed; keeping the existing keys file"
@@ -115,9 +140,14 @@ echo "[5/7] Migrating database (non-destructive)"
 runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent migrate
 [[ -f /etc/paper-agent/watchlist.json ]] || { echo "building universe (needs network)"; env PYTHONPATH=/opt/paper-agent python3 -m paper_agent universe || echo "WARN: universe build failed; run: sudo systemctl start paper-agent-universe"; }
 
+echo "[5b] Release settings entries (your own changes are never overwritten; see docs/SETTINGS.md)"
+[[ -f "$R/config/deploy-settings.json" ]] && install -m0644 "$R/config/deploy-settings.json" /opt/paper-agent/deploy-settings.json
+runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent apply-deploy /opt/paper-agent/deploy-settings.json || echo "WARN: could not process release settings (continuing)"
+
 echo "[6/7] Installing units"
 for f in cycle.service cycle.timer guard.service guard.timer dashboard.service backup.service backup.timer universe.service universe.timer update.service update.timer control.service control.path; do install -m0644 "$R/systemd/paper-agent-$f" /etc/systemd/system/; done
 systemctl daemon-reload
+PYTHONPATH=/opt/paper-agent python3 -m paper_agent.control reconcile || echo "WARN: could not reconcile timer schedule with saved settings"
 systemctl enable paper-agent-dashboard.service paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer paper-agent-update.timer paper-agent-control.path
 systemctl restart paper-agent-dashboard.service
 systemctl start paper-agent-control.path

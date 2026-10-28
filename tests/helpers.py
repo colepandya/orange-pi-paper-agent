@@ -43,7 +43,8 @@ def series_fetch(url, headers=None, **kw):
 
 
 def rss(items):
-    body = "".join("<item><title>%s</title><link>http://x/%d</link><description>%s</description><pubDate>%s</pubDate></item>" % (t, i, s, p) for i, (t, s, p) in enumerate(items))
+    from xml.sax.saxutils import escape
+    body = "".join("<item><title>%s</title><link>http://x/%d</link><description>%s</description><pubDate>%s</pubDate></item>" % (escape(t), i, escape(s), p) for i, (t, s, p) in enumerate(items))
     return ("<rss><channel>%s</channel></rss>" % body).encode()
 
 

@@ -1,6 +1,8 @@
 [Unit]
 Description=Paper Agent online database backup
 [Service]
+Nice=15
+IOSchedulingClass=idle
 Type=oneshot
 User=paperagent
 Group=paperagent

@@ -2,7 +2,8 @@
 Description=Check GitHub for Paper Agent updates every 3 hours
 
 [Timer]
-OnBootSec=10min
+# first check 15 min after the timer starts, then every 3 h. Restarting the timer NEVER triggers an immediate (memory-hungry) update.
+OnActiveSec=15min
 OnUnitActiveSec=3h
 RandomizedDelaySec=300
 

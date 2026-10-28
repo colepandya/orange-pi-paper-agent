@@ -58,7 +58,50 @@ def _input(f: S.Field, cfg: dict, base: dict, raw: Dict[str, str]) -> str:
     return '<input type=text class=%s name="%s" value="%s" inputmode=decimal>%s' % (cls, E(f.name), E(val), unit)
 
 
-def _row(f: S.Field, cfg: dict, base: dict, raw: Dict[str, str]) -> str:
+def _when(m: Optional[dict]) -> str:
+    if not m:
+        return ""
+    from .timeutil import to_nz
+    who = {"user": "you", "deploy": "a release"}.get(m.get("by"), m.get("by") or "?")
+    return '<span class=help> &middot; %s %s by %s%s</span>' % ("reset" if m.get("removed") else "changed", E(to_nz(m.get("modified"), "%d %b %Y, %H:%M")), E(who), (" (%s)" % E(m["note"])) if m.get("note") else "")
+
+
+def _fmt(path: str, v) -> str:
+    f = S.BY_PATH.get(path)
+    if f is None:
+        return str(v)
+    if f.kind == "pct" and isinstance(v, (int, float)):
+        return ("%.4f" % (v * 100)).rstrip("0").rstrip(".") + " %"
+    if f.kind == "bool":
+        return "on" if v else "off"
+    if f.kind == "hostlist":
+        return ", ".join(v) or "none"
+    return str(v)
+
+
+def pending_panel(pending: List[dict], csrf: str) -> str:
+    if not pending:
+        return ""
+    rows = ""
+    for p in pending:
+        rows += ("<tr><td>%s<br><span class=help>%s</span></td><td>%s<br><span class=help>%s</span></td><td><b>%s</b></td><td>"
+                 "<form method=post action=/settings/deploy-accept style='display:inline'>%s<input type=hidden name=id value='%s'><button class=primary>Use release value</button></form> "
+                 "<form method=post action=/settings/deploy-dismiss style='display:inline'>%s<input type=hidden name=id value='%s'><button class=sec>Keep mine</button></form></td></tr>"
+                 % (E(p.get("label")), E(p.get("note") or ""), E(_fmt(p["key"], p.get("your_value"))), E("you changed this " + str(p.get("your_change") or "")[:10]), E(_fmt(p["key"], p.get("value"))), csrf_input(csrf), E(p["id"]), csrf_input(csrf), E(p["id"])))
+    return ('<div class=card2><b>The latest release suggests %d setting change(s)</b><p class=help>You changed these yourself, so nothing was overwritten. Choose per setting.</p>'
+            "<table><tr><th>Setting</th><th>Your value</th><th>Release suggests</th><th></th></tr>%s</table></div>" % (len(pending), rows))
+
+
+def changes_panel(meta: Dict[str, dict], limit: int = 15) -> str:
+    items = sorted(((k, v) for k, v in (meta or {}).items() if v.get("modified")), key=lambda kv: kv[1]["modified"], reverse=True)[:limit]
+    if not items:
+        return ""
+    from .timeutil import to_nz
+    rows = "".join("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (E(k), E(to_nz(v["modified"], "%d %b %Y, %H:%M")), E({"user": "you", "deploy": "a release"}.get(v.get("by"), v.get("by"))), E(("removed. " if v.get("removed") else "") + (v.get("note") or ""))) for k, v in items)
+    return "<h2>Recent setting changes</h2><div class=wrap><table><tr><th>Setting</th><th>When</th><th>By</th><th>Note</th></tr>%s</table></div><p class=help>Releases never overwrite a setting you changed; they can only suggest (above) unless a release explicitly forces a value once.</p>" % rows
+
+
+def _row(f: S.Field, cfg: dict, base: dict, raw: Dict[str, str], meta: Optional[Dict[str, dict]] = None) -> str:
     cur, dflt = S.display_value(f, cfg), S.display_value(f, base)
     chg = '<span class=chg> changed (default %s%s)</span>' % (E(dflt if f.kind != "bool" else ("on" if dflt == "1" else "off")), " %" if f.kind == "pct" else "") if cur != dflt else ""
     rng = ""
@@ -66,7 +109,7 @@ def _row(f: S.Field, cfg: dict, base: dict, raw: Dict[str, str]) -> str:
         sc = 100 if f.kind == "pct" else 1
         rng = " range %g&ndash;%g%s" % (f.lo * sc, f.hi * sc, "%" if f.kind == "pct" else "")
     note = " <b>(restart needed)</b>" if f.restart == "dashboard" else ""
-    return "<tr><td>%s<br><span class=help>%s%s%s</span></td><td>%s%s</td></tr>" % (E(f.label), E(f.help), rng, note, _input(f, cfg, base, raw), chg)
+    return "<tr><td>%s<br><span class=help>%s%s%s</span>%s</td><td>%s%s</td></tr>" % (E(f.label), E(f.help), rng, note, _when((meta or {}).get(f.path)), _input(f, cfg, base, raw), chg)
 
 
 def _tiers(cfg: dict, raw: Dict[str, str]) -> str:
@@ -103,12 +146,12 @@ def _feed_status(h: Optional[dict]) -> str:
 def page_settings(cfg: dict, base: dict, ctx: dict, sources: List[dict], units: Dict[str, str], secret_status: Dict[str, str], health: Optional[Dict[str, dict]] = None) -> str:
     raw = ctx.get("raw") or {}
     csrf = ctx.get("csrf", "")
-    out = [flash_html(ctx.get("flash"), ctx.get("errors"), ctx.get("warnings"))]
+    out = [flash_html(ctx.get("flash"), ctx.get("errors"), ctx.get("warnings")), pending_panel(ctx.get("pending") or [], csrf)]
     out.append("<form method=post action=/settings/save>%s" % csrf_input(csrf))
     for g in S.GROUP_ORDER:
         out.append("<h2>%s</h2><div class=wrap><table>" % E(g))
         for f in [x for x in S.FIELDS if x.group == g]:
-            out.append(_row(f, cfg, base, raw))
+            out.append(_row(f, cfg, base, raw, ctx.get("meta")))
         if g == "LLM analyst":
             out.append(_tiers(cfg, raw))
         out.append("</table></div>")
@@ -127,34 +170,45 @@ def page_settings(cfg: dict, base: dict, ctx: dict, sources: List[dict], units: 
     # ---- API keys
     out.append("<h2>API keys</h2><form method=post action=/settings/secrets>%s<div class=card2 style='margin-top:0'><p class=help>Keys are stored on the Pi (owner-only file) and are never shown again, only whether they are set. Leave a box empty to keep the current key.</p><table><tr><th>Key</th><th>Status</th><th>Replace with</th><th>Remove</th></tr>" % csrf_input(csrf))
     for name, label, help_ in S.SECRETS:
-        out.append("<tr><td>%s<br><span class=help>%s</span></td><td>%s</td><td><input type=password class=wide name='secret.%s' autocomplete=off placeholder='paste new key'></td><td><input type=checkbox name='clear.%s' value=1></td></tr>"
-                   % (E(label), E(help_), E(secret_status.get(name, "not set")), E(name), E(name)))
+        updated = _when((ctx.get("meta") or {}).get("secret." + name)).replace("changed ", "updated ")
+        out.append("<tr><td>%s<br><span class=help>%s</span></td><td>%s%s</td><td><input type=password class=wide name='secret.%s' autocomplete=off placeholder='paste new key'></td><td><input type=checkbox name='clear.%s' value=1></td></tr>"
+                   % (E(label), E(help_), E(secret_status.get(name, "not set")), updated, E(name), E(name)))
     out.append("</table><p><button class=primary>Save keys</button></p></div></form>")
     # ---- services
     out.append("<h2>Services</h2>")
     if ctx.get("control_path") in ("inactive", "failed", "dead"):
         out.append('<div class="flash err">The control helper (paper-agent-control.path) is %s, so restart requests and schedule changes will NOT be carried out. Fix: sudo systemctl enable --now paper-agent-control.path</div>' % E(ctx["control_path"]))
+    ss = ctx.get("schedule_status")
+    if ss:
+        names = {"cycle_minutes": "Intelligence cycle (minutes)", "guard_minutes": "Exit guard (minutes)", "update_hours": "Auto-update check (hours)"}
+        rows = "".join("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (E(names[k]), v["configured"], v["applied"], '<span class=ok>in effect</span>' if v["in_sync"] else '<span class=warn>NOT applied yet</span>') for k, v in ss.items())
+        out.append("<div class=card2 style='margin-top:0'><b>Timer schedule: your settings vs. what systemd is actually running</b><table><tr><th>Setting</th><th>Configured</th><th>Running</th><th></th></tr>%s</table>" % rows)
+        if not all(v["in_sync"] for v in ss.values()):
+            out.append("<form method=post action=/service>%s<input type=hidden name=action value=reapply_schedule><button class=primary>Apply schedule now</button> <span class=help>The bot also re-checks this every cycle and fixes drift by itself.</span></form>" % csrf_input(csrf))
+        out.append("</div>")
     out.append("<div class=card2 style='margin-top:0'><table><tr><th>Unit</th><th>State</th><th></th></tr>")
     for u, st in units.items():
         verb = "restart"
         out.append("<tr><td>%s</td><td class=%s>%s</td><td><form method=post action=/service style='display:inline'>%s<input type=hidden name=action value=%s><input type=hidden name=unit value='%s'><button class=sec>Restart</button></form></td></tr>"
                    % (E(u), "ok" if st == "active" else "warn", E(st), csrf_input(csrf), verb, E(u)))
     out.append("</table><p>")
-    for label, act, unit in (("Run a cycle now", "start", "paper-agent-cycle.service"), ("Check for updates now", "start", "paper-agent-update.service"), ("Back up now", "start", "paper-agent-backup.service"), ("Restart everything", "restart_all", "")):
+    for label, act, unit in (("Run a cycle now", "start", "paper-agent-cycle.service"), ("Check for updates now", "start", "paper-agent-update.service"), ("Back up now", "start", "paper-agent-backup.service"),
+                             ("Refresh company list now", "start", "paper-agent-universe.service"), ("Restart guard + cycle + dashboard", "restart_all", "")):
         out.append("<form method=post action=/service style='display:inline'>%s<input type=hidden name=action value=%s><input type=hidden name=unit value='%s'><button class=sec>%s</button></form> " % (csrf_input(csrf), act, E(unit), label))
     res = ctx.get("control")
     if res:
         out.append("</p><p class=help>Last request: <b>%s</b> &mdash; %s &mdash; %s</p>" % (E(res.get("action")), "OK" if res.get("ok") else "FAILED", E(res.get("output"))))
     else:
         out.append("</p>")
-    out.append("<p class=help>Restarts go through a small root helper that only accepts a fixed list of paper-agent actions.</p></div>")
+    out.append("<p class=help>Restarts go through a small root helper that only accepts a fixed list of paper-agent actions. Jobs (update, backup, company list) are started on demand and are refused when the Pi is short of memory.</p></div>")
     # ---- tests
     out.append("<h2>Test connections</h2><div class=card2 style='margin-top:0'><p>")
-    for label, path in (("Test LLM (cheap tier)", "/test/llm?tier=triage"), ("Test LLM (deep tier)", "/test/llm?tier=analyst"), ("Run full health check", "/test/doctor")):
+    for label, path in (("Test LLM (cheap tier)", "/test/llm?tier=triage"), ("Test LLM (deep tier)", "/test/llm?tier=analyst"), ("Pre-open checklist", "/test/preflight"), ("Run full health check", "/test/doctor")):
         out.append("<form method=post action='%s' style='display:inline'>%s<button class=sec>%s</button></form> " % (path, csrf_input(csrf), label))
     out.append("</p><p class=help>The health check contacts every feed and quote provider; it can take up to a minute. An LLM test makes one real (tiny) API call.</p>")
     if ctx.get("test_output"):
         out.append("<pre>%s</pre>" % E(ctx["test_output"]))
     out.append("</div>")
+    out.append(changes_panel(ctx.get("meta") or {}))
     out.append("<h2>Reset</h2><div class=card2 style='margin-top:0'><form method=post action=/settings/reset>%s<label><input type=checkbox name=confirm value=1> I want to discard ALL dashboard-made setting changes (API keys are kept)</label> <button class=danger>Reset to defaults</button></form></div>" % csrf_input(csrf))
     return "".join(out)

@@ -12,6 +12,11 @@ from .config import CONFIG_DIR, DB_PATH, STATE_DIR
 
 def _setup():
     config.load_secrets()
+    try:
+        from . import keys
+        keys.resolve_finnhub()                      # a pasted 40-character Finnhub value is split and the working half is used
+    except Exception:  # noqa: BLE001
+        pass
     cfg = config.load_config()
     net.set_contact(cfg["runtime"]["contact_email"])
     return cfg
@@ -21,6 +26,16 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="paper_agent", description="Paper Agent v%s (virtual money only)" % VERSION)
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("migrate", "cycle", "guard", "serve", "learn", "probe", "universe", "backup", "status", "keys", "llm-test", "llm-eval"):
+        sub.add_parser(name)
+    pp2 = sub.add_parser("preflight", help="pre-open checklist: READY or the exact blockers")
+    pp2.add_argument("--offline", action="store_true")
+    sub.add_parser("recall-check", help="test company recognition on realistic headlines using the real watchlist")
+    fp = sub.add_parser("funnel", help="why did / did not news become decisions")
+    fp.add_argument("--hours", type=float, default=24)
+    for name in ("apply-deploy",):
+        pp = sub.add_parser(name)
+        pp.add_argument("file", nargs="?", default="")
+    for name in ():
         sub.add_parser(name)
     dp = sub.add_parser("doctor", help="full health report")
     dp.add_argument("--fix", action="store_true")
@@ -44,6 +59,34 @@ def main(argv=None) -> int:
         for o in c["observations"]:
             print("%-14s price=%-10s age=%-8s accepted=%-5s %s" % (o["provider"], o["price"], None if o["age_seconds"] is None else round(o["age_seconds"]), o["accepted"], o["reject_reason"] or ""))
         print("consensus: status=%s price=%s providers=%s execution_eligible=%s (session %s)" % (c["status"], c["price"], c["providers_used"], c["execution_eligible"], c["session"]))
+        return 0
+    if args.cmd == "preflight":
+        from . import preflight
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        r = preflight.run(conn, cfg, pipeline.load_universe(), CONFIG_DIR, srcs=pipeline.load_sources(cfg), live=not args.offline)
+        return 0 if r["ready"] else 1
+    if args.cmd == "recall-check":
+        from . import recall
+        res = recall.evaluate(pipeline.load_universe(), icfg=cfg["intelligence"])
+        print(recall.text(res))
+        return 0 if res["recall"] >= 0.85 and not res["false_positives"] else 1
+    if args.cmd == "funnel":
+        from . import funnel
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        print(funnel.text(funnel.report(conn, args.hours)))
+        return 0
+    if args.cmd == "apply-deploy":
+        from . import settings as _S
+        path = args.file or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "deploy-settings.json")
+        try:
+            with open(path) as fh:
+                entries = json.load(fh).get("entries", [])
+        except (OSError, ValueError):
+            entries = []
+        rep = _S.apply_deploy(entries)
+        for r in rep:
+            print("%-22s %-28s %s" % (r["status"], r["key"], r.get("detail", "")))
+        print("release settings: %d entr%s processed; user-changed settings were left alone" % (len(rep), "y" if len(rep) == 1 else "ies"))
         return 0
     if args.cmd == "universe":
         print(universe_mod.refresh(os.path.join(CONFIG_DIR, "watchlist.json")))

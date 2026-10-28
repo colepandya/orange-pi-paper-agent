@@ -164,6 +164,7 @@ CREATE INDEX IF NOT EXISTS ix_conflog ON confidence_log(position_id,ts DESC);
 """
 
 NEW_COLUMNS = {
+    "events": {"gate": "TEXT"},
     "decisions": {"event_id": "INTEGER", "forecast_id": "INTEGER", "ev_net": "REAL", "thesis_key": "TEXT", "size_pct": "REAL", "origin": "TEXT"},
     "positions": {"thesis_key": "TEXT", "forecast_id": "INTEGER", "sector": "TEXT"},
 }

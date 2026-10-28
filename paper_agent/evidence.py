@@ -145,9 +145,11 @@ def process_new_news(conn, universe, cfg: dict, now: Optional[dt.datetime] = Non
             stats["events"] += 1
             if stale:
                 stats["stale"] += 1
+                conn.execute("UPDATE events SET gate='stale' WHERE id=?", (eid,))
                 continue
             expiry = iso(pub + dt.timedelta(days=a["decay_days"]))
             if parse_ts(expiry) <= now:
+                conn.execute("UPDATE events SET gate='expired' WHERE id=?", (eid,))
                 continue
             if intel:
                 intel_effects = event_intel.apply(conn, cfg, eid, a, intel, pub, cluster, novelty, now, stats,
@@ -163,7 +165,7 @@ def process_new_news(conn, universe, cfg: dict, now: Optional[dt.datetime] = Non
                 d = a["direction"]
                 if a["event_type"] == "merger_acquisition":
                     role = universe.mna_role(t, title) if universe is not None else "unknown"
-                    d = 0.8 if role == "target" else -0.15 if role == "acquirer" else 0.25
+                    d = 0.8 if role == "target" else MNA_ACQUIRER_DIRECTION if role == "acquirer" else 0.25
                 ev_rows.append((eid, None, t, d, a["magnitude"] * conf[t]))
             for (e_id, key, t, d, strength) in ev_rows:
                 if abs(d) < 0.05:
@@ -173,25 +175,64 @@ def process_new_news(conn, universe, cfg: dict, now: Optional[dt.datetime] = Non
                     "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (e_id, key, t, iso(pub), source_id, cred, max(0.02, min(1.0, strength)), novelty, power, max(-1.0, min(1.0, d)), cluster, a["event_type"], a["decay_days"], expiry, a.get("matched") or ""))
                 stats["evidence"] += 1
-        # trading candidates: single-company, fresh, first-of-cluster, strong enough
+        # trading candidates: single-company, fresh, first-of-cluster, strong enough.  EVERY event records WHY it did or did not qualify (events.gate).
         have = set()
-        if (a["scope"] in ("company", "sector") and not cluster_is_dup(novelty) and age_h <= float(icfg["trade_event_max_age_hours"])
-                and abs(a["direction"]) >= 0.25 and a["magnitude"] >= 0.2 and 0 < len(tickers) <= 3):
+        gate = candidate_gate(a, tickers, conf, novelty, age_h, icfg)
+        if gate is None:
+            produced = 0
             for t in tickers:
                 if conf.get(t, 0) >= 0.6 and not (intel and t in {e["ticker"] for e in intel_effects if e["order"] > int(icfg["max_trade_order"])}):
                     d = a["direction"]
                     if a["event_type"] == "merger_acquisition":
                         role = universe.mna_role(t, title) if universe is not None else "unknown"
-                        d = 0.8 if role == "target" else -0.15 if role == "acquirer" else 0.0
+                        d = 0.8 if role == "target" else MNA_ACQUIRER_DIRECTION if role == "acquirer" else 0.0
                     if abs(d) >= 0.25:
                         have.add(t)
+                        produced += 1
                         candidates.append({"event_id": eid, "ticker": t, "conf": conf[t], "direction": d, "magnitude": a["magnitude"], "event_type": a["event_type"],
                                            "age_hours": age_h, "headline": title, "source": n["source"], "news_uid": n["uid"], "amount_usd": a["amount_usd"],
                                            "credibility": cred, "horizon": a["horizon"], "decay_days": a["decay_days"]})
+            gate = "candidate" if produced else ("merger_role_unknown" if a["event_type"] == "merger_acquisition" else "no_ticker_passed_checks")
         if intel and not cluster_is_dup(novelty):
-            candidates.extend(event_intel.candidates_from(intel_effects, intel, a, n, eid, age_h, cred, cfg, have))
+            extra = event_intel.candidates_from(intel_effects, intel, a, n, eid, age_h, cred, cfg, have)
+            candidates.extend(extra)
+            if extra and gate != "candidate":
+                gate = "candidate_llm"
+        conn.execute("UPDATE events SET gate=? WHERE id=?", (gate, eid))
     stats["candidates"] = len(candidates)
     return {"stats": stats, "candidates": candidates}
+
+
+MNA_ACQUIRER_DIRECTION = -0.3        # acquirers usually dip on announcement: recorded as a visible "no trade (long-only)" decision, not silently dropped
+GATE_LABELS = {
+    "candidate": "became a trade candidate", "candidate_llm": "became a trade candidate (LLM)", "stale": "too old when first seen (older than the stale window)",
+    "expired": "evidence already expired", "duplicate_story": "same story already seen (first copy was handled)", "older_than_trade_window": "older than the trade window",
+    "market_wide_event": "macro / market-wide event (moves theses and regime, not a single stock)", "no_company_matched": "no listed company recognised in the text",
+    "too_many_companies": "roundup naming more than 3 companies", "direction_too_weak": "direction unclear (no clear good/bad news)", "magnitude_too_small": "event too minor",
+    "company_match_uncertain": "company match not certain enough (name ambiguous)", "merger_role_unknown": "merger: could not tell which side the company is on",
+    "no_ticker_passed_checks": "no company passed the final checks",
+}
+
+
+def candidate_gate(a: dict, tickers: List[str], conf: Dict[str, float], novelty: float, age_h: float, icfg: dict) -> Optional[str]:
+    """The FIRST reason an event cannot become a trade candidate, or None if it clears the event-level gates (checked in a fixed, documented order)."""
+    if cluster_is_dup(novelty):
+        return "duplicate_story"
+    if age_h > float(icfg["trade_event_max_age_hours"]):
+        return "older_than_trade_window"
+    if a["scope"] not in ("company", "sector"):
+        return "market_wide_event"
+    if not tickers:
+        return "no_company_matched"
+    if len(tickers) > 3:
+        return "too_many_companies"
+    if abs(a["direction"]) < 0.25:
+        return "direction_too_weak"
+    if a["magnitude"] < 0.2:
+        return "magnitude_too_small"
+    if not any(conf.get(t, 0) >= 0.6 for t in tickers):
+        return "company_match_uncertain"
+    return None
 
 
 def cluster_is_dup(novelty: float) -> bool:

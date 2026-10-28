@@ -3,6 +3,7 @@ BUILD
 CHANGELOG.md
 README.md
 config/config.example.json
+config/deploy-settings.json
 config/market-data.env
 config/market-data.env.example
 config/sources.json
@@ -10,6 +11,7 @@ docs/BUGS_FIXED.md
 docs/INTELLIGENCE.md
 docs/LIMITS.md
 docs/OMEGA_MAPPING.md
+docs/OPERATIONS.md
 docs/SETTINGS.md
 paper_agent/__init__.py
 paper_agent/__main__.py
@@ -31,8 +33,10 @@ paper_agent/evidence.py
 paper_agent/executor.py
 paper_agent/filings.py
 paper_agent/flows.py
+paper_agent/funnel.py
 paper_agent/gaps.py
 paper_agent/golden.py
+paper_agent/keys.py
 paper_agent/learning.py
 paper_agent/llm.py
 paper_agent/llm_client.py
@@ -44,7 +48,9 @@ paper_agent/nlp.py
 paper_agent/opportunity.py
 paper_agent/pipeline.py
 paper_agent/portfolio.py
+paper_agent/preflight.py
 paper_agent/quotes.py
+paper_agent/recall.py
 paper_agent/redteam.py
 paper_agent/regime.py
 paper_agent/revisions.py
@@ -57,6 +63,7 @@ paper_agent/thesis.py
 paper_agent/timeutil.py
 paper_agent/trader.py
 paper_agent/universe.py
+scripts/cleanup-ram.sh
 scripts/doctor.sh
 scripts/enable-llm.sh
 scripts/install.sh
@@ -80,10 +87,16 @@ systemd/paper-agent-update.timer
 tests/__init__.py
 tests/helpers.py
 tests/soak_twenty_days.py
+tests/test_deploy_settings.py
 tests/test_engines.py
 tests/test_envmerge.py
 tests/test_filings.py
+tests/test_funnel.py
 tests/test_intel.py
+tests/test_keys.py
 tests/test_polish.py
+tests/test_preflight.py
+tests/test_recall.py
 tests/test_regressions.py
 tests/test_settings_ui.py
+tests/test_systemd.py

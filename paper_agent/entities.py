@@ -6,7 +6,8 @@ full company name, single-word name that is capitalised in the original text, ba
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Tuple
+from collections import Counter
+from typing import Dict, List, Optional, Tuple
 
 from .nlp import norm
 
@@ -25,15 +26,65 @@ _EX = re.compile(r"\b(?:NASDAQ|NYSE|NYSE American|NYSEAMERICAN|AMEX|NYSE Arca|OT
 _CASH = re.compile(r"(?<![A-Za-z0-9])\$([A-Z]{1,5})(?![A-Za-z0-9])")
 _CIK = re.compile(r"\((\d{10})\)")
 _BARE = re.compile(r"(?<![A-Za-z0-9$])([A-Z]{3,5})(?![A-Za-z0-9])")
-_ACQUIRE_VERBS = re.compile(r"\b(to acquire|acquires|acquired|agrees to buy|to buy|buys|will buy|bids for|offers to buy|to purchase|takes over)\b", re.I)
+_ACQUIRE_VERBS = re.compile(r"\b(to acquire|acquires|acquired|agrees to buy|agrees to acquire|to buy|buys|will buy|bids for|offers to buy|to purchase|purchases|takes over|to take over|to snap up|completes (?:the )?(?:acquisition|purchase|takeover) of|closes (?:the )?(?:acquisition|purchase) of|finalizes (?:the )?(?:acquisition|purchase) of)\b", re.I)
 _TARGET_MARKERS = re.compile(r"\b(to be acquired|to be bought|agrees to be|receives? (a |an )?(takeover |buyout )?offer|takeover (bid|offer) for|buyout (of|offer for)|go.private|to be taken private|accepts? offer)\b", re.I)
+
+
+# Well-known brand / short names -> ticker (applied only when the ticker is in the loaded universe). Wire headlines use these, not SEC legal names.
+BRANDS = {
+    "google": "GOOGL", "alphabet": "GOOGL", "youtube": "GOOGL", "waymo": "GOOGL", "facebook": "META", "instagram": "META", "whatsapp": "META", "meta": "META", "amazon": "AMZN", "aws": "AMZN",
+    "apple": "AAPL", "microsoft": "MSFT", "azure": "MSFT", "nvidia": "NVDA", "tesla": "TSLA", "netflix": "NFLX", "disney": "DIS", "walmart": "WMT", "costco": "COST", "target corp": "TGT",
+    "jpmorgan": "JPM", "jp morgan": "JPM", "goldman sachs": "GS", "goldman": "GS", "morgan stanley": "MS", "bank of america": "BAC", "wells fargo": "WFC", "citigroup": "C", "citi": "C",
+    "berkshire hathaway": "BRK-B", "berkshire": "BRK-B", "exxon": "XOM", "exxon mobil": "XOM", "chevron": "CVX", "conocophillips": "COP", "occidental": "OXY", 
+    "coca cola": "KO", "coke": "KO", "pepsico": "PEP", "pepsi": "PEP", "mcdonald's": "MCD", "mcdonalds": "MCD", "starbucks": "SBUX", "nike": "NKE", "home depot": "HD", "lowe's": "LOW", "lowes": "LOW",
+    "boeing": "BA", "lockheed": "LMT", "lockheed martin": "LMT", "raytheon": "RTX", "rtx": "RTX", "northrop": "NOC", "northrop grumman": "NOC", "general dynamics": "GD", "palantir": "PLTR",
+    "intel": "INTC", "amd": "AMD", "qualcomm": "QCOM", "broadcom": "AVGO", "micron": "MU", "tsmc": "TSM", "taiwan semiconductor": "TSM", "asml": "ASML", "applied materials": "AMAT", "lam research": "LRCX",
+    "oracle": "ORCL", "salesforce": "CRM", "adobe": "ADBE", "ibm": "IBM", "cisco": "CSCO", "uber": "UBER", "lyft": "LYFT", "airbnb": "ABNB", "paypal": "PYPL", "visa": "V", "mastercard": "MA",
+    "american express": "AXP", "amex": "AXP", "johnson & johnson": "JNJ", "j&j": "JNJ", "pfizer": "PFE", "moderna": "MRNA", "merck": "MRK", "abbvie": "ABBV", "eli lilly": "LLY", "lilly": "LLY",
+    "novo nordisk": "NVO", "amgen": "AMGN", "gilead": "GILD", "unitedhealth": "UNH", "cvs": "CVS", "ford": "F", "general motors": "GM", "gm": "GM", "rivian": "RIVN", "lucid": "LCID",
+    "snowflake": "SNOW", "crowdstrike": "CRWD", "palo alto": "PANW", "palo alto networks": "PANW", "datadog": "DDOG", "servicenow": "NOW", "shopify": "SHOP", "spotify": "SPOT", "zoom": "ZM",
+    "coinbase": "COIN", "robinhood": "HOOD", "block": "XYZ", "caterpillar": "CAT", "deere": "DE", "3m": "MMM", "honeywell": "HON", "ge aerospace": "GE", "general electric": "GE",
+    "delta air lines": "DAL", "united airlines": "UAL", "american airlines": "AAL", "southwest airlines": "LUV", "fedex": "FDX", "ups": "UPS", "verizon": "VZ", "at&t": "T", "t-mobile": "TMUS", "comcast": "CMCSA",
+}
+GENERIC_FIRST = set("""american national united global first general advanced applied digital international pacific atlantic western eastern southern northern central capital financial energy power health medical
+ pharma bio tech technology technologies systems solutions services group holdings industries partners resources new old blue red green gold silver star sun bank trust one world universal premier standard royal great
+ big little bright clear smart open next future prime alpha omega home city state county valley mountain river lake ocean coast bay harbor park garden house land""".split())
+CLEAN_TAIL = re.compile(r"\b(inc|incorporated|corp|corporation|co|company|ltd|limited|plc|holdings|holding|group|sa|nv|ag|lp|llc|the|com|dot|class [a-c]|new)\b", re.I)
+
+
+def derive_aliases(name: str) -> Tuple[str, List[str], str]:
+    """-> (cleaned legal name, [multi-word aliases], first word). 'AMAZON COM INC' -> ('AMAZON', [], 'amazon');  'Ford Motor Co' -> ('Ford Motor', [], 'ford')."""
+    n = re.sub(r"/[A-Za-z]{1,4}/?", " ", name or "")           # jurisdiction markers: /DE/ /NEW
+    n = re.sub(r"[.,&]", " ", n)
+    n = re.sub(r"\s+", " ", CLEAN_TAIL.sub(" ", n)).strip()
+    words = n.split()
+    multi = []
+    if len(words) > 2 and words[0].lower() not in GENERIC_FIRST and words[1].lower() not in {"of", "the", "and", "for", "de", "la"} and len(" ".join(words[:2])) >= 7:
+        multi = [" ".join(words[:2])]                           # 'Goldman Sachs' yes; 'Bank Of' / 'International Business' no
+    return n, multi, (words[0].lower() if words else "")
 
 
 class Universe:
     def __init__(self, watch: Dict[str, dict]):
         self.watch = watch or {}
         self.by_cik: Dict[int, str] = {}
-        self.index: Dict[str, List[Tuple[str, str, bool]]] = {}   # anchor token -> [(phrase_norm, ticker, single_token)]
+        self.index: Dict[str, List[Tuple[str, str, bool, float]]] = {}   # anchor token -> [(phrase_norm, ticker, single_token, base_confidence)]
+        derived: Dict[str, Tuple[str, List[str], str]] = {t: derive_aliases(m.get("name", "")) for t, m in self.watch.items()}
+        first_counts = Counter(d[2] for d in derived.values() if d[2])
+
+        def add(phrase: str, ticker: str, conf: float, multi_conf: Optional[float] = None) -> None:
+            p = norm(phrase)
+            if len(p) < 3:
+                return
+            toks = [x for x in p.split() if len(x) >= 2]
+            if not toks:
+                return
+            single = len(p.split()) == 1
+            c = conf if single else (multi_conf if multi_conf is not None else max(conf, 0.9))
+            anchor = max(toks, key=len)
+            if not any(e[0] == p and e[1] == ticker for e in self.index.setdefault(anchor, [])):
+                self.index[anchor].append((p, ticker, single, c))
+
         for t, meta in self.watch.items():
             cik = meta.get("cik")
             if cik:
@@ -41,17 +92,15 @@ class Universe:
                     self.by_cik[int(cik)] = t
                 except (TypeError, ValueError):
                     pass
-            phrases = set()
-            for v in [meta.get("name", "")] + list(meta.get("aliases", []) or []):
-                p = norm(v)
-                if len(p) >= 4:
-                    phrases.add(p)
-            for p in phrases:
-                toks = [x for x in p.split() if len(x) >= 3]
-                if not toks:
-                    continue
-                anchor = max(toks, key=len)
-                self.index.setdefault(anchor, []).append((p, t, len(p.split()) == 1))
+            clean, multi, first = derived[t]
+            for v in [meta.get("name", "")] + list(meta.get("aliases", []) or []) + [clean] + multi:
+                if len(norm(v)) >= 4:
+                    add(v, t, 0.65)
+            if first and len(first) >= 4 and first not in GENERIC_FIRST and first_counts[first] == 1:
+                add(first, t, 0.70)                                   # a distinctive, UNIQUE first word: "Uber", "Palantir", "Ford"
+        for brand, t in BRANDS.items():
+            if t in self.watch:
+                add(brand, t, 0.85, 0.9)
 
     def __contains__(self, t: str) -> bool:
         return t in self.watch
@@ -78,13 +127,13 @@ class Universe:
             if t:
                 add(t, 0.95, "cik")
         low = " " + norm(raw) + " "
-        toks = set(low.split())
-        for tok in toks:
-            for phrase, t, single in self.index.get(tok, ()):
+        for tok in set(low.split()):
+            for phrase, t, single, base in self.index.get(tok, ()):
                 if (" " + phrase + " ") not in low:
                     continue
                 if single:
-                    m_cap = re.search(r"(?<![A-Za-z0-9])(" + re.escape(phrase[0].upper() + phrase[1:]) + "|" + re.escape(phrase.upper()) + r")(?![A-Za-z0-9])", raw)
+                    # single words must start with a capital in the original text ("Ford" yes, "ford a river" no; "JPMorgan" yes)
+                    m_cap = re.search(r"(?<![A-Za-z0-9])" + re.escape(phrase[0].upper()) + r"(?i:" + re.escape(phrase[1:]) + r")(?![A-Za-z0-9])(?!-[A-Za-z])", raw)      # not "Meta-analysis", "Apple-style"
                     if not m_cap:
                         continue
                     if phrase in COMMON_WORD_ALIASES:
@@ -93,10 +142,8 @@ class Universe:
                         if prev_w and prev_w not in {"at", "of", "by", "from", "shares", "stock", "with", "says", "said", "as", "for", "and", "vs", "versus"}:
                             continue          # "price Target", "the Block": common-noun use
                         add(t, 0.55, "name_ambiguous")   # recorded as evidence but below the trading confidence floor
-                    else:
-                        add(t, 0.65, "name_single")
-                else:
-                    add(t, 0.9, "name")
+                        continue
+                add(t, base, "brand" if phrase in BRANDS else ("name" if not single else "name_single"))
         for m in _BARE.finditer(title or ""):
             t = m.group(1)
             if t not in COMMON_TICKERS and t in self.watch:

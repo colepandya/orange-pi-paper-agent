@@ -2,7 +2,7 @@
 Description=Exit guard every 2 minutes (exits immediately outside regular US hours)
 
 [Timer]
-OnBootSec=3min
+OnActiveSec=3min
 OnUnitInactiveSec=2min
 AccuracySec=10s
 

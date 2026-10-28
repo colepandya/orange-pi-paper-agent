@@ -13,7 +13,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List, Optional
 
-from . import auth as auth_mod, config, control, db, dossier as dossier_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
+from . import auth as auth_mod, config, control, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
 from .config import DB_PATH, load_config
 from .timeutil import market_state, parse_ts, to_nz, utcnow, iso
 
@@ -29,7 +29,7 @@ table{border-collapse:collapse;width:100%;margin:6px 0 16px}th,td{padding:5px 8p
 .wrap{overflow-x:auto}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.mut{color:var(--mut)}h2{margin:18px 0 4px;font-size:16px}
 details summary{cursor:pointer;color:var(--acc)}pre{white-space:pre-wrap;background:var(--card);padding:8px;border-radius:6px;font-size:12px}button{padding:5px 10px}"""
 CSS += settings_ui.FORM_CSS
-TABS = ["overview", "theses", "positions", "dossiers", "decisions", "risk", "intelligence", "system", "settings"]
+TABS = ["overview", "theses", "positions", "dossiers", "decisions", "funnel", "risk", "intelligence", "system", "settings"]
 
 
 def pct(x, d=1):
@@ -223,6 +223,24 @@ def page_decisions(c, cfg, s, q):
     return "".join(out)
 
 
+def page_funnel(c, cfg, s, q):
+    hours = float((q.get("hours") or ["24"])[0] or 24) if (q.get("hours") or ["24"])[0].replace(".", "").isdigit() else 24.0
+    r = funnel_engine.report(c, hours, s["now"])
+    out = ["<p class=mut>Window: " + " ".join('<a href="?tab=funnel&hours=%d">%dh</a>' % (h, h) for h in (6, 24, 72)) + " &middot; US market now: <b>%s</b></p>" % E(r["market"])]
+    out.append('<div class=grid>%s%s%s%s%s</div>' % (card("News ingested", r["news"]), card("Events", r["events"]), card("Trade candidates", r["candidates"]), card("Decisions", r["decisions_total"]), card("Trades opened", r["executed"])))
+    out.append("<p class=mut>Cycles: %s &middot; last cycle %s &middot; last decision %s</p>" % (E(", ".join("%s=%d" % kv for kv in sorted(r["cycles"].items())) or "none"), E(to_nz(r["last_cycle"]) if r["last_cycle"] else "never"), E(to_nz(r["last_decision"]) if r["last_decision"] else "never")))
+    for f in r["findings"]:
+        out.append(settings_ui.flash_html(None, [f["text"] + (" Fix: " + f["fix"] if f["fix"] else "")] if f["severity"] == "HIGH" else None, [f["text"]] if f["severity"] == "MEDIUM" else None) if f["severity"] != "INFO" else "<p class=mut>%s</p>" % E(f["text"]))
+    rows = []
+    for g, n in r["gates"].items():
+        ex = r["samples"].get(g, [])
+        rows.append([n, g, funnel_engine.GATE_LABELS.get(g, ""), Raw("<br>".join(E("[%s %s] %s" % (x["type"], ",".join(x["tickers"]) or "-", x["headline"])) for x in ex[:2]))])
+    out.append("<h2>Why events did or did not become candidates</h2>" + table(["Events", "Reason", "Meaning", "Examples"], rows))
+    out.append("<h2>Decisions by outcome</h2>" + table(["Status", "Count"], [[k, v] for k, v in sorted(r["decisions"].items(), key=lambda kv: -kv[1])]))
+    out.append("<h2>Recent merger / acquisition events</h2>" + table(["Seen", "Reason / gate", "Decision", "Companies", "Headline"], [[to_nz(m["seen"], "%d %b %H:%M"), m["gate"], m["decision"], ", ".join(m["tickers"]) or "none recognised", m["headline"]] for m in r["mna"]]))
+    return "".join(out)
+
+
 def page_risk(c, cfg, s):
     snap = c.execute("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 1").fetchone()
     if not snap:
@@ -286,7 +304,7 @@ def render(c, cfg, tab: str, q: Dict, ctx: Optional[dict] = None) -> str:
             health = {r["source_id"]: dict(r) for r in c.execute("SELECT source_id,last_status,failures,last_success FROM source_health")}
             inner = settings_ui.page_settings(cfg, base, ctx, pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status(), health)
         return layout(inner, tab, cfg, ctx)
-    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q),
+    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q),
           "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s), "system": lambda: page_system(c, cfg, s)}.get(tab, lambda: page_overview(c, cfg, s))
     return layout((settings_ui.flash_html(ctx.get("flash")) if ctx.get("flash") else "") + fn(), tab, cfg, ctx)
 
@@ -407,6 +425,9 @@ class Handler(BaseHTTPRequestHandler):
             ctx["control"] = control.last_result(self.control_dir or None)
             ctx["units"] = {u: doctor._unit_state(u) for u in control.RESTARTABLE}
             ctx["control_path"] = doctor._unit_state("paper-agent-control.path")
+            ctx["schedule_status"] = control.schedule_status(self.get_cfg().get("schedule", {}))
+            ctx["meta"] = S.load_meta()
+            ctx["pending"] = S.pending_suggestions()
             ctx["secret_status"] = S.secret_status()
         ctx.update(extra or {})
         return ctx
@@ -514,6 +535,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._save_settings(form, cfg, sess)
             if path.path == "/settings/secrets":
                 changed, errors = S.apply_secret_form(form)
+                S.record_secret_change(changed)
+                if "FINNHUB_API_KEY" in changed:
+                    try:
+                        from . import keys
+                        keys.resolve_finnhub()
+                    except Exception:  # noqa: BLE001
+                        pass
                 self._audit("secrets_changed", {"keys": changed})
                 if errors:
                     return self._settings_page(400, cfg, sess, {"errors": errors})
@@ -530,12 +558,18 @@ class Handler(BaseHTTPRequestHandler):
                 new = json.loads(json.dumps(cfg))
                 for sid in dead:
                     new.setdefault("source_overrides", {}).setdefault(sid, {})["enabled"] = False
-                S.save_overrides(S.overrides_for(new, base))
+                S.save_overrides_tracked(S.overrides_for(new, base), "user", "disabled dead feeds")
                 self._audit("dead_feeds_disabled", {"feeds": dead})
                 return self._redirect(self._flash_url("Disabled %d dead feed(s): %s" % (len(dead), ", ".join(dead) or "none")))
+            if path.path in ("/settings/deploy-accept", "/settings/deploy-dismiss"):
+                accept = path.path.endswith("accept")
+                ok, msg = S.resolve_suggestion(form.get("id", ""), accept)
+                self._audit("release_suggestion_" + ("accepted" if accept else "dismissed"), {"id": form.get("id", "")[:80], "ok": ok})
+                return self._redirect(self._flash_url(("Applied the release value." if accept else "Dismissed; your value stays.") if ok else "Could not apply: " + msg))
             if path.path == "/settings/reset":
                 if form.get("confirm") != "1":
                     return self._redirect(self._flash_url("Tick the confirmation box to reset."))
+                S.record_changes(S.load_overrides(), {}, "user", "reset to defaults")
                 S.reset_overrides()
                 self._audit("settings_reset")
                 try:
@@ -545,6 +579,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._redirect(self._flash_url("All dashboard settings reset to defaults."))
             if path.path == "/service":
                 act, unit = form.get("action", ""), form.get("unit", "")
+                if act == "reapply_schedule":
+                    try:
+                        rid = control.send_request("set_schedule", dict(cfg["schedule"]), self.control_dir or None)
+                    except OSError as e:
+                        return self._redirect(self._flash_url("Could not send the request: %s" % e))
+                    self._audit("service_request", {"action": "set_schedule"})
+                    return self._redirect(self._flash_url("Schedule re-apply requested (%s). Refresh in a few seconds." % rid))
                 ok = (act == "restart" and unit in control.RESTARTABLE) or (act == "start" and unit in control.STARTABLE) or act == "restart_all"
                 if not ok:
                     return self._redirect(self._flash_url("Not an allowed service action."))
@@ -557,6 +598,8 @@ class Handler(BaseHTTPRequestHandler):
             if path.path == "/test/llm":
                 tier = (urllib.parse.parse_qs(path.query).get("tier") or ["triage"])[0]
                 return self._settings_page(200, cfg, sess, {"test_output": self._test_llm(cfg, tier if tier in ("triage", "analyst") else "triage")})
+            if path.path == "/test/preflight":
+                return self._settings_page(200, cfg, sess, {"test_output": self._run_preflight(cfg)})
             if path.path == "/test/doctor":
                 return self._settings_page(200, cfg, sess, {"test_output": self._run_doctor(cfg)})
             return self._send(404, "not found")
@@ -577,7 +620,7 @@ class Handler(BaseHTTPRequestHandler):
         if errors:
             return self._settings_page(400, cfg, sess, {"errors": errors, "warnings": warnings, "raw": form})
         ov = S.overrides_for(new, base)
-        S.save_overrides(ov)
+        S.save_overrides_tracked(ov, "user")                       # stamps every changed setting with (time, who)
         changed = sorted(k for k in (f.path for f in S.FIELDS) if S.get_path(new, k) != S.get_path(cfg, k))
         self._audit("settings_saved", {"changed": changed})
         msg = "Settings saved (%d changed)." % len(changed)
@@ -608,6 +651,16 @@ class Handler(BaseHTTPRequestHandler):
                                                                                                     last["cost_usd"] if last else 0, u["today_usd"], u["daily_budget"], json.dumps(r, indent=1, default=str)[:1500] if r else "")
         finally:
             c.close()
+
+    def _run_preflight(self, cfg) -> str:
+        from . import pipeline, preflight
+        lines: List[str] = []
+        c = db.connect(self.db_path, readonly=True)
+        try:
+            preflight.run(c, cfg, pipeline.load_universe(), config.CONFIG_DIR, srcs=pipeline.load_sources(cfg), out=lines.append)
+        finally:
+            c.close()
+        return "\n".join(lines)
 
     def _run_doctor(self, cfg) -> str:
         from . import doctor, pipeline

@@ -37,6 +37,12 @@ def _classify(msg: str) -> str:
     return "timeout" if "timed out" in msg or "timeout" in msg.lower() else ("DNS/network" if "Name or service" in msg or "URL error" in msg else msg[:30])
 
 
+def iso_hours_ago(h: float, now=None) -> str:
+    import datetime as _dt
+    from .timeutil import iso as _iso
+    return _iso((now or utcnow()) - _dt.timedelta(hours=h))
+
+
 def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json: Callable = net.get_json, live: bool = True, check_units: bool = True,
         fix: bool = False, srcs: Optional[List[dict]] = None, out: Callable = print, sleep: Callable = time.sleep) -> dict:
     issues: List[dict] = []
@@ -111,6 +117,46 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
                 issue("HIGH", "%s is %s" % (u, s), "sudo systemctl enable --now %s" % u)
                 if fix:
                     subprocess.run(["systemctl", "enable", "--now", u], capture_output=True, timeout=30)
+    # ---- resources: a low-memory Pi SKIPS cycles entirely (no news processing, no decisions) - make that impossible to miss
+    try:
+        with open("/proc/meminfo") as fh:
+            mem = {l.split(":")[0]: int(l.split()[1]) // 1024 for l in fh if l.split(":")[0] in ("MemAvailable", "MemTotal", "Shmem")}
+        out("[memory] available %d / %d MB | RAM-disk (shmem) %d MB | cycle skips below %d MB" % (mem.get("MemAvailable", 0), mem.get("MemTotal", 0), mem.get("Shmem", 0), cfg["runtime"]["min_available_memory_mb"]))
+        if mem.get("MemAvailable", 9999) < cfg["runtime"]["min_available_memory_mb"] * 1.5:
+            issue("HIGH", "available memory %d MB is close to the cycle's skip threshold (%d MB): cycles may be skipped" % (mem.get("MemAvailable", 0), cfg["runtime"]["min_available_memory_mb"]), "sudo bash /opt/paper-agent/scripts/cleanup-ram.sh")
+        if mem.get("Shmem", 0) > 60:
+            issue("MEDIUM", "RAM-disk is holding %d MB (leftover temp files from older installs)" % mem["Shmem"], "sudo bash /opt/paper-agent/scripts/cleanup-ram.sh")
+    except (OSError, ValueError):
+        pass
+    runs = conn.execute("SELECT status,COUNT(*) n FROM cycle_runs WHERE started>? GROUP BY status", (iso_hours_ago(24, now),)).fetchall()
+    if runs:
+        out("[cycles 24h] " + ", ".join("%s=%d" % (r["status"], r["n"]) for r in runs))
+        skipped = sum(r["n"] for r in runs if r["status"] == "SKIPPED")
+        if skipped:
+            why = conn.execute("SELECT report_json FROM cycle_runs WHERE status='SKIPPED' ORDER BY id DESC LIMIT 1").fetchone()
+            reason = (json.loads(why["report_json"] or "{}").get("skipped") if why else "") or "?"
+            issue("HIGH", "%d cycle(s) in the last 24h were SKIPPED (latest reason: %s); a skipped cycle processes no news and makes no decisions" % (skipped, reason), "sudo bash /opt/paper-agent/scripts/cleanup-ram.sh; check memory above")
+    try:
+        from . import control as _control
+        ss = _control.schedule_status(cfg.get("schedule", {}))
+        out("[schedule] " + ", ".join("%s: configured %d / running %d %s" % (k, v["configured"], v["applied"], "ok" if v["in_sync"] else "DRIFT") for k, v in ss.items()))
+        for k, v in ss.items():
+            if not v["in_sync"]:
+                issue("MEDIUM", "%s is set to %d but systemd is running %d" % (k, v["configured"], v["applied"]), "Settings -> Services -> Apply schedule now")
+    except Exception:  # noqa: BLE001
+        pass
+    # ---- decision funnel: why are (or are not) news items becoming decisions?
+    try:
+        from . import funnel as _funnel
+        fr = _funnel.report(conn, 24, now, samples=1)
+        out("[funnel 24h] news=%d events=%d candidates=%d decisions=%d trades=%d | last decision %s" % (fr["news"], fr["events"], fr["candidates"], fr["decisions_total"], fr["executed"], to_nz(fr["last_decision"]) if fr["last_decision"] else "never"))
+        if fr["gates"]:
+            out("   why events dropped: " + ", ".join("%s x%d" % (g, n) for g, n in list(fr["gates"].items())[:5]))
+        for f in fr["findings"]:
+            if f["severity"] in ("HIGH", "MEDIUM"):
+                issue(f["severity"], f["text"], f["fix"])
+    except Exception as e:  # noqa: BLE001
+        out("[funnel] unavailable: %s" % e)
     # ---- last cycle
     last = conn.execute("SELECT * FROM cycle_runs ORDER BY id DESC LIMIT 1").fetchone()
     if not last:
