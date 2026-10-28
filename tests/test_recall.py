@@ -97,5 +97,87 @@ class TestEndToEndOnRealisticHeadlines(unittest.TestCase):
         self.assertGreaterEqual(decided / events, 0.9, "only %d/%d headlines produced a decision" % (decided, events))
 
 
+class TestEachGuardIsExercisedOnItsOwn(unittest.TestCase):
+    """The earlier tests used words ('stock', 'here', 'aware') that the built-in stoplist already blocks, so the OTHER guards were never really tested."""
+    def uni(self, common=None):
+        names = [("Beacon Therapeutics Inc", "BCON"), ("Lift Therapeutics Inc", "LIFT"), ("Palantir Technologies Inc.", "PLTR"), ("Zorvex Systems Inc", "ZRVX")]
+        return Universe(U.build({"fields": ["cik", "name", "ticker", "exchange"], "data": [[1 + i, n, t, "Nasdaq"] for i, (n, t) in enumerate(names)]}), common)
+
+    def found(self, u, text):
+        return {t for t, c, h in u.match(text) if c >= 0.6}
+
+    def test_words_the_news_uses_in_lowercase_are_learned_as_ordinary_english(self):
+        text = "Beacon of hope: why stocks rally"                                                  # 'Beacon' is not on the built-in stoplist
+        self.assertIn("BCON", self.found(self.uni(), text))                                       # without learning, a unique distinctive word looks like a company
+        corpus = ["a beacon of hope for investors", "the beacon was lit", "shines like a beacon", "another beacon in the night", "beacon beacon"] * 2
+        common = entities.build_common_words(corpus, min_count=4)
+        self.assertIn("beacon", common)
+        self.assertNotIn("BCON", self.found(self.uni(common), text))                              # ...once the corpus shows it is an ordinary word, it is not
+        self.assertIn("ZRVX", self.found(self.uni(common), "Zorvex raises outlook"))              # while a genuine coined name still works
+
+    def test_four_letter_ordinary_words_need_more_than_a_unique_first_word(self):
+        self.assertNotIn("LIFT", self.found(self.uni(), "Lift for tech stocks as rates ease"))     # 4 letters: too risky to treat as a name
+        self.assertIn("LIFT", self.found(self.uni(), "Lift Therapeutics raises outlook"))          # the full name still matches
+
+    def test_a_name_glued_to_a_hyphen_is_part_of_a_compound(self):
+        self.assertNotIn("PLTR", self.found(self.uni(), "Anti-Palantir protesters gather outside"))
+        self.assertIn("PLTR", self.found(self.uni(), "Palantir wins a contract"))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRealWorldFalsePositives(unittest.TestCase):
+    """From the user's real funnel output: 'Why Garmin Stock Dropped' matched SYBT (Stock Yards Bancorp) because 'Stock' was treated as a company name, 'From Here' matched HERE,
+    'Context-Aware' matched AWRE, 'Work Assistant' matched WOK. A synthetic negative set had missed all of it."""
+    EXTRA = [("Stock Yards Bancorp, Inc.", "SYBT"), ("GARMIN LTD", "GRMN"), ("Here Group Inc", "HERE"), ("AWARE INC /MA/", "AWRE"), ("WORK Medical Technology Group Ltd", "WOK"),
+             ("Main Street Capital Corp", "MAIN"), ("Core Molding Technologies Inc", "CMT"), ("Pure Cycle Corp", "PCYO"), ("Edge Therapeutics Inc", "EDGE"), ("Market Leader Inc", "LEAD"),
+             ("Trade Desk, Inc.", "TTD"), ("Light & Wonder, Inc.", "LNW"), ("Alamo Group Inc", "ALG"), ("Wendy's Co", "WEN")]
+
+    def universe(self, common=None):
+        data = [[1000 + i, n, t, "Nasdaq"] for i, (n, t) in enumerate(SEC + self.EXTRA)]
+        return Universe(U.build({"fields": ["cik", "name", "ticker", "exchange"], "data": data}), common)
+
+    HEADLINES = {
+        "Why Garmin Stock Dropped After Record Results": ({"GRMN"}, {"SYBT"}),
+        "3 Reasons Micron Stock Could Keep Climbing From Here": ({"MU"}, {"SYBT", "HERE"}),
+        "Is AMD Stock a Buy, Sell, or Hold Right Now? Here's What I'm Doing.": ({"AMD"}, {"SYBT", "HERE"}),
+        "Why Micron Stock Is Up Today": ({"MU"}, {"SYBT"}),
+        "Rocker Launches as the Context-Aware AI Work Assistant for the Busiest People": (set(), {"AWRE", "WOK"}),
+        "How to Work Smarter: Core Ideas for the Edge in Pure Strategy": (set(), {"WOK", "CMT", "EDGE", "PCYO"}),
+        "Trade Desk Stock Surges as Light Returns to the Main Street": ({"TTD"}, {"LEAD", "MAIN", "LNW"}),
+    }
+
+    def check(self, u):
+        for h, (want, forbid) in self.HEADLINES.items():
+            got = {t for t, c, how in u.match(h) if c >= 0.6}
+            self.assertTrue(want <= got, "%r should find %s but found %s" % (h, want, got))
+            self.assertFalse(got & forbid, "%r wrongly matched %s" % (h, got & forbid))
+
+    def test_ordinary_words_do_not_identify_companies_even_with_no_learned_data(self):
+        self.check(self.universe())
+
+    def test_words_learned_from_the_news_corpus_are_excluded_too(self):
+        corpus = ["the market could keep climbing", "analysts say the stock may fall", "see what happens here next", "good work by the team", "stay aware of rising risks", "downtown main road closed",
+                  "the stock market and stock prices", "we work here", "be aware the stock is volatile", "this stock and that stock", "work work work", "aware aware aware here here here main main"] * 3
+        common = entities.build_common_words(corpus, min_count=4)
+        for w in ("stock", "here", "work", "aware", "main"):
+            self.assertIn(w, common)
+        self.assertNotIn("garmin", common)
+        self.check(self.universe(common))
+
+    def test_real_companies_with_distinctive_names_are_still_found(self):
+        u = self.universe()
+        for text, want in (("Garmin raises full-year outlook", "GRMN"), ("Wendy's shares rally on takeover talk", "WEN"), ("Alamo Group beats estimates", "ALG"), ("Main Street Capital raises dividend", "MAIN"),
+                           ("Stock Yards Bancorp reports third-quarter earnings", "SYBT"), ("Trade Desk plunges after guidance", "TTD")):
+            self.assertIn(want, [t for t, c, h in u.match(text) if c >= 0.6], text)
+
+    def test_a_word_glued_to_a_hyphen_is_part_of_a_compound(self):
+        u = self.universe()
+        self.assertNotIn("AWRE", [t for t, c, h in u.match("A context-aware assistant and an Aware-style tool") if c >= 0.6])
+
+    def test_benchmark_recall_is_not_hurt_by_the_stricter_matching(self):
+        r = recall.evaluate(self.universe())
+        self.assertGreaterEqual(r["recall"], 0.97, recall.text(r))
+        self.assertEqual(r["false_positives"], [])

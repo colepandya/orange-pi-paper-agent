@@ -349,7 +349,7 @@ class TestNarrativeMonitorGapsContradiction(unittest.TestCase):
         evidence.process_new_news(c, u, cfg, NOW)
         self.assertGreater(c.execute("SELECT COUNT(*) FROM evidence WHERE direction<0 AND thesis_key='ai_infrastructure'").fetchone()[0], 0)
         self.assertEqual(contradiction.search(c, cfg, fetch, NOW, sleep=lambda s: None)["searched"][:1] != r["searched"][:1] or True, True)
-        self.assertTrue(contradiction.report(c, "ai_infrastructure"))
+        self.assertTrue(contradiction.report(c, "ai_infrastructure", now=NOW))
 
 
 class TestLLM(unittest.TestCase):

@@ -35,8 +35,31 @@ def sector_of(text: str) -> str:
     return "Unclassified"
 
 
+_NOT_A_NUMBER = {"", "N/A", "NA", "NULL", "NONE", "-", "--", "NAN", "INF", "-INF", "NULLNULL"}
+
+
+def num(x) -> Optional[float]:
+    """Provider numbers arrive as 28.4, "28.4", "1,234", "N/A", "", null, true, NaN... -> a FINITE float, or None. Every parse boundary uses this."""
+    if isinstance(x, bool):
+        return None
+    if isinstance(x, (int, float)):
+        v = float(x)
+    elif isinstance(x, str):
+        s = x.strip().replace(",", "").rstrip("%")
+        if s.upper() in _NOT_A_NUMBER:
+            return None
+        try:
+            v = float(s)
+        except ValueError:
+            return None
+    else:
+        return None
+    return v if math.isfinite(v) else None
+
+
 def lin(x: Optional[float], lo: float, hi: float) -> Optional[float]:
-    if x is None or (isinstance(x, float) and not math.isfinite(x)):
+    x = num(x)
+    if x is None:
         return None
     return max(0.0, min(1.0, (x - lo) / (hi - lo))) if hi != lo else None
 
@@ -54,6 +77,7 @@ def blend(parts: List[Tuple[Optional[float], float]]) -> Tuple[float, float]:
 
 
 def score_company(f: Dict[str, Optional[float]]) -> dict:
+    f = {k: num(v) for k, v in (f if isinstance(f, dict) else {}).items()}          # whatever the caller passes, scoring only ever sees finite floats or None
     mc = f.get("market_cap")
     fs, c1 = blend([(lin(f.get("net_margin"), -.05, .20), .3), (None if f.get("debt_to_equity") is None else 1 - (lin(f.get("debt_to_equity"), .3, 2.5) or 0), .3),
                     (lin(f.get("cash_to_debt"), .1, 1.5), .2), (lin(f.get("op_margin"), 0, .25), .2)])
@@ -67,6 +91,7 @@ def score_company(f: Dict[str, Optional[float]]) -> dict:
 
 
 def classify_dna(f: dict, s: dict, sector: str) -> str:
+    f = {k: num(v) for k, v in (f if isinstance(f, dict) else {}).items()}
     g, nm, mc, vol = f.get("revenue_growth"), f.get("net_margin"), f.get("market_cap"), f.get("vol_daily") or 0.0
     if (nm is None or nm < 0) and ((mc is not None and mc < 2e9) or vol > 0.045):
         return "Speculative"
@@ -85,25 +110,28 @@ def classify_dna(f: dict, s: dict, sector: str) -> str:
 
 # ---------------------------------------------------------------- parsers (pure, fixture-testable)
 def parse_finnhub_profile(j: dict) -> dict:
+    j = j if isinstance(j, dict) else {}
     return {"name": j.get("name"), "industry": j.get("finnhubIndustry"), "country": j.get("country"), "currency": j.get("currency"),
-            "market_cap": (j.get("marketCapitalization") or 0) * 1e6 or None, "shares": (j.get("shareOutstanding") or 0) * 1e6 or None}
+            "market_cap": (num((j or {}).get("marketCapitalization")) or 0) * 1e6 or None, "shares": (num((j or {}).get("shareOutstanding")) or 0) * 1e6 or None}
 
 
 def parse_finnhub_metrics(j: dict) -> dict:
-    m = (j or {}).get("metric") or {}
+    m = (j or {}).get("metric") if isinstance(j, dict) else None
+    m = m if isinstance(m, dict) else {}
 
     def pc(k):
-        v = m.get(k)
-        return v / 100.0 if isinstance(v, (int, float)) else None
-    de = m.get("totalDebt/totalEquityAnnual") or m.get("totalDebt/totalEquityQuarterly")
+        v = num(m.get(k))
+        return v / 100.0 if v is not None else None
+    de = num(m.get("totalDebt/totalEquityAnnual")) or num(m.get("totalDebt/totalEquityQuarterly"))
     return {"net_margin": pc("netProfitMarginTTM"), "op_margin": pc("operatingMarginTTM"), "gross_margin": pc("grossMarginTTM"), "roe": pc("roeTTM"),
             "revenue_growth": pc("revenueGrowthTTMYoy") if m.get("revenueGrowthTTMYoy") is not None else pc("revenueGrowth3Y"),
-            "debt_to_equity": (de / 100.0 if isinstance(de, (int, float)) and de > 20 else de) if de is not None else None, "beta": m.get("beta")}
+            "debt_to_equity": (de / 100.0 if de > 20 else de) if de is not None else None, "beta": num(m.get("beta"))}
 
 
 def parse_finnhub_earnings(j) -> Optional[float]:
-    rows = [r for r in (j or []) if r.get("actual") is not None and r.get("estimate") is not None][:4]
-    return sum(1 for r in rows if r["actual"] >= r["estimate"]) / len(rows) if rows else None
+    rows = [(num(r.get("actual")), num(r.get("estimate"))) for r in (j if isinstance(j, list) else []) if isinstance(r, dict)]
+    rows = [(a, e) for a, e in rows if a is not None and e is not None][:4]
+    return sum(1 for a, e in rows if a >= e) / len(rows) if rows else None
 
 
 _SEC_TAGS = {"revenue": ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet"], "op_income": ["OperatingIncomeLoss"], "net_income": ["NetIncomeLoss"],
@@ -113,15 +141,15 @@ _SEC_TAGS = {"revenue": ["Revenues", "RevenueFromContractWithCustomerExcludingAs
 
 def parse_sec_facts(j: dict) -> dict:
     """Latest two fiscal-year values per tag from companyfacts JSON -> ratios."""
-    gaap = ((j or {}).get("facts") or {}).get("us-gaap") or {}
+    gaap = (((j or {}).get("facts") or {}).get("us-gaap") or {}) if isinstance(j, dict) else {}
 
     def series(tags):
         for tag in tags:
             units = (gaap.get(tag) or {}).get("units", {}).get("USD") or []
-            fy = [u for u in units if u.get("fp") == "FY" and u.get("form") in ("10-K", "10-K/A") and u.get("val") is not None]
+            fy = [u for u in units if isinstance(u, dict) and u.get("fp") == "FY" and u.get("form") in ("10-K", "10-K/A") and num(u.get("val")) is not None and u.get("end")]
             byend = {}
             for u in fy:
-                byend[u["end"]] = u["val"]
+                byend[u["end"]] = num(u["val"])
             if byend:
                 ks = sorted(byend)
                 return [byend[k] for k in ks[-2:]]
@@ -199,6 +227,7 @@ def refresh_company(conn, ticker: str, meta: dict, cfg: dict, fetch: Callable = 
     if sector == "Unclassified" and meta.get("sector") not in (None, "", "Unclassified"):
         sector = meta["sector"]
     country = prof.get("country") or meta.get("country") or "US"
+    f = {k: num(v) for k, v in f.items()}                 # final safety net: scoring only ever sees finite floats or None
     s = score_company(f)
     dna = classify_dna(f, s, sector)
     conn.execute("INSERT INTO companies(ticker,name,sector,industry,country,currency,cik,market_cap,adv_usd,beta,vol_daily,dna,financial_strength,management_quality,competitive_moat,innovation_quality,institutional_support,execution_quality,completeness,profile_json,updated) "
@@ -211,6 +240,18 @@ def refresh_company(conn, ticker: str, meta: dict, cfg: dict, fetch: Callable = 
     return {"ticker": ticker, "sector": sector, "dna": dna, "scores": s, "errors": errors}
 
 
+_NUMERIC_COLS: Optional[set] = None
+
+
 def get(conn, ticker: str) -> Optional[dict]:
+    global _NUMERIC_COLS
     r = conn.execute("SELECT * FROM companies WHERE ticker=?", (ticker,)).fetchone()
-    return dict(r) if r else None
+    if not r:
+        return None
+    d = dict(r)
+    if _NUMERIC_COLS is None:
+        _NUMERIC_COLS = {x[1] for x in conn.execute("PRAGMA table_info(companies)") if str(x[2]).upper() in ("REAL", "INTEGER", "NUMERIC") and x[1] not in ("cik",)}
+    for k in _NUMERIC_COLS:
+        if k in d and d[k] is not None and not isinstance(d[k], (int, float)):
+            d[k] = num(d[k])                               # a text value stored by an older build ("N/A") can no longer reach arithmetic
+    return d

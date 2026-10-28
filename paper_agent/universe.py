@@ -21,8 +21,9 @@ def aliases(name: str) -> list:
     if short and short.lower() != base.lower() and len(short) >= 4:
         out.append(short)
         words = short.split()
-        if len(words) > 2 and len(" ".join(words[:2])) >= 6:
-            out.append(" ".join(words[:2]))
+        from .entities import GENERIC_FIRST
+        if len(words) > 2 and len(" ".join(words[:2])) >= 6 and words[0].lower() not in GENERIC_FIRST and words[1].lower() not in GENERIC_FIRST:
+            out.append(" ".join(words[:2]))                      # "Goldman Sachs" yes; "Main Street" / "Market Leader" are ordinary phrases: no
     return list(dict.fromkeys(out))
 
 

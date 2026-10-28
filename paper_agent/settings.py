@@ -81,6 +81,7 @@ FIELDS: List[Field] = [
     F("runtime.require_password", "Require a password to use Settings", "bool", "System", help="Off (default): anyone on your network can open Settings. Turn on to be asked to create a password on your next visit."),
     F("runtime.allowed_hosts", "Allowed hostnames (only if you use a custom name or proxy)", "hostlist", "System", help="Comma-separated. Private IPs, localhost and names like orangepizero3 or pi.local are always allowed."),
     F("runtime.contact_email", "Contact email (sent to SEC in the User-Agent)", "email", "System", help="SEC asks for a real contact."),
+    F("runtime.cycle_budget_seconds", "Cycle time budget (seconds)", "int", "System", 120, 500, "Slow company/filing refreshes stop early after ~40-50% of this so decisions are never starved."),
     F("runtime.min_available_memory_mb", "Skip a cycle below this free memory (MB)", "int", "System", 50, 500, ""),
     F("runtime.max_load_per_core", "Skip a cycle above this load per core", "float", "System", 0.5, 4.0, ""),
     F("runtime.bind_port", "Dashboard port", "int", "System", 1024, 65535, "Takes effect after restarting the dashboard.", restart="dashboard"),

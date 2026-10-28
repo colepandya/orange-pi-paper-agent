@@ -31,12 +31,12 @@ def search(conn, cfg: dict, fetch: Callable = net.get, now=None, max_theses: int
             res["searched"].append(key)
         except Exception as e:  # noqa: BLE001
             res["errors"].append("%s:%s" % (key, type(e).__name__))
-        db.mark_run(conn, "contra:" + key)
+        db.mark_run(conn, "contra:" + key, "", now)
         sleep(5.5)   # GDELT asks for <= 1 request / 5 s
     return res
 
 
-def report(conn, key: str, n: int = 3) -> List[dict]:
+def report(conn, key: str, n: int = 3, now=None) -> List[dict]:
     rows = conn.execute("SELECT e.headline,e.source,e.published,ev.direction,ev.credibility*ev.strength AS w FROM evidence ev JOIN events e ON e.id=ev.event_id "
-                        "WHERE ev.thesis_key=? AND ev.direction<0 AND ev.expiry_date>? ORDER BY w DESC LIMIT ?", (key, iso(utcnow()), n)).fetchall()
+                        "WHERE ev.thesis_key=? AND ev.direction<0 AND ev.expiry_date>? ORDER BY w DESC LIMIT ?", (key, iso(now or utcnow()), n)).fetchall()
     return [dict(r) for r in rows]

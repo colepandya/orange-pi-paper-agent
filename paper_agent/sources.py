@@ -144,13 +144,14 @@ def finnhub_company_news(ticker: str, fetch: Callable = net.get, days: int = 2) 
 
 
 # ------------------------------------------------------------------------------------------ health / scheduling
-def record_health(conn, src: dict, status, error=None, count: int = 0) -> None:
-    t = iso()
+def record_health(conn, src: dict, status, error=None, count: int = 0, clock: Callable = time.time) -> None:
+    """Stamp health with the SAME clock source_due() reads (a real-clock stamp under an injected clock made sources look permanently 'not due')."""
+    t = iso(dt.datetime.fromtimestamp(clock(), dt.timezone.utc))
     r = conn.execute("SELECT failures FROM source_health WHERE source_id=?", (src["id"],)).fetchone()
     failures = r[0] if r else 0
     if error:
         failures += 1
-        back, success = time.time() + min(21600, 300 * (2 ** min(failures, 6))), None
+        back, success = clock() + min(21600, 300 * (2 ** min(failures, 6))), None
     else:
         failures, back, success = 0, 0, t
     conn.execute("INSERT INTO source_health(source_id,name,last_attempt,last_success,last_status,failures,backoff_until,items_total,last_error) VALUES(?,?,?,?,?,?,?,?,?) "
@@ -217,14 +218,14 @@ def collect(conn, sources: List[dict], fetch: Callable = net.get, clock: Callabl
             items, status = fetch_source(src, fetch, conn)
         except Exception as e:  # noqa: BLE001 - every failure mode must be isolated per source
             code = getattr(e, "code", None) or type(e).__name__
-            record_health(conn, src, code, e)
+            record_health(conn, src, code, e, clock=clock)
             tot["fetch_failures"] += 1
             tot["errors"].append("%s:%s" % (src["id"], code))
             continue
-        record_health(conn, src, status, count=len(items))
+        record_health(conn, src, status, count=len(items), clock=clock)
         if status == 304:
             tot["unchanged"] += 1
             continue
         tot["sources_ok"] += 1
-        tot["new"] += store_items(conn, src, items[:max_items])
+        tot["new"] += store_items(conn, src, items[:max_items], dt.datetime.fromtimestamp(clock(), dt.timezone.utc))      # ingestion time on the SAME clock as "is it due"
     return tot

@@ -27,7 +27,7 @@ DEFAULTS: Dict[str, Any] = {
     },
     "runtime": {"min_available_memory_mb": 120, "max_load_per_core": 1.5, "pihole_health_required": False,
                 "bind_host": "0.0.0.0", "bind_port": 8088, "contact_email": "paper-agent@example.invalid",
-                "require_password": False, "allowed_hosts": [], "pause_file": os.path.join(STATE_DIR, "PAUSE_TRADES"), "lock_file": os.path.join(STATE_DIR, "cycle.lock")},
+                "cycle_budget_seconds": 300, "require_password": False, "allowed_hosts": [], "pause_file": os.path.join(STATE_DIR, "PAUSE_TRADES"), "lock_file": os.path.join(STATE_DIR, "cycle.lock")},
     "quotes": {"min_providers": 2, "max_deviation": 0.005, "max_age_seconds": 180, "entry_max_age_seconds": 90,
                "allow_single_source": False,
                "limits": {"TWELVE_DATA": [7, 60], "FINNHUB": [50, 60], "ALPACA": [100, 60], "MASSIVE": [4, 60],

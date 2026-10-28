@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS company_fundamentals(ticker TEXT PRIMARY KEY,cik TEXT
 """
 
 V5 = """
+CREATE TABLE IF NOT EXISTS candidate_queue(id INTEGER PRIMARY KEY,created TEXT NOT NULL,event_id INTEGER,ticker TEXT NOT NULL,payload_json TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'NEW',decided TEXT);
+CREATE INDEX IF NOT EXISTS ix_candq_status ON candidate_queue(status,id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_candq_event_ticker ON candidate_queue(event_id,ticker) WHERE event_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS events(
  id INTEGER PRIMARY KEY AUTOINCREMENT,news_uid TEXT UNIQUE,created TEXT NOT NULL,published TEXT,source TEXT,source_id TEXT,
  headline TEXT,event_type TEXT NOT NULL,scope TEXT NOT NULL,direction REAL NOT NULL,magnitude REAL NOT NULL,amount_usd REAL,
@@ -290,6 +293,7 @@ def due(c, task: str, every_hours: float, now=None) -> bool:
     return last is None or ((now or utcnow()) - last).total_seconds() >= every_hours * 3600
 
 
-def mark_run(c, task: str, detail: str = "") -> None:
+def mark_run(c, task: str, detail: str = "", now=None) -> None:
+    """Record that ``task`` ran. Uses the SAME clock as due(): pass the cycle's ``now`` (a mixed real/injected clock made rate limits wrong)."""
     c.execute("INSERT INTO task_schedule(task,last_run,detail) VALUES(?,?,?) ON CONFLICT(task) DO UPDATE SET last_run=excluded.last_run,detail=excluded.detail",
-              (task, iso(), detail))
+              (task, iso(now), detail))

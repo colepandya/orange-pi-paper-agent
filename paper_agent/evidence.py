@@ -5,7 +5,7 @@ import datetime as dt
 import json
 from typing import Callable, Dict, List, Optional
 
-from . import db, nlp
+from . import candqueue, db, nlp
 from .timeutil import UTC, iso, parse_ts, utcnow
 
 RULE_MIN_DIR = 0.12
@@ -76,129 +76,200 @@ def find_cluster(conn, toks: List[str], tickers: List[str], event_type: str, sin
     return None
 
 
-def process_new_news(conn, universe, cfg: dict, now: Optional[dt.datetime] = None, analyst: Optional[Callable] = None, limit: int = 600) -> dict:
+def _persist_one(conn, universe, cfg: dict, icfg: dict, rules, chosen: dict, analyst, stats: dict, candidates: List[dict], now, n, a, pub, age_h, stale, matches) -> None:
+    """Everything for ONE news item in ONE transaction: event, evidence, the gate reason and the queued candidates commit together or not at all."""
     from . import event_intel
-    now = now or utcnow()
-    icfg = cfg["intelligence"]
-    rules = load_rules(conn)
-    rows = conn.execute("SELECT n.* FROM news n LEFT JOIN events e ON e.news_uid=n.uid WHERE e.id IS NULL ORDER BY n.id LIMIT ?", (limit,)).fetchall()
-    stats = {"events": 0, "evidence": 0, "stale": 0, "duplicates": 0, "llm": 0}
-    candidates: List[dict] = []
-    # ---- pass 1: cheap deterministic read of everything
-    pre = []
-    for n in rows:
-        title, summary = n["title"] or "", n["summary"] or ""
-        a = nlp.analyze(title, summary)
-        pub = parse_ts(n["published"])
-        if pub is None or pub > now + dt.timedelta(minutes=10):
-            pub = parse_ts(n["ingested"]) or now
-        age_h = max(0.0, (now - pub).total_seconds() / 3600)
-        matches = universe.match(title, summary) if universe is not None else []
-        pre.append((n, a, pub, age_h, age_h > float(icfg["stale_event_hours"]), matches))
-    # ---- which items deserve an LLM read this cycle (budgeted, ranked)
-    chosen = event_intel.pick_for_llm(conn, pre, icfg, analyst)
-    # ---- pass 2: persist events + evidence
-    for (n, a, pub, age_h, stale, matches) in pre:
-        title, summary = n["title"] or "", n["summary"] or ""
-        text_n = nlp.norm(title + " . " + (summary or "")[:1500])
-        tickers = [t for t, c, h in matches if c >= 0.5]
-        conf = {t: c for t, c, h in matches}
-        llm_json, intel = None, None
-        if n["uid"] in chosen:
-            try:
-                ex = analyst({"title": title, "summary": summary[:1500], "analysis": a, "tickers": tickers, "tier": chosen[n["uid"]]})
-            except Exception:  # noqa: BLE001
-                ex = None
-            if ex:
-                stats["llm"] += 1
-                llm_json = json.dumps({k: v for k, v in ex.items() if k != "intel"}, sort_keys=True, default=str)
-                intel = ex.get("intel")
-                a["direction"] = max(-1, min(1, 0.5 * a["direction"] + 0.5 * ex["direction"]))
-                a["magnitude"] = max(a["magnitude"], min(1.0, ex["magnitude"]))
-                if intel:
-                    if intel["event_type"] != "other" and a["event_type"] == "general_news":
-                        a["event_type"] = intel["event_type"]
-                for t in ex.get("tickers", []):
-                    if t not in tickers and (universe is None or t in universe):
-                        tickers.append(t)
-                        conf[t] = 0.6
-        toks = nlp.tokens(title + " " + summary[:300])
-        cluster = None if stale else find_cluster(conn, toks, tickers, a["event_type"], now - dt.timedelta(hours=72))
-        novelty = 0.0 if stale else (0.25 if cluster else 1.0)
-        source_id = n["source"] or ""
-        cred = source_credibility(conn, source_id, a["event_type"], float(n["trust"] or 0.5))
-        power = predictive_power(conn, a["event_type"], a["power"])
-        intel_effects: List[dict] = []
-        with db.tx(conn):
-            cur = conn.execute(
-                "INSERT INTO events(news_uid,created,published,source,source_id,headline,event_type,scope,direction,magnitude,amount_usd,tickers_json,regions_json,tokens,cluster_id,novelty,credibility,age_hours,stale,llm_json) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (n["uid"], iso(now), iso(pub), n["source"], source_id, title, a["event_type"], a["scope"], a["direction"], a["magnitude"], a["amount_usd"],
-                 json.dumps(tickers), json.dumps(a["regions"]), " ".join(toks), cluster, novelty, cred, age_h, int(stale), llm_json))
-            eid = cur.lastrowid
-            if not cluster:
-                conn.execute("UPDATE events SET cluster_id=? WHERE id=?", (eid, eid))
-                cluster = eid
-            elif not stale:
-                conn.execute("UPDATE events SET credibility=MIN(0.98,credibility+0.04) WHERE id=?", (cluster,))  # corroboration
-                stats["duplicates"] += 1
-            stats["events"] += 1
-            if stale:
-                stats["stale"] += 1
-                conn.execute("UPDATE events SET gate='stale' WHERE id=?", (eid,))
-                continue
-            expiry = iso(pub + dt.timedelta(days=a["decay_days"]))
-            if parse_ts(expiry) <= now:
-                conn.execute("UPDATE events SET gate='expired' WHERE id=?", (eid,))
-                continue
+    n_before = len(candidates)
+    title, summary = n["title"] or "", n["summary"] or ""
+    text_n = nlp.norm(title + " . " + (summary or "")[:1500])
+    tickers = [t for t, c, h in matches if c >= 0.5]
+    conf = {t: c for t, c, h in matches}
+    llm_json, intel = None, None
+    if n["uid"] in chosen:
+        try:
+            ex = analyst({"title": title, "summary": summary[:1500], "analysis": a, "tickers": tickers, "tier": chosen[n["uid"]]})
+        except Exception:  # noqa: BLE001
+            ex = None
+        if ex:
+            stats["llm"] += 1
+            llm_json = json.dumps({k: v for k, v in ex.items() if k != "intel"}, sort_keys=True, default=str)
+            intel = ex.get("intel")
+            a["direction"] = max(-1, min(1, 0.5 * a["direction"] + 0.5 * ex["direction"]))
+            a["magnitude"] = max(a["magnitude"], min(1.0, ex["magnitude"]))
             if intel:
-                intel_effects = event_intel.apply(conn, cfg, eid, a, intel, pub, cluster, novelty, now, stats,
-                                                  lambda src, et, prior: source_credibility(conn, src, et, prior), power)
-            llm_owned = {e["ticker"] for e in intel_effects} if intel and intel["certainty"] >= 0.5 else set()
-            ev_rows = []
-            for key, d, w, mode in thesis_matches(rules, text_n, a):
-                mag = max(a["magnitude"], 0.35) if mode in ("support", "contradict") else a["magnitude"]  # stance evidence floor
-                ev_rows.append((eid, key, None, d, mag * w))
-            for t in tickers:
-                if conf.get(t, 0) < 0.5 or t in llm_owned:     # the LLM's reasoned effect supersedes the keyword read for the same ticker
-                    continue
-                d = a["direction"]
-                if a["event_type"] == "merger_acquisition":
-                    role = universe.mna_role(t, title) if universe is not None else "unknown"
-                    d = 0.8 if role == "target" else MNA_ACQUIRER_DIRECTION if role == "acquirer" else 0.25
-                ev_rows.append((eid, None, t, d, a["magnitude"] * conf[t]))
-            for (e_id, key, t, d, strength) in ev_rows:
-                if abs(d) < 0.05:
-                    continue
-                conn.execute(
-                    "INSERT OR IGNORE INTO evidence(event_id,thesis_key,ticker,created,source,credibility,strength,novelty,predictive_power,direction,cluster_id,event_type,decay_days,expiry_date,note) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (e_id, key, t, iso(pub), source_id, cred, max(0.02, min(1.0, strength)), novelty, power, max(-1.0, min(1.0, d)), cluster, a["event_type"], a["decay_days"], expiry, a.get("matched") or ""))
-                stats["evidence"] += 1
+                if intel["event_type"] != "other" and a["event_type"] == "general_news":
+                    a["event_type"] = intel["event_type"]
+            for t in ex.get("tickers", []):
+                if t not in tickers and (universe is None or t in universe):
+                    tickers.append(t)
+                    conf[t] = 0.6
+    toks = nlp.tokens(title + " " + summary[:300])
+    cluster = None if stale else find_cluster(conn, toks, tickers, a["event_type"], now - dt.timedelta(hours=72))
+    novelty = 0.0 if stale else (0.25 if cluster else 1.0)
+    source_id = n["source"] or ""
+    cred = source_credibility(conn, source_id, a["event_type"], float(n["trust"] or 0.5))
+    power = predictive_power(conn, a["event_type"], a["power"])
+    intel_effects: List[dict] = []
+    with db.tx(conn):
+        cur = conn.execute(
+            "INSERT INTO events(news_uid,created,published,source,source_id,headline,event_type,scope,direction,magnitude,amount_usd,tickers_json,regions_json,tokens,cluster_id,novelty,credibility,age_hours,stale,llm_json) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (n["uid"], iso(now), iso(pub), n["source"], source_id, title, a["event_type"], a["scope"], a["direction"], a["magnitude"], a["amount_usd"],
+             json.dumps(tickers), json.dumps(a["regions"]), " ".join(toks), cluster, novelty, cred, age_h, int(stale), llm_json))
+        eid = cur.lastrowid
+        if not cluster:
+            conn.execute("UPDATE events SET cluster_id=? WHERE id=?", (eid, eid))
+            cluster = eid
+        elif not stale:
+            conn.execute("UPDATE events SET credibility=MIN(0.98,credibility+0.04) WHERE id=?", (cluster,))  # corroboration
+            stats["duplicates"] += 1
+        stats["events"] += 1
+        if stale:
+            stats["stale"] += 1
+            conn.execute("UPDATE events SET gate='stale' WHERE id=?", (eid,))
+            return
+        expiry = iso(pub + dt.timedelta(days=a["decay_days"]))
+        if parse_ts(expiry) <= now:
+            conn.execute("UPDATE events SET gate='expired' WHERE id=?", (eid,))
+            return
+        if intel:
+            intel_effects = event_intel.apply(conn, cfg, eid, a, intel, pub, cluster, novelty, now, stats,
+                                              lambda src, et, prior: source_credibility(conn, src, et, prior), power)
+        llm_owned = {e["ticker"] for e in intel_effects} if intel and intel["certainty"] >= 0.5 else set()
+        ev_rows = []
+        for key, d, w, mode in thesis_matches(rules, text_n, a):
+            mag = max(a["magnitude"], 0.35) if mode in ("support", "contradict") else a["magnitude"]  # stance evidence floor
+            ev_rows.append((eid, key, None, d, mag * w))
+        for t in tickers:
+            if conf.get(t, 0) < 0.5 or t in llm_owned:     # the LLM's reasoned effect supersedes the keyword read for the same ticker
+                continue
+            d = a["direction"]
+            if a["event_type"] == "merger_acquisition":
+                role = universe.mna_role(t, title) if universe is not None else "unknown"
+                d = 0.8 if role == "target" else MNA_ACQUIRER_DIRECTION if role == "acquirer" else 0.25
+            ev_rows.append((eid, None, t, d, a["magnitude"] * conf[t]))
+        for (e_id, key, t, d, strength) in ev_rows:
+            if abs(d) < 0.05:
+                continue
+            conn.execute(
+                "INSERT OR IGNORE INTO evidence(event_id,thesis_key,ticker,created,source,credibility,strength,novelty,predictive_power,direction,cluster_id,event_type,decay_days,expiry_date,note) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (e_id, key, t, iso(pub), source_id, cred, max(0.02, min(1.0, strength)), novelty, power, max(-1.0, min(1.0, d)), cluster, a["event_type"], a["decay_days"], expiry, a.get("matched") or ""))
+            stats["evidence"] += 1
         # trading candidates: single-company, fresh, first-of-cluster, strong enough.  EVERY event records WHY it did or did not qualify (events.gate).
-        have = set()
-        gate = candidate_gate(a, tickers, conf, novelty, age_h, icfg)
-        if gate is None:
-            produced = 0
-            for t in tickers:
-                if conf.get(t, 0) >= 0.6 and not (intel and t in {e["ticker"] for e in intel_effects if e["order"] > int(icfg["max_trade_order"])}):
-                    d = a["direction"]
-                    if a["event_type"] == "merger_acquisition":
-                        role = universe.mna_role(t, title) if universe is not None else "unknown"
-                        d = 0.8 if role == "target" else MNA_ACQUIRER_DIRECTION if role == "acquirer" else 0.0
-                    if abs(d) >= 0.25:
-                        have.add(t)
-                        produced += 1
-                        candidates.append({"event_id": eid, "ticker": t, "conf": conf[t], "direction": d, "magnitude": a["magnitude"], "event_type": a["event_type"],
-                                           "age_hours": age_h, "headline": title, "source": n["source"], "news_uid": n["uid"], "amount_usd": a["amount_usd"],
-                                           "credibility": cred, "horizon": a["horizon"], "decay_days": a["decay_days"]})
-            gate = "candidate" if produced else ("merger_role_unknown" if a["event_type"] == "merger_acquisition" else "no_ticker_passed_checks")
+        blocked = {e["ticker"] for e in intel_effects if e["order"] > int(icfg["max_trade_order"])} if intel else set()
+        gate, new_cands = build_event_candidates(universe, a, title, n["source"], n["uid"], eid, tickers, conf, novelty, age_h, cred, icfg, blocked)
+        candidates.extend(new_cands)
+        have = {c["ticker"] for c in new_cands}
         if intel and not cluster_is_dup(novelty):
             extra = event_intel.candidates_from(intel_effects, intel, a, n, eid, age_h, cred, cfg, have)
             candidates.extend(extra)
             if extra and gate != "candidate":
                 gate = "candidate_llm"
         conn.execute("UPDATE events SET gate=? WHERE id=?", (gate, eid))
+        for c_new in candidates[n_before:]:
+            candqueue.put(conn, c_new, now)                       # durable: survives a kill between this stage and entries
+
+
+def _record_error_event(conn, n, now, err: Exception) -> None:
+    """A placeholder event so a poisonous item is never retried forever, and the reason is visible in the funnel."""
+    try:
+        with db.tx(conn):
+            cur = conn.execute("INSERT INTO events(news_uid,created,published,source,source_id,headline,event_type,scope,direction,magnitude,amount_usd,tickers_json,regions_json,tokens,cluster_id,novelty,credibility,age_hours,stale,llm_json) "
+                               "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                               (n["uid"], iso(now), n["published"], n["source"], n["source"] or "", n["title"] or "", "general_news", "company", 0.0, 0.0, None, "[]", "[]", "", None, 0.0, 0.0, 0.0, 0, None))
+            conn.execute("UPDATE events SET gate=? WHERE id=?", ("error: %s: %s" % (type(err).__name__, str(err)[:80]), cur.lastrowid))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def build_event_candidates(universe, a: dict, title: str, source: str, news_uid: str, eid: int, tickers: List[str], conf: Dict[str, float], novelty: float, age_h: float, cred: float, icfg: dict,
+                           blocked: Optional[set] = None):
+    """The ONE place that turns a classified event into trade candidates (shared by the live pipeline and `recover`). Returns (gate, [candidates])."""
+    gate = candidate_gate(a, tickers, conf, novelty, age_h, icfg)
+    out: List[dict] = []
+    if gate is None:
+        for t in tickers:
+            if conf.get(t, 0) >= 0.6 and t not in (blocked or set()):
+                d = a["direction"]
+                if a["event_type"] == "merger_acquisition":
+                    role = universe.mna_role(t, title) if universe is not None else "unknown"
+                    d = 0.8 if role == "target" else MNA_ACQUIRER_DIRECTION if role == "acquirer" else 0.0
+                if abs(d) >= 0.25:
+                    out.append({"event_id": eid, "ticker": t, "conf": conf[t], "direction": d, "magnitude": a["magnitude"], "event_type": a["event_type"], "age_hours": age_h, "headline": title,
+                                "source": source, "news_uid": news_uid, "amount_usd": a["amount_usd"], "credibility": cred, "horizon": a["horizon"], "decay_days": a["decay_days"]})
+        gate = "candidate" if out else ("merger_role_unknown" if a["event_type"] == "merger_acquisition" else "no_ticker_passed_checks")
+    return gate, out
+
+
+def recover(conn, universe, cfg: dict, now, hours: float = 24.0) -> dict:
+    """Events saved by an older build (gate unrecorded) whose candidates were lost when a cycle died: re-evaluate them with the CURRENT rules and queue the ones
+    that qualify and are still inside the trade window. Idempotent: skips anything already decided or queued, and records the gate it finds."""
+    icfg = cfg["intelligence"]
+    since = iso(now - dt.timedelta(hours=hours))
+    rows = conn.execute("SELECT e.*,n.summary AS n_summary FROM events e LEFT JOIN news n ON n.uid=e.news_uid WHERE e.gate IS NULL AND e.created>? ORDER BY e.id", (since,)).fetchall()
+    res = {"examined": 0, "queued": 0, "by_gate": {}}
+    for e in rows:
+        res["examined"] += 1
+        try:
+            title, summary = e["headline"] or "", e["n_summary"] or ""
+            a = nlp.analyze(title, summary)
+            matches = universe.match(title, summary) if universe is not None else []
+            tickers, conf = [t for t, c, h in matches if c >= 0.5], {t: c for t, c, h in matches}
+            pub = parse_ts(e["published"]) or parse_ts(e["created"]) or now
+            age_h = max(0.0, (now - pub).total_seconds() / 3600)
+            gate, cands = build_event_candidates(universe, a, title, e["source"], e["news_uid"], e["id"], tickers, conf, float(e["novelty"] if e["novelty"] is not None else 1.0), age_h, float(e["credibility"] or 0.5), icfg)
+            with db.tx(conn):
+                for c in cands:
+                    if conn.execute("SELECT 1 FROM decisions WHERE event_id=? AND ticker=?", (e["id"], c["ticker"])).fetchone():
+                        continue
+                    res["queued"] += bool(candqueue.put(conn, c, now))
+                conn.execute("UPDATE events SET gate=? WHERE id=?", (gate, e["id"]))
+            res["by_gate"][gate] = res["by_gate"].get(gate, 0) + 1
+        except Exception as ex:  # noqa: BLE001
+            conn.execute("UPDATE events SET gate=? WHERE id=?", ("error: %s" % type(ex).__name__, e["id"]))
+            res["by_gate"]["error"] = res["by_gate"].get("error", 0) + 1
+    return res
+
+
+def process_new_news(conn, universe, cfg: dict, now: Optional[dt.datetime] = None, analyst: Optional[Callable] = None, limit: int = 600) -> dict:
+    from . import event_intel
+    now = now or utcnow()
+    icfg = cfg["intelligence"]
+    rules = load_rules(conn)
+    recent_cut = iso(now - dt.timedelta(hours=6))
+    rows = conn.execute("SELECT n.* FROM news n LEFT JOIN events e ON e.news_uid=n.uid WHERE e.id IS NULL AND n.ingested>=? ORDER BY n.id LIMIT ?", (recent_cut, limit)).fetchall()
+    if len(rows) < limit:                                   # then the older backlog, oldest first
+        rows += conn.execute("SELECT n.* FROM news n LEFT JOIN events e ON e.news_uid=n.uid WHERE e.id IS NULL AND n.ingested<? ORDER BY n.id LIMIT ?", (recent_cut, limit - len(rows))).fetchall()
+    failed: List[tuple] = []
+    stats = {"events": 0, "evidence": 0, "stale": 0, "duplicates": 0, "llm": 0, "errors": 0}
+    candidates: List[dict] = []
+    # ---- pass 1: cheap deterministic read of everything
+    pre = []
+    for n in rows:
+        try:
+            title, summary = n["title"] or "", n["summary"] or ""
+            a = nlp.analyze(title, summary)
+            pub = parse_ts(n["published"])
+            if pub is None or pub > now + dt.timedelta(minutes=10):
+                pub = parse_ts(n["ingested"]) or now
+            age_h = max(0.0, (now - pub).total_seconds() / 3600)
+            matches = universe.match(title, summary) if universe is not None else []
+            pre.append((n, a, pub, age_h, age_h > float(icfg["stale_event_hours"]), matches))
+        except Exception as e:  # noqa: BLE001
+            failed.append((n, e))
+    # ---- which items deserve an LLM read this cycle (budgeted, ranked)
+    chosen = event_intel.pick_for_llm(conn, pre, icfg, analyst)
+    # ---- pass 2: persist events + evidence
+    for (n, a, pub, age_h, stale, matches) in pre:
+        try:
+            _persist_one(conn, universe, cfg, icfg, rules, chosen, analyst, stats, candidates, now, n, a, pub, age_h, stale, matches)
+        except Exception as e:  # noqa: BLE001 - one bad item must never block the others (it used to abort the whole stage, every cycle, forever)
+            del candidates[len(candidates):]
+            failed.append((n, e))
+    for (n, e) in failed:
+        _record_error_event(conn, n, now, e)
+        stats["errors"] += 1
     stats["candidates"] = len(candidates)
     return {"stats": stats, "candidates": candidates}
 

@@ -16,5 +16,5 @@ PrivateTmp=true
 ReadWritePaths=/var/lib/paper-agent /var/log/paper-agent /run/lock
 Nice=10
 MemoryMax=320M
-TimeoutStartSec=420
+TimeoutStartSec=600
 ExecStart=/usr/bin/python3 -m paper_agent cycle

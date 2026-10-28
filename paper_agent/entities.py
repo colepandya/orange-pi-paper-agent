@@ -49,6 +49,22 @@ BRANDS = {
 GENERIC_FIRST = set("""american national united global first general advanced applied digital international pacific atlantic western eastern southern northern central capital financial energy power health medical
  pharma bio tech technology technologies systems solutions services group holdings industries partners resources new old blue red green gold silver star sun bank trust one world universal premier standard royal great
  big little bright clear smart open next future prime alpha omega home city state county valley mountain river lake ocean coast bay harbor park garden house land""".split())
+GENERIC_FIRST |= set("""stock stocks here there where when what which while work works working worker aware main core edge pure fresh live lives play plays player game games gamer power smart open next future prime
+ alpha beta gamma delta omega sigma zeta apex peak summit point line link links net web cloud data code byte bit pixel digital logic mind brain idea ideas vision visions view views sight site sites
+ market markets trade trades trader trading deal deals offer offers price prices cost costs value values worth wealth money cash coin coins gold silver bronze copper iron steel metal metals stone rock rocks
+ earth world globe planet space star stars sun moon sky air wind fire water ocean sea river lake bay coast island mountain valley forest field fields farm farms garden gardens park parks road roads street
+ bridge gate gates door doors wall walls home house houses building build builder builders block blocks brick bricks tower towers castle city town village county state states nation national people person
+ human life living health care cares care medical medicine drug drugs pharma therapy therapies clinic clinics hospital cure heal healing body mind soul spirit heart hearts hand hands head heads face faces
+ eye eyes ear ears voice voices word words text story stories news media press paper papers book books page pages letter letters mail post posts note notes message messages talk talks call calls
+ phone phones signal signals wave waves sound sounds light lights bright clear clean pure true real right left up down over under above below inside outside high low big small little great good best
+ better new old young first last second third early late fast slow quick rapid swift strong weak hard soft heavy light dark black white red green blue yellow orange purple pink brown grey gray silver
+ universal global general standard premier royal imperial grand major minor senior junior special super ultra mega micro macro mini max min total full half double single triple multi omni uni bio eco geo
+ tech techs technology technologies system systems solution solutions service services support product products brand brands group groups team teams club clubs union unions partners partner
+ capital capitals fund funds trust trusts bank banks banc credit loan loans lending mortgage mortgages insurance assurance holdings holding company companies corporation industries industry
+ resource resources energy energies oil gas petroleum fuel fuels electric electricity solar wind nuclear coal mining mines mine minerals chemical chemicals plastic plastics paper packaging
+ food foods beverage beverages drink drinks coffee tea sugar salt rice grain grains corn wheat meat fish dairy fruit fruits vegetable vegetables restaurant restaurants hotel hotels resort resorts
+ travel tour tours cruise cruises airline airlines air flight flights ship ships shipping freight cargo truck trucks rail railway road auto cars car motor motors motion move moves moving drive drives
+ ride rides run runs running race races sport sports fitness gym health wellness beauty fashion style styles wear clothing apparel shoe shoes bag bags luxury home homes living lifestyle""".split())
 CLEAN_TAIL = re.compile(r"\b(inc|incorporated|corp|corporation|co|company|ltd|limited|plc|holdings|holding|group|sa|nv|ag|lp|llc|the|com|dot|class [a-c]|new)\b", re.I)
 
 
@@ -65,8 +81,9 @@ def derive_aliases(name: str) -> Tuple[str, List[str], str]:
 
 
 class Universe:
-    def __init__(self, watch: Dict[str, dict]):
+    def __init__(self, watch: Dict[str, dict], common_words: Optional[set] = None):
         self.watch = watch or {}
+        self.common = {w.lower() for w in (common_words or ())}          # words seen in lowercase in real news: ordinary English, never a company name on their own
         self.by_cik: Dict[int, str] = {}
         self.index: Dict[str, List[Tuple[str, str, bool, float]]] = {}   # anchor token -> [(phrase_norm, ticker, single_token, base_confidence)]
         derived: Dict[str, Tuple[str, List[str], str]] = {t: derive_aliases(m.get("name", "")) for t, m in self.watch.items()}
@@ -94,10 +111,10 @@ class Universe:
                     pass
             clean, multi, first = derived[t]
             for v in [meta.get("name", "")] + list(meta.get("aliases", []) or []) + [clean] + multi:
-                if len(norm(v)) >= 4:
+                if len(norm(v)) >= 4 and not (len(norm(v).split()) == 1 and (norm(v) in GENERIC_FIRST or norm(v) in self.common)):
                     add(v, t, 0.65)
-            if first and len(first) >= 4 and first not in GENERIC_FIRST and first_counts[first] == 1:
-                add(first, t, 0.70)                                   # a distinctive, UNIQUE first word: "Uber", "Palantir", "Ford"
+            if first and len(first) >= 5 and first not in GENERIC_FIRST and first not in self.common and first_counts[first] == 1:
+                add(first, t, 0.70)                                   # a distinctive, UNIQUE, non-dictionary first word: "Garmin", "Palantir", "Wendy's"
         for brand, t in BRANDS.items():
             if t in self.watch:
                 add(brand, t, 0.85, 0.9)
@@ -133,7 +150,7 @@ class Universe:
                     continue
                 if single:
                     # single words must start with a capital in the original text ("Ford" yes, "ford a river" no; "JPMorgan" yes)
-                    m_cap = re.search(r"(?<![A-Za-z0-9])" + re.escape(phrase[0].upper()) + r"(?i:" + re.escape(phrase[1:]) + r")(?![A-Za-z0-9])(?!-[A-Za-z])", raw)      # not "Meta-analysis", "Apple-style"
+                    m_cap = re.search(r"(?<![A-Za-z0-9-])" + re.escape(phrase[0].upper()) + r"(?i:" + re.escape(phrase[1:]) + r")(?![A-Za-z0-9])(?!-[A-Za-z])", raw)      # not "Meta-analysis", "Apple-style"
                     if not m_cap:
                         continue
                     if phrase in COMMON_WORD_ALIASES:
@@ -173,3 +190,13 @@ class Universe:
             if first in words:
                 return "acquirer" if words.index(first) < verb_pos else "target"
         return "unknown"
+
+
+def build_common_words(texts, min_count: int = 4) -> set:
+    """Words that appear in LOWERCASE at least ``min_count`` times in real news are ordinary English ("stock", "here", "work", "aware"...), so a capitalised
+    occurrence at a sentence start or in a title must not be mistaken for a company. Company names ("Garmin", "Palantir") are almost never lowercase."""
+    counts: Dict[str, int] = {}
+    for t in texts:
+        for w in re.findall(r"(?<![A-Za-z0-9'-])[a-z][a-z]{3,}(?![A-Za-z0-9'-])", t or ""):
+            counts[w] = counts.get(w, 0) + 1
+    return {w for w, n in counts.items() if n >= min_count}

@@ -6,6 +6,7 @@ set -Eeuo pipefail
 [[ $EUID -ne 0 || "${ALLOW_ROOT:-0}" == "1" ]] || { echo "Run as your normal user (not sudo) so your SSH key is used"; exit 1; }
 command -v git >/dev/null || { echo "git is not installed: sudo apt install -y git"; exit 1; }
 R="$(cd "$(dirname "$0")/.." && pwd)"
+if find "$R" \( -name '*.rej' -o -name '*.orig' \) -not -path '*/.git/*' | grep -q .; then echo "Refusing to publish: this folder has failed-patch leftovers (*.rej / *.orig). Use a fresh unzip."; exit 1; fi
 REPO_DIR="${REPO_DIR:-$HOME/paper-agent-repo}"
 REPO_URL="${REPO_URL:-git@github.com:colepandya/orange-pi-paper-agent.git}"
 KEY="${SSH_KEY:-$HOME/.ssh/orangepi-paper-agent}"

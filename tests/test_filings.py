@@ -113,7 +113,7 @@ class TestFilings(TI.Base):
         from paper_agent import db
         self.cfg["intelligence"]["max_knowledge_refresh_per_cycle"] = 2
         self.assertEqual(filings.due_tickers(self.c, self.cfg, ["A", "B", "C"], ["D"], NOW), ["A", "B"])
-        db.mark_run(self.c, "kb:A")
+        db.mark_run(self.c, "kb:A", "", NOW)                      # same clock as the due-check below
         self.assertEqual(filings.due_tickers(self.c, self.cfg, ["A", "B", "C"], [], NOW), ["B", "C"])
 
     def test_pipeline_reads_filings_then_redteam_and_dossier_use_the_knowledge(self):

@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import time
 import json
 import math
 import os
 from typing import Callable, Dict, List, Optional
 
-from . import company, db, ev, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
+from . import candqueue, company, db, ev, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
 from .timeutil import add_trading_days, iso, market_state, parse_ts, utcnow
 
 PENDING = ("AWAITING_MARKET", "AWAITING_QUOTE", "AWAITING_CAPACITY")
@@ -217,11 +218,28 @@ def _defer(conn, c: dict, now, why: str) -> int:
         return _decision(conn, c, "AWAITING_CAPACITY", "BUY", reason, eligibility_score(c), now, None, None, None, "", c.get("thesis_key"))
 
 
-def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict, now, quote_fn: Callable, md_fetch=None, intel: Optional[dict] = None) -> dict:
-    out = {"processed": 0, "executed": 0, "retried": 0, "deferred": 0, "by_status": {}}
+def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict, now, quote_fn: Callable, md_fetch=None, intel: Optional[dict] = None, deadline: Optional[float] = None) -> dict:
+    out = {"processed": 0, "executed": 0, "retried": 0, "deferred": 0, "errors": 0, "by_status": {}}
     icfg = cfg["intelligence"]
     cap = int(cfg["risk"]["max_new_per_cycle"])
     new_exec = 0                                    # executions this cycle (retries AND fresh) count against the per-cycle cap
+
+    def late() -> bool:
+        return deadline is not None and time.time() > deadline            # out of time: the rest stay in the durable queue for the next cycle
+
+    def attempt(c: dict, **kw) -> dict:
+        """One candidate, isolated: an exception becomes a visible ERROR decision instead of aborting every candidate after it."""
+        try:
+            return process_candidate(conn, cfg, universe, c, regime, now, quote_fn, md_fetch, intel=intel, **kw)
+        except Exception as e:  # noqa: BLE001
+            out["errors"] += 1
+            try:
+                with db.tx(conn):
+                    did = _decision(conn, c, "ERROR", "BUY", {"error": "%s: %s" % (type(e).__name__, str(e)[:200]), "candidate": {k: c.get(k) for k in ("event_id", "event_type", "headline")}, "gates": ["internal error"]},
+                                    eligibility_score(c), now, None, None, None, "", c.get("thesis_key"))
+            except Exception:  # noqa: BLE001
+                did = 0
+            return {"status": "ERROR", "decision_id": did}
 
     def tally(r):
         nonlocal new_exec
@@ -249,21 +267,28 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
         c["age_hours"] = (c.get("age_hours") or 0) + age
         if conn.execute("SELECT 1 FROM positions WHERE decision_id=?", (row["id"],)).fetchone():
             continue
-        r = process_candidate(conn, cfg, universe, c, regime, now, quote_fn, md_fetch, existing_decision=row["id"], intel=intel)
+        if late():
+            break
+        r = attempt(c, existing_decision=row["id"])
         out["retried"] += 1
         tally(r)
     # 2. fresh candidates, best first. Beyond the per-cycle cap they are DEFERRED (recorded, retried next cycle), never dropped.
     for c in sorted(candidates, key=lambda x: -(x["magnitude"] * abs(x["direction"]) * x.get("credibility", 0.5))):
         if c.get("event_id") and conn.execute("SELECT 1 FROM decisions WHERE event_id=? AND ticker=? AND origin!='thesis'", (c["event_id"], c["ticker"])).fetchone():
+            candqueue.done(conn, c, now)                     # already decided (e.g. a retry after a crash): just close the queue entry
             continue
+        if late():
+            break
         if c.get("origin") == "thesis" and conn.execute("SELECT 1 FROM decisions WHERE ticker=? AND origin='thesis' AND created>?", (c["ticker"], iso(now - dt.timedelta(hours=24)))).fetchone():
             continue
         if new_exec >= cap:
             _defer(conn, c, now, "per-cycle new-position cap (%d) reached; retried next cycle" % cap)
+            candqueue.done(conn, c, now)                     # the AWAITING_CAPACITY decision row now carries it
             out["deferred"] += 1
             out["by_status"]["AWAITING_CAPACITY"] = out["by_status"].get("AWAITING_CAPACITY", 0) + 1
             continue
-        r = process_candidate(conn, cfg, universe, c, regime, now, quote_fn, md_fetch, intel=intel)
+        r = attempt(c)
+        candqueue.done(conn, c, now, "ERROR" if r["status"] == "ERROR" else "DONE")
         out["processed"] += 1
         tally(r)
     return out

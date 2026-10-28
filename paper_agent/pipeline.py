@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, List, Optional
 
-from . import (company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, marketdata as md, monitor, narrative, net, portfolio as pf,
+from . import (candqueue, config, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, marketdata as md, monitor, narrative, net, portfolio as pf,
                quotes, regime as regime_engine, sources, thesis, trader)
 from .config import load_json, CONFIG_DIR
 from .entities import Universe
@@ -71,8 +71,27 @@ class Lock:
             self.f.close()
 
 
+def _common_words_path() -> str:
+    return os.path.join(os.path.dirname(config.SETTINGS_PATH) or ".", "common-words.json")
+
+
 def load_universe() -> Universe:
-    return Universe(load_json(os.path.join(CONFIG_DIR, "watchlist.json"), {}))
+    common = load_json(_common_words_path(), [])
+    return Universe(load_json(os.path.join(CONFIG_DIR, "watchlist.json"), {}), set(common) if isinstance(common, list) else set())
+
+
+def refresh_common_words(conn, limit: int = 40000) -> int:
+    """Learn which words are ordinary English from the news we have actually stored (cheap, run daily)."""
+    from .entities import build_common_words
+    rows = conn.execute("SELECT title,summary FROM news ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    words = build_common_words([(r["title"] or "") + " " + (r["summary"] or "")[:400] for r in rows])
+    path = _common_words_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(sorted(words), f)
+    os.replace(tmp, path)
+    return len(words)
 
 
 def load_sources(cfg: Optional[dict] = None) -> List[dict]:
@@ -87,8 +106,17 @@ def load_sources(cfg: Optional[dict] = None) -> List[dict]:
     return srcs
 
 
+_CKPT: Optional[Callable] = None            # set by run_cycle: persists the report so far (a killed cycle then shows where it died)
+
+
 def _stage(report: dict, name: str, fn: Callable, *a, **kw):
     t0 = time.time()
+    report["current"] = name
+    if _CKPT:
+        try:
+            _CKPT()
+        except Exception:  # noqa: BLE001 - bookkeeping must never break a cycle
+            pass
     try:
         out = fn(*a, **kw)
         report["stages"][name] = {"ok": True, "seconds": round(time.time() - t0, 2)}
@@ -105,11 +133,22 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     universe = universe if universe is not None else load_universe()
     srcs = srcs if srcs is not None else load_sources(cfg)
     report: Dict = {"started": iso(now), "mode": mode, "stages": {}, "errors": [], "market": market_state(now)}
+    # a cycle that never finished (timeout / out-of-memory / reboot) is marked KILLED so it is visible instead of looking "running" forever
+    conn.execute("UPDATE cycle_runs SET status='KILLED' WHERE status='RUNNING' AND started<?", (iso(now - dt.timedelta(minutes=12)),))
     run_id = conn.execute("INSERT INTO cycle_runs(started,status,mode) VALUES(?,?,?)", (iso(now), "RUNNING", mode)).lastrowid
+    t_start = time.time()
+    budget = float(cfg["runtime"].get("cycle_budget_seconds", 300))
+    over_budget = lambda frac=1.0: (time.time() - t_start) > budget * frac  # noqa: E731
+
+    def _save() -> None:
+        conn.execute("UPDATE cycle_runs SET report_json=? WHERE id=?", (json.dumps(report, default=str), run_id))
+    global _CKPT
+    _CKPT = _save
     bad = resources_ok(cfg)
     if bad:
         report["skipped"] = bad
         conn.execute("UPDATE cycle_runs SET finished=?,status='SKIPPED',report_json=? WHERE id=?", (iso(), json.dumps(report), run_id))
+        _CKPT = None
         return report
     quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json))
     thesis.seed(conn)
@@ -128,9 +167,12 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
                 control.send_request("set_schedule", dict(cfg["schedule"]))
             except OSError:
                 pass                                    # control dir missing/unwritable: reported by the doctor, must never fail a cycle
-            db.mark_run(conn, "schedule_reconcile", ",".join(drift))
+            db.mark_run(conn, "schedule_reconcile", ",".join(drift), now)
         return {"drift": drift}
     report["schedule"] = _stage(report, "schedule", heal_schedule)
+    if db.due(conn, "common_words", 24, now):                     # keeps company matching precise as the news corpus grows
+        report["common_words"] = _stage(report, "common_words", refresh_common_words, conn)
+        db.mark_run(conn, "common_words", "", now)
 
     # ---- world state
     reg = regime_engine.current(conn)
@@ -138,14 +180,14 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         r = _stage(report, "regime", regime_engine.refresh, conn, deps.series_fetch, now, icfg["regime_refresh_hours"])
         if r:
             reg = {"regime": r["regime"], "probs": r["probs"], "risk_mult": r["risk_mult"]}
-            db.mark_run(conn, "regime", r["regime"])
+            db.mark_run(conn, "regime", r["regime"], now)
     report["regime"] = reg.get("regime")
 
     # ---- collection
     held = [r[0] for r in conn.execute("SELECT DISTINCT ticker FROM positions WHERE status='OPEN'")]
 
     def collect():
-        out = sources.collect(conn, [s for s in srcs if icfg["gdelt_enabled"] or s["type"] != "gdelt"], deps.fetch, sleep=deps.sleep)
+        out = sources.collect(conn, [s for s in srcs if icfg["gdelt_enabled"] or s["type"] != "gdelt"], deps.fetch, clock=lambda: now.timestamp(), sleep=deps.sleep)
         names = list(dict.fromkeys(held + [r[0] for r in conn.execute("SELECT ticker FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_CAPACITY')")]))[: icfg["finnhub_company_news_max"]]
         extra = 0
         if os.getenv("FINNHUB_API_KEY") and db.due(conn, "company_news", 0.25, now):
@@ -155,7 +197,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
                     extra += sources.store_items(conn, src, sources.finnhub_company_news(t, deps.fetch), now)
                 except Exception:  # noqa: BLE001
                     pass
-            db.mark_run(conn, "company_news")
+            db.mark_run(conn, "company_news", "", now)
         out["company_news_new"] = extra
         out["contradiction"] = contradiction.search(conn, cfg, deps.fetch, now, sleep=deps.sleep)
         return out
@@ -163,8 +205,9 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
 
     # ---- event / evidence / thesis / narrative
     ev = _stage(report, "evidence", evidence.process_new_news, conn, universe, cfg, now, analyst)
-    cands = ev["candidates"] if ev else []
     report["evidence"] = ev["stats"] if ev else {}
+    cands = candqueue.load(conn, now, icfg["trade_event_max_age_hours"])          # durable: includes leftovers from a cycle that was killed before it reached entries
+    report["queue"] = candqueue.counts(conn)
     _stage(report, "flows", flows.record_event_flows, conn, iso(now - dt.timedelta(days=3)))
     _stage(report, "thesis", thesis.recompute, conn, now)
     _stage(report, "narrative", narrative.update, conn, now)
@@ -174,6 +217,9 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         want = list(dict.fromkeys(held + [c["ticker"] for c in cands]))
         n = 0
         for t in want:
+            if over_budget(0.4):                    # slow network calls must not starve the decisions that follow
+                report.setdefault("budget", []).append("companies: stopped early at %ds" % (time.time() - t_start))
+                break
             row = conn.execute("SELECT updated FROM companies WHERE ticker=?", (t,)).fetchone()
             fresh = False
             if row and row["updated"]:
@@ -181,17 +227,20 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
                 fresh = (now - parse_ts(row["updated"])).total_seconds() < icfg["company_refresh_hours"] * 3600
             if fresh or n >= icfg["max_company_refresh_per_cycle"]:
                 continue
-            md.refresh_symbol(conn, t, 12, "1y", deps.series_fetch, now)
-            company.refresh_company(conn, t, universe.meta(t), cfg, deps.fetch_json, now, use_network=True)
-            if os.getenv("FINNHUB_API_KEY"):
-                try:
-                    flows.fetch_insiders(conn, t, deps.fetch_json)
-                except Exception:  # noqa: BLE001
-                    pass
             n += 1
+            try:                                    # one bad company must not abort the others (it used to fail the whole stage)
+                md.refresh_symbol(conn, t, 12, "1y", deps.series_fetch, now)
+                company.refresh_company(conn, t, universe.meta(t), cfg, deps.fetch_json, now, use_network=True)
+                if os.getenv("FINNHUB_API_KEY"):
+                    try:
+                        flows.fetch_insiders(conn, t, deps.fetch_json)
+                    except Exception:  # noqa: BLE001
+                        pass
+            except Exception as e:  # noqa: BLE001
+                report.setdefault("company_errors", []).append("%s: %s: %s" % (t, type(e).__name__, str(e)[:100]))
         for etf in flows.ETF_LIST[:8] if db.due(conn, "etf_series", 12, now) else []:
             md.refresh_symbol(conn, etf, 12, "1y", deps.series_fetch, now)
-        db.mark_run(conn, "etf_series")
+        db.mark_run(conn, "etf_series", "", now)
         return n
     _stage(report, "companies", refresh_companies)
 
@@ -202,18 +251,21 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
             return {"skipped": "llm off"}
         done = {}
         for t in filings.due_tickers(conn, cfg, held, [c["ticker"] for c in cands], now):
+            if over_budget(0.5):
+                report.setdefault("budget", []).append("knowledge: stopped early at %ds" % (time.time() - t_start))
+                break
             meta = universe.meta(t)
             try:
                 done[t] = filings.refresh(conn, cfg, client, t, meta.get("cik"), deps.fetch, now, sleep=deps.sleep)
             except Exception as e:  # noqa: BLE001
                 done[t] = {"error": "%s: %s" % (type(e).__name__, e)}
-            db.mark_run(conn, "kb:" + t)
+            db.mark_run(conn, "kb:" + t, "", now)
         return done
     report["knowledge"] = _stage(report, "knowledge", refresh_knowledge)
 
     # ---- capital allocation
     cands = cands + trader.thesis_candidates(conn, cfg, reg, universe)
-    ent = _stage(report, "entries", trader.run_entries, conn, cfg, universe, cands, reg, now, quote_fn, deps.series_fetch if deps.series_fetch else None, intel)
+    ent = _stage(report, "entries", trader.run_entries, conn, cfg, universe, cands, reg, now, quote_fn, deps.series_fetch if deps.series_fetch else None, intel, t_start + budget * 1.2)
     report["entries"] = ent
 
     # ---- portfolio intelligence -> monitoring -> execution
@@ -232,13 +284,16 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         if db.due(conn, "learning", 6, now):
             lr = _stage(report, "learning", learning.resolve_due, conn, cfg, now, deps.series_fetch)
             rc = _stage(report, "recalibrate", learning.recalibrate, conn, cfg, now)
-            db.mark_run(conn, "learning")
+            db.mark_run(conn, "learning", "", now)
             report["learning"] = {"resolved": lr, "recalibrated": bool(rc and (rc["calibration"] or rc["event_types"] or rc["theses"]))}
         _stage(report, "gaps", gaps.scan, conn, cfg, now)
         _stage(report, "gaps_resolve", gaps.resolve_auto, conn, cfg, universe, deps.fetch_json, deps.fetch, now)
     if intel:
         report["llm"] = client.usage_summary()
     report["finished"] = iso()
+    report["current"] = None
+    report["seconds"] = round(time.time() - t_start, 1)
+    _CKPT = None
     conn.execute("UPDATE cycle_runs SET finished=?,status=?,report_json=? WHERE id=?", (iso(), "ERROR" if report["errors"] else "OK", json.dumps(report, default=str), run_id))
     conn.execute("DELETE FROM cycle_runs WHERE id<?", (run_id - 2000,))
     return report

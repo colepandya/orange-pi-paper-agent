@@ -13,6 +13,34 @@ did or did not become a candidate (duplicate story, macro event, no company reco
 *no cycle in 2h*, *events flowing but nothing qualifies*. Candidates beyond the per-cycle cap are recorded as `AWAITING_CAPACITY` and retried, never dropped.
 `python3 -m paper_agent recall-check` runs 36 realistic headlines through company recognition + qualification on the real watchlist and lists any misses.
 
+## Installing a release (and proving you installed the right one)
+1. Download the zip; its name contains the build (e.g. `paper-agent-build17.zip`). 2. `scp` that exact file to the Pi. 3. BEFORE installing, check which build is inside:
+   `unzip -p /tmp/paper-agent-build17.zip paper-agent-v5/BUILD`  4. Unpack into a NEW empty folder, then `sudo bash scripts/install.sh`: it prints `Installing Paper Agent BUILD n` and refuses a half-patched folder.
+5. Afterwards `cat /opt/paper-agent/BUILD` must show that number. Do not apply patches onto an older install; always install the full zip.
+
+## What the Decisions statuses mean
+| Status | Meaning |
+|---|---|
+| `REJECTED` / `NO_TRADE` | evaluated and not worth trading (low expected value, low confidence, illiquid, ...). The "why" shows the exact gates. |
+| `AWAITING_MARKET` | a BUY that passed every check but the US market is closed. It is re-evaluated by the first cycle after the open (a cycle runs at 09:35 New York) and executed if still good. |
+| `AWAITING_QUOTE` | the market IS open but two providers could not confirm a fresh, agreeing price. The reason names each provider (stale / error / no key). It retries every cycle while the news is under 24 h old. |
+| `AWAITING_CAPACITY` | more candidates than the per-cycle limit allows, or waiting for room in the portfolio. Retried next cycle. |
+| `EXECUTED` | a virtual position was opened (see Positions). |
+| `RISK_REJECTED` / `CAPACITY_DEFERRED` / `PAUSED` | blocked by a risk limit / position too small / trading paused. |
+| `EXPIRED` | the news got too old to trade (24 h). |
+| `ERROR` | an internal error on this one candidate (it never blocks the others). |
+**Selling:** exits run every 2 minutes during regular hours (guard) and in every cycle, only on a verified fresh price, never outside regular hours. A position exits on its stop, its target (partial sale, the rest runs
+with a trailing exit - or the system re-forecasts and *extends the hold*, which is expected and shown as HOLD_EXTENDED), a time stop, or a broken thesis.
+
+## "Hundreds of events but no decisions" - the cycle was killed
+The cycle has a time limit (10 min) and a memory cap. Before build 15, trade candidates lived only in memory between the evidence stage and the entries stage, so a cycle that
+was killed in between (slow network calls during company refresh, out-of-memory, a restart) kept the events but **lost every candidate**, silently.
+Now: every candidate is written to a durable queue the moment it is created (same transaction as its event); slow enrichment stops early after ~40% of the time budget
+(Settings -> System -> Cycle time budget); each candidate and each headline is isolated so one bad item cannot block the rest; every stage is checkpointed so a killed cycle shows
+the stage it died in; and cycles that never finished are labelled KILLED. `funnel` / the Funnel tab / `preflight` report all of this.
+If a build older than 15 was running when it happened, run `python3 -m paper_agent recover --hours 24`: it re-evaluates the unrecorded events from that period with the current rules and
+queues the candidates that are still inside the 24h trade window (the installer does this automatically).
+
 ## Memory (730 MB machine)
 * A cycle is **skipped** (no news processed, no decisions) when free RAM drops below `runtime.min_available_memory_mb` (default 120). The doctor / checklist / funnel all flag this.
 * The installer and tests use a dedicated on-disk folder (`/var/lib/paper-agent/tmp`), never `/dev/shm`. `sudo bash scripts/cleanup-ram.sh` frees leftovers from older versions.
@@ -31,5 +59,5 @@ Every setting records when and by whom it was changed. A release can ship `confi
 API keys: a deploy only fills **missing** keys; it can override one only via `FORCE_KEYS=...` + a new `FORCE_ID=...` in the repo's `config/market-data.env`, once. Keys saved in the dashboard always win.
 
 ## Useful commands
-`status` · `doctor [--fix]` · `preflight` · `funnel` · `recall-check` · `probe` · `quote SPY` · `apply-deploy` · `llm-test` · `llm-eval` · `backup`
+`status` · `doctor [--fix]` · `preflight` · `funnel` · `recover` · `recall-check` · `probe` · `quote SPY` · `apply-deploy` · `llm-test` · `llm-eval` · `backup`
 (all via `sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent <command>`)

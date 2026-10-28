@@ -62,7 +62,7 @@ def resolve_auto(conn, cfg: dict, universe, fetch_json: Callable = net.get_json,
                 k = flows.fetch_insiders(conn, t["subject"], fetch_json)
                 ok, out = True, "%d insider rows" % k
             elif t["kind"] == "thesis_stale":
-                db.mark_run(conn, "contra:" + t["subject"], "")  # force
+                db.mark_run(conn, "contra:" + t["subject"], "", now)  # force
                 conn.execute("DELETE FROM task_schedule WHERE task=?", ("contra:" + t["subject"],))
                 r = contradiction.search(conn, cfg, fetch, now, max_theses=1, sleep=lambda s: None)
                 ok, out = True, json.dumps(r)

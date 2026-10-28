@@ -1,3 +1,35 @@
+# Build 17
+* **Fixed (the cause of cycles ending in ERROR): numbers from providers arriving as text** ("28.4", "N/A", "", null) crashed the company scoring and the BUY path with `TypeError`. One strict `num()` is now
+  used at every parse boundary, scoring defends itself, and numeric columns are neutralised on read. Found with the new "fake internet" tests (below).
+* **Fixed: false company matches.** The first-word alias rule treated ordinary words as company names ("Stock" -> Stock Yards Bancorp/SYBT, "Here" -> HERE, "Work" -> WOK, "Context-Aware" -> AWRE).
+  Now: a broad stoplist, 5-letter minimum, words learned as lowercase from the stored news (refreshed daily), compounds ("Context-Aware") ignored, generic two-word phrases ("Main Street") never aliases.
+* **New: whole-system tests against a simulated internet** (`tests/fake_internet.py`): real network layer, parsers, company refresh and quote consensus; clean, degraded (empty, nulls, strings, HTML, truncated,
+  HTTP 403/429/500) and malformed news items; buying AND selling through the full stack.
+* One failing company refresh can no longer abort the rest of the company stage; failures are recorded.
+* **The funnel / doctor now print the actual stage-error messages** (grouped, with counts), not just "N cycles had errors".
+* **Installer refuses hybrid trees**: leftovers of a failed `patch` (`*.rej`/`*.orig`) or any file that differs from the packaged release (SHA-256 manifest) abort the install before anything is touched. It also prints
+  the BUILD it is installing. `publish.sh` refuses to publish such a folder.
+* Release zips are now named by build (`paper-agent-build17.zip`) so an older download can never be copied by mistake.
+
+# Build 16
+* **BUY -> position -> SELL is now tested end to end through the REAL quote-consensus code** (fake Twelve Data / Finnhub / Alpaca / Yahoo responses): overnight wait, execution at the open, stale / disagreeing / missing quotes,
+  stop, target + runner, time stop, thesis exit, after-hours, stale-quote exits, idempotent guard, ledger reconciliation. Previously every test used a stub that always answered PASS.
+* **Fixed: "open market but no verified price" looked identical to "market closed"** (both AWAITING_MARKET). New status `AWAITING_QUOTE`, with a per-provider reason (stale / error / no key / need 2 agreeing).
+* **Fixed: waiting BUYs were fully re-evaluated (with market-data calls) every 10 minutes all night.** They now wait cheaply until the open.
+* **New: a cycle runs at 09:35 New York time** (systemd handles daylight saving) so BUYs that waited overnight execute promptly after the open.
+* **Visibility:** the Decisions table shows what each waiting BUY is waiting for; the Funnel tab, `funnel` and the pre-open checklist list waiting BUYs and flag any stuck without a verified price.
+* **Fixed: quote freshness used the real clock while the cycle used its own** (now one clock; this is what made the path untestable).
+
+# Build 15
+* **Fixed (the "events but no decisions" bug): trade candidates were only held in memory** between the evidence and entries stages. A cycle killed in between (timeout, out-of-memory, restart)
+  kept its events but lost every candidate, with no error. Candidates are now written to a durable queue in the same transaction as their event and removed only once a decision exists.
+* **Cycle time budget**: slow company/filing refreshes stop early so decisions are never starved; entries have their own deadline; leftovers stay queued for the next cycle.
+* **Isolation**: one malformed headline can no longer abort the whole evidence stage (it used to be retried and fail forever); one failing candidate becomes a visible `ERROR` decision instead of aborting the rest.
+* **Traceability**: every stage is checkpointed before it starts; cycles that never finished are labelled `KILLED`; the funnel / checklist report them with the stage they died in and show the slowest stages.
+* **New `recover` command** (run automatically at install): rebuilds the candidates lost before this fix from the events still in the database.
+* Recent news is evaluated first (an old backlog can no longer starve fresh, tradable items). Classifier is ~3x faster (patterns compiled once).
+* Fixed mixed real/injected clock bugs (`mark_run`, source scheduling, health stamps); the whole test suite now passes at any wall-clock date.
+
 # Build 14
 * **Fixed: news items silently dropped.** Company recognition used SEC legal names only ("UBER TECHNOLOGIES INC") so "Uber", "Ford", "Amazon", "Meta", "Disney", "JPMorgan", ... were never found; common headline wording
   ("beats subscriber estimates", "signs a contract", "recalls", "warns") was never classified. On a realistic benchmark candidates went from 38% to ~97%, with 0 false positives.

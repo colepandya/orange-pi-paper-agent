@@ -53,6 +53,8 @@ def run(conn, cfg: dict, universe=None, config_dir: str = "", fetch: Callable = 
     else:
         ok = age_m <= interval * 2.5 + 2 and last["status"] in ("OK",)
         chk("Cycle running", PASS if ok else (WARN if age_m <= interval * 4 else FAIL), "last cycle %.0f min ago, status %s (every %d min)" % (age_m, last["status"], interval), "sudo /opt/paper-agent/scripts/doctor.sh" if not ok else "")
+    killed = conn.execute("SELECT COUNT(*) FROM cycle_runs WHERE (status='KILLED' OR (status='RUNNING' AND started<?)) AND started>?", (iso(now - dt.timedelta(minutes=12)), iso(now - dt.timedelta(hours=2)))).fetchone()[0]
+    chk("No killed cycles (last 2h)", PASS if not killed else FAIL, "%d cycle(s) started but never finished" % killed if killed else "none", "see `funnel` for the stage they died in; journalctl -u paper-agent-cycle --since -3h" if killed else "")
     skipped = conn.execute("SELECT COUNT(*) FROM cycle_runs WHERE status='SKIPPED' AND started>?", (iso(now - dt.timedelta(hours=2)),)).fetchone()[0]
     chk("No skipped cycles (last 2h)", PASS if not skipped else FAIL, "%d skipped" % skipped if skipped else "none skipped", "low memory: sudo bash /opt/paper-agent/scripts/cleanup-ram.sh" if skipped else "")
     opens = conn.execute("SELECT COUNT(*) FROM positions WHERE status='OPEN'").fetchone()[0]

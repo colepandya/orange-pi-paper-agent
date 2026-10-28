@@ -6,6 +6,7 @@ Fixes the legacy scorer, which matched raw substrings ("ban" in "bank", "order" 
 from __future__ import annotations
 
 import math
+import functools
 import re
 import unicodedata
 from functools import lru_cache
@@ -225,11 +226,17 @@ def regions(text_norm: str) -> List[str]:
     return [r for r, kws in REGIONS.items() if any(has_phrase(text_norm, k.strip()) for k in kws)]
 
 
+@functools.lru_cache(maxsize=None)
+def _pattern_rx(pat: str):
+    """Compiled once per pattern (this used to be rebuilt and re-normalised for every pattern of every event type for every headline)."""
+    return re.compile(r"(?<![a-z0-9])(?:" + (pat if any(ch in pat for ch in "\\()|?+*[") else re.escape(norm(pat)).replace(r"\ ", r"\s+")) + r")(?![a-z0-9])")
+
+
 def _score_type(et: EventType, title_n: str, body_n: str):
     """Returns (score, first_match_start_in_title_or_body, matched_text)."""
     score, start, hit = 0.0, None, ""
     for pat in et.patterns:
-        rx = re.compile(r"(?<![a-z0-9])(?:" + (pat if any(ch in pat for ch in "\\()|?+*[") else re.escape(norm(pat)).replace(r"\ ", r"\s+")) + r")(?![a-z0-9])")
+        rx = _pattern_rx(pat)
         m = rx.search(title_n)
         if m:
             score += 2.0

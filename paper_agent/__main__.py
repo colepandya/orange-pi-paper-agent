@@ -8,6 +8,7 @@ import sys
 
 from . import VERSION, backup as backup_mod, config, db, net, pipeline, universe as universe_mod
 from .config import CONFIG_DIR, DB_PATH, STATE_DIR
+from .timeutil import utcnow
 
 
 def _setup():
@@ -29,6 +30,9 @@ def main(argv=None) -> int:
         sub.add_parser(name)
     pp2 = sub.add_parser("preflight", help="pre-open checklist: READY or the exact blockers")
     pp2.add_argument("--offline", action="store_true")
+    rp = sub.add_parser("recover", help="re-evaluate recent events whose candidates were lost when a cycle died")
+    rp.add_argument("--hours", type=float, default=24)
+    sub.add_parser("common-words", help="learn which words are ordinary English from the stored news")
     sub.add_parser("recall-check", help="test company recognition on realistic headlines using the real watchlist")
     fp = sub.add_parser("funnel", help="why did / did not news become decisions")
     fp.add_argument("--hours", type=float, default=24)
@@ -65,6 +69,16 @@ def main(argv=None) -> int:
         conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
         r = preflight.run(conn, cfg, pipeline.load_universe(), CONFIG_DIR, srcs=pipeline.load_sources(cfg), live=not args.offline)
         return 0 if r["ready"] else 1
+    if args.cmd == "recover":
+        from . import evidence
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        res = evidence.recover(conn, pipeline.load_universe(), cfg, utcnow(), args.hours)
+        print("recover: examined %(examined)d unrecorded events from the last %(h)gh -> queued %(queued)d trade candidate(s) for the next cycle; reasons: %(by_gate)s" % {**res, "h": args.hours})
+        return 0
+    if args.cmd == "common-words":
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        print("common words learned from stored news: %d" % pipeline.refresh_common_words(conn))
+        return 0
     if args.cmd == "recall-check":
         from . import recall
         res = recall.evaluate(pipeline.load_universe(), icfg=cfg["intelligence"])

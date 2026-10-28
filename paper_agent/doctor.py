@@ -44,13 +44,13 @@ def iso_hours_ago(h: float, now=None) -> str:
 
 
 def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json: Callable = net.get_json, live: bool = True, check_units: bool = True,
-        fix: bool = False, srcs: Optional[List[dict]] = None, out: Callable = print, sleep: Callable = time.sleep) -> dict:
+        fix: bool = False, srcs: Optional[List[dict]] = None, out: Callable = print, sleep: Callable = time.sleep, now=None) -> dict:
     issues: List[dict] = []
 
     def issue(sev: str, msg: str, fixcmd: str = "") -> None:
         issues.append({"severity": sev, "message": msg, "fix": fixcmd})
 
-    now = utcnow()
+    now = now or utcnow()
     out("=== PAPER AGENT DOCTOR v%s  %s ===" % (VERSION, to_nz(now)))
     # ---- database
     integ = conn.execute("PRAGMA integrity_check").fetchone()[0]
@@ -131,6 +131,13 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
     runs = conn.execute("SELECT status,COUNT(*) n FROM cycle_runs WHERE started>? GROUP BY status", (iso_hours_ago(24, now),)).fetchall()
     if runs:
         out("[cycles 24h] " + ", ".join("%s=%d" % (r["status"], r["n"]) for r in runs))
+        if any(r["status"] == "ERROR" for r in runs):
+            try:
+                from . import funnel as _fn
+                for m, n in _fn.report(conn, 24, now, samples=0)["stage_errors"][:3]:
+                    out("   stage error x%d: %s" % (n, m))
+            except Exception:  # noqa: BLE001
+                pass
         skipped = sum(r["n"] for r in runs if r["status"] == "SKIPPED")
         if skipped:
             why = conn.execute("SELECT report_json FROM cycle_runs WHERE status='SKIPPED' ORDER BY id DESC LIMIT 1").fetchone()

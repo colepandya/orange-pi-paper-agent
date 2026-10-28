@@ -31,6 +31,9 @@ bash "$R/scripts/cleanup-ram.sh" >/dev/null 2>&1 || true
 avail_mb() { awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo; }
 echo "memory available: $(avail_mb) MB  |  RAM-disk in use: $(du -sm /dev/shm 2>/dev/null | cut -f1) MB"
 
+echo "Installing Paper Agent BUILD $(cat "$R/BUILD" 2>/dev/null || echo '?')   (currently installed: BUILD $(cat /opt/paper-agent/BUILD 2>/dev/null || echo none))"
+# ---- refuse a HYBRID tree (leftovers of a failed `patch`, or files that differ from what was packaged): this is how a half-patched build once got installed
+bash "$R/scripts/verify-package.sh" "$R" || exit 1
 # ---- completeness check: GitHub's web uploader can silently drop files; detect that BEFORE changing anything
 if [[ -f "$R/MANIFEST.txt" ]]; then
   MISSING="$(cd "$R" && while read -r f; do [[ -f "$f" ]] || echo "  $f"; done < MANIFEST.txt)"
@@ -144,6 +147,9 @@ runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent 
 echo "[5b] Release settings entries (your own changes are never overwritten; see docs/SETTINGS.md)"
 [[ -f "$R/config/deploy-settings.json" ]] && install -m0644 "$R/config/deploy-settings.json" /opt/paper-agent/deploy-settings.json
 runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent apply-deploy /opt/paper-agent/deploy-settings.json || echo "WARN: could not process release settings (continuing)"
+
+runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent common-words || echo "WARN: could not learn common words (continuing)"
+runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent recover --hours 24 || echo "WARN: could not recover recent events (continuing)"
 
 echo "[6/7] Installing units"
 for f in cycle.service cycle.timer guard.service guard.timer dashboard.service backup.service backup.timer universe.service universe.timer update.service update.timer open.timer control.service control.path; do install -m0644 "$R/systemd/paper-agent-$f" /etc/systemd/system/; done

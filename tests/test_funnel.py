@@ -109,6 +109,27 @@ class TestFindings(unittest.TestCase):
         self.assertIn("low memory: 87 MB", f[0]["text"])
         self.assertIn("cleanup-ram", f[0]["fix"])
 
+    def test_stage_errors_are_reported_with_their_actual_messages(self):
+        """The funnel used to say '52 cycles had stage errors' and nothing about WHAT failed."""
+        c = H.fresh_db()
+        for i in range(5):
+            rep = {"stages": {"companies": {"seconds": 1.2, "error": "TypeError: unsupported operand type(s) for -: 'str' and 'float'"}, "evidence": {"seconds": 3.0}}, "errors": ["companies"]}
+            c.execute("INSERT INTO cycle_runs(started,finished,status,mode,report_json) VALUES(?,?,?,?,?)", (iso(NOW - dt.timedelta(minutes=10 * i)), iso(NOW), "ERROR", "full", json.dumps(rep)))
+        c.execute("INSERT INTO cycle_runs(started,finished,status,mode,report_json) VALUES(?,?,?,?,?)", (iso(NOW - dt.timedelta(minutes=70)), iso(NOW), "ERROR", "full", json.dumps({"stages": {"entries": {"error": "KeyError: 'x'"}}})))
+        r = funnel.report(c, 24, NOW)
+        self.assertEqual(r["stage_errors"][0], ("companies: TypeError: unsupported operand type(s) for -: 'str' and 'float'", 5))
+        f = [x for x in r["findings"] if "stage errors" in x["text"]]
+        self.assertIn("unsupported operand", f[0]["text"])
+        self.assertIn("(x5)", f[0]["text"])
+        text = funnel.text(r)
+        self.assertIn("STAGE ERRORS (what actually failed)", text)
+        self.assertIn("x5", text)
+        lines = []
+        cfg = H.cfg()
+        cfg["runtime"]["bind_port"] = 1
+        doctor.run(c, cfg, "/nonexistent", srcs=[], live=False, check_units=False, now=NOW, out=lines.append)
+        self.assertIn("stage error x5: companies: TypeError", "\n".join(lines))                  # the doctor shows it right under the [cycles 24h] line
+
     def test_no_recent_cycle_is_flagged(self):
         c = H.fresh_db()
         c.execute("INSERT INTO cycle_runs(started,finished,status,mode) VALUES(?,?,?,?)", (iso(NOW - dt.timedelta(hours=5)), iso(NOW), "OK", "full"))
@@ -143,7 +164,10 @@ class TestFindings(unittest.TestCase):
 
 class TestSurfaces(unittest.TestCase):
     def setUp(self):
-        self.c = run([("Chevron to acquire Hess in $53 billion all-stock deal", "", RF(NOW - dt.timedelta(hours=1))), ("Fed cuts interest rates by 25 basis points", "", RF(NOW - dt.timedelta(hours=1)))])
+        # The dashboard / doctor / CLI use the REAL clock, so this fixture must too (a fixed fake date silently aged out of their 24h window)
+        from paper_agent.timeutil import utcnow
+        self.now = utcnow()
+        self.c = run([("Chevron to acquire Hess in $53 billion all-stock deal", "", RF(self.now - dt.timedelta(hours=1))), ("Fed cuts interest rates by 25 basis points", "", RF(self.now - dt.timedelta(hours=1)))], now=self.now)
 
     def test_dashboard_funnel_tab_renders_reasons_and_mergers(self):
         html = dashboard.render(self.c, H.cfg(), "funnel", {})
@@ -152,7 +176,7 @@ class TestSurfaces(unittest.TestCase):
         self.assertIn("Window", dashboard.render(self.c, H.cfg(), "funnel", {"hours": ["72"]}))
 
     def test_doctor_summarises_the_funnel_and_flags_skipped_cycles(self):
-        self.c.execute("INSERT INTO cycle_runs(started,finished,status,mode,report_json) VALUES(?,?,?,?,?)", (iso(NOW - dt.timedelta(minutes=3)), iso(NOW), "SKIPPED", "full", json.dumps({"skipped": "low memory: 90 MB available"})))
+        self.c.execute("INSERT INTO cycle_runs(started,finished,status,mode,report_json) VALUES(?,?,?,?,?)", (iso(self.now - dt.timedelta(minutes=3)), iso(self.now), "SKIPPED", "full", json.dumps({"skipped": "low memory: 90 MB available"})))
         lines = []
         cfg = H.cfg()
         cfg["runtime"]["bind_port"] = 1
