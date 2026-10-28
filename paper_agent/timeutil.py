@@ -190,6 +190,19 @@ def market_state(now: Optional[dt.datetime] = None) -> dict:
     return {"session": "CLOSED", "execution": False}
 
 
+def last_market_open(now: Optional[dt.datetime] = None) -> dt.datetime:
+    """UTC time of the most recent regular-session open (09:30 New York) at or before ``now``."""
+    n = (now or utcnow()).astimezone(NY)
+    d = n.date()
+    for _ in range(12):
+        if is_trading_day(d):
+            o = dt.datetime.combine(d, dt.time(9, 30), NY)
+            if o <= n:
+                return o.astimezone(UTC)
+        d -= dt.timedelta(days=1)
+    return (now or utcnow()) - dt.timedelta(days=7)
+
+
 def next_market_open(now: Optional[dt.datetime] = None) -> dt.datetime:
     """UTC time of the next regular-session open (09:30 New York) strictly after ``now``."""
     n = (now or utcnow()).astimezone(NY)

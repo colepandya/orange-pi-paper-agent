@@ -14,9 +14,15 @@ did or did not become a candidate (duplicate story, macro event, no company reco
 `python3 -m paper_agent recall-check` runs 36 realistic headlines through company recognition + qualification on the real watchlist and lists any misses.
 
 ## Installing a release (and proving you installed the right one)
-1. Download the zip; its name contains the build (e.g. `paper-agent-build20.zip`). 2. `scp` that exact file to the Pi. 3. BEFORE installing, check which build is inside:
-   `unzip -p /tmp/paper-agent-build20.zip paper-agent-v5/BUILD`  4. Unpack into a NEW empty folder, then `sudo bash scripts/install.sh`: it prints `Installing Paper Agent BUILD n` and refuses a half-patched folder.
+1. Download the zip; its name contains the build (e.g. `paper-agent-build21.zip`). 2. `scp` that exact file to the Pi. 3. BEFORE installing, check which build is inside:
+   `unzip -p /tmp/paper-agent-build21.zip paper-agent-v5/BUILD`  4. Unpack into a NEW empty folder, then `sudo bash scripts/install.sh`: it prints `Installing Paper Agent BUILD n` and refuses a half-patched folder.
 5. Afterwards `cat /opt/paper-agent/BUILD` must show that number. Do not apply patches onto an older install; always install the full zip.
+
+## Unattended reports (you do not have to be awake)
+Four times per trading day (08:45 / 09:45 / 12:30 / 16:10 New York time) a report is written: **VERDICT: OK / ATTENTION / FAILED**, what opened and closed, BUYs still waiting and exactly why, errors with file and line,
+then the full checklist and funnel. Read it on the dashboard **Reports** tab (http://<pi>:8088/?tab=reports), or `cat /var/lib/paper-agent/reports/latest.txt`.
+For a phone notification: install the free **ntfy** app, subscribe to a long random topic name, and enter it at Settings -> System -> "Phone push". FAILED reports are sent as urgent.
+Write one on demand: `python3 -m paper_agent report`.
 
 ## Old errors and false flags
 Failures from before the running build (or that you acknowledge with `acknowledge-errors`) are history: kept in the database, shown as an INFO line, never flagged again. `errors` prints the stored traceback

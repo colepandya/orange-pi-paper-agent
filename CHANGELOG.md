@@ -1,3 +1,10 @@
+# Build 21
+* **Unattended reports** (nobody has to be awake): at 08:45, 09:45, 12:30 and 16:10 New York time on trading days (about 01:45, 02:45, 05:30 and 09:10 NZ time; daylight-saving automatic) the system runs the full
+  pre-open checklist (live) + decision funnel and writes a plain-English report with a VERDICT (OK / ATTENTION / FAILED): what opened, what closed, what is still waiting and why, and any errors with their location.
+  Read it on the dashboard **Reports** tab or in `/var/lib/paper-agent/reports/latest.txt`. A report is ALWAYS written, even if building it crashes.
+* **Optional phone push** (Settings -> System -> "Phone push: ntfy.sh topic"): the verdict and key lines are sent to your phone, with urgent priority when FAILED.
+* Report labelling looks forward to the next open (a pre-open report is no longer mislabelled "close").
+
 # Build 20
 * **No per-cycle position limit by default.** `risk.max_new_per_cycle` now defaults to 0 = unlimited (it was 3, a pacing guard, not a funds check). Settings -> Risk limits accepts 0-200.
   The real limits still always apply: 20% cash reserve, 80% max invested, per-company 15%, per-theme 30%, stress-loss cap, risk-per-trade sizing, and the cycle time budget.

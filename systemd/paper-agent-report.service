@@ -1,0 +1,13 @@
+[Unit]
+Description=Write the unattended open / midday / close report
+
+[Service]
+Type=oneshot
+User=paperagent
+WorkingDirectory=/opt/paper-agent
+Environment=PYTHONPATH=/opt/paper-agent PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/paper-agent/market-data.env
+ExecStart=/usr/bin/python3 -m paper_agent report
+TimeoutStartSec=420
+Nice=10
+MemoryMax=300M

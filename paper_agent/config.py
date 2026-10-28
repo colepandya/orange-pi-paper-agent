@@ -32,6 +32,7 @@ DEFAULTS: Dict[str, Any] = {
                "allow_single_source": False,
                "limits": {"TWELVE_DATA": [7, 60], "FINNHUB": [50, 60], "ALPACA": [100, 60], "MASSIVE": [4, 60],
                           "ALPHA_VANTAGE": [20, 86400], "TIINGO": [40, 3600], "EODHD": [18, 86400], "YAHOO": [30, 60]}},
+    "notifications": {"ntfy_topic": ""},
     "schedule": {"cycle_minutes": 10, "guard_minutes": 2, "update_hours": 3},      # applied to systemd timers by the control worker
     "source_overrides": {},                                                       # {"<source id>": {"enabled": bool, "interval": seconds}}
     "intelligence": {

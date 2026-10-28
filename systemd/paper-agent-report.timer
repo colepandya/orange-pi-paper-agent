@@ -1,0 +1,12 @@
+[Unit]
+Description=Reports around the US session (times are New York time, so daylight-saving is automatic)
+
+[Timer]
+OnCalendar=Mon..Fri 08:45:00 America/New_York
+OnCalendar=Mon..Fri 09:45:00 America/New_York
+OnCalendar=Mon..Fri 12:30:00 America/New_York
+OnCalendar=Mon..Fri 16:10:00 America/New_York
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

@@ -13,7 +13,7 @@ from typing import Callable, Dict, List, Optional
 from . import VERSION, db, llm_client, marketdata, net, portfolio as pf, quotes, regime, sources
 from .timeutil import age_seconds, market_state, to_nz, utcnow
 
-UNITS = ["paper-agent-cycle.timer", "paper-agent-guard.timer", "paper-agent-dashboard.service", "paper-agent-backup.timer", "paper-agent-universe.timer", "paper-agent-update.timer", "paper-agent-control.path"]
+UNITS = ["paper-agent-cycle.timer", "paper-agent-guard.timer", "paper-agent-dashboard.service", "paper-agent-backup.timer", "paper-agent-universe.timer", "paper-agent-update.timer", "paper-agent-open.timer", "paper-agent-report.timer", "paper-agent-control.path"]
 KEYS = ["TWELVE_DATA_API_KEY", "FINNHUB_API_KEY", "ALPACA_API_KEY", "ALPACA_API_SECRET", "MASSIVE_API_KEY", "ALPHA_VANTAGE_API_KEY", "TIINGO_API_KEY", "EODHD_API_KEY"]
 
 

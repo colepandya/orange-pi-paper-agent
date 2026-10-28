@@ -33,6 +33,9 @@ def main(argv=None) -> int:
     rp = sub.add_parser("recover", help="re-evaluate recent events whose candidates were lost when a cycle died")
     rp.add_argument("--hours", type=float, default=24)
     sub.add_parser("common-words", help="learn which words are ordinary English from the stored news")
+    rp2 = sub.add_parser("report", help="write the open/midday/close report (also pushed to your phone if a ntfy topic is set)")
+    rp2.add_argument("--no-push", action="store_true")
+    rp2.add_argument("--offline", action="store_true")
     sub.add_parser("acknowledge-errors", help="treat all errors so far as history (kept, but no longer flagged)")
     ep = sub.add_parser("errors", help="print the stored traceback of the most recent failed stages")
     ep.add_argument("--limit", type=int, default=3)
@@ -81,6 +84,21 @@ def main(argv=None) -> int:
     if args.cmd == "common-words":
         conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
         print("common words learned from stored news: %d" % pipeline.refresh_common_words(conn))
+        return 0
+    if args.cmd == "report":
+        from . import report
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        now = utcnow()
+        try:
+            rep = report.build(conn, cfg, pipeline.load_universe(), pipeline.load_sources(cfg), now, live=not args.offline)
+        except Exception as e:  # noqa: BLE001 - a report must ALWAYS be written, even if building it failed
+            import traceback
+            text = "VERDICT: FAILED  |  the report itself crashed: %s: %s\n\n%s" % (type(e).__name__, e, traceback.format_exc()[-1500:])
+            rep = {"verdict": "FAILED", "label": "error", "text": text, "headline": text.splitlines()[0], "summary": text.splitlines()[0], "failed": [text.splitlines()[0]], "problems": []}
+        path = report.write(rep, now)
+        pushed = False if args.no_push else report.push(cfg, rep)
+        print(rep["text"])
+        print("\n[report saved: %s%s]" % (path, "; pushed to phone" if pushed else ""))
         return 0
     if args.cmd == "acknowledge-errors":
         conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])

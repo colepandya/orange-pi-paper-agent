@@ -80,6 +80,7 @@ FIELDS: List[Field] = [
     # ---------------------------------------------------------------- runtime
     F("runtime.require_password", "Require a password to use Settings", "bool", "System", help="Off (default): anyone on your network can open Settings. Turn on to be asked to create a password on your next visit."),
     F("runtime.allowed_hosts", "Allowed hostnames (only if you use a custom name or proxy)", "hostlist", "System", help="Comma-separated. Private IPs, localhost and names like orangepizero3 or pi.local are always allowed."),
+    F("notifications.ntfy_topic", "Phone push: ntfy.sh topic", "topic", "System", help="Optional. Install the free ntfy app, subscribe to a long, hard-to-guess topic name, and enter it here to get each open/close report on your phone. Empty = off."),
     F("runtime.contact_email", "Contact email (sent to SEC in the User-Agent)", "email", "System", help="SEC asks for a real contact."),
     F("runtime.cycle_budget_seconds", "Cycle time budget (seconds)", "int", "System", 120, 500, "Slow company/filing refreshes stop early after ~40-50% of this so decisions are never starved."),
     F("runtime.min_available_memory_mb", "Skip a cycle below this free memory (MB)", "int", "System", 50, 500, ""),
@@ -160,6 +161,10 @@ def _parse(f: Field, raw: str):
     raw = (raw or "").strip()
     if f.kind == "bool":
         return raw.lower() in ("1", "true", "on", "yes")
+    if f.kind == "topic":
+        if raw and not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", raw):
+            raise ValueError("8-64 letters, digits, - or _ (or leave empty)")
+        return raw
     if f.kind == "hostlist":
         names = [h.strip().lower() for h in re.split(r"[,\s]+", raw) if h.strip()]
         if len(names) > 10 or any(not re.fullmatch(r"[a-z0-9]([a-z0-9.-]{0,60}[a-z0-9])?", h) for h in names):
@@ -497,7 +502,7 @@ def validate_native(f: Field, value):
         return value
     if f.kind == "hostlist":
         return _parse(f, ", ".join(value) if isinstance(value, list) else str(value))
-    if f.kind == "email":
+    if f.kind in ("email", "topic"):
         return _parse(f, str(value))
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("must be a number")

@@ -102,7 +102,11 @@ class Internet:
     def _stamp(self, age=5):
         return int(self.now.timestamp() - age)
 
+    ETFS = {"SPY": 450.0, "IWM": 200.0, "HYG": 77.0, "LQD": 108.0}              # real providers quote index ETFs too (the checklist proves freshness on SPY)
+
     def _sym_price(self, sym):
+        if sym in self.ETFS and sym not in self.co:
+            return self.ETFS[sym]
         c = self.co.get(sym)
         if not c:
             raise urllib.error.HTTPError("x", 404, "unknown symbol", {}, io.BytesIO(b""))
@@ -113,12 +117,12 @@ class Internet:
         sym = (qs.get("symbol") or [""])[0]
         if "twelvedata" in host:
             p = self._sym_price(sym)
-            return J({"symbol": sym, "name": self.co[sym]["name"], "exchange": "NASDAQ", "currency": "USD", "datetime": self.now.strftime("%Y-%m-%d"), "timestamp": self._stamp(7),
+            return J({"symbol": sym, "name": self.co.get(sym, {}).get("name", sym), "exchange": "NASDAQ", "currency": "USD", "datetime": self.now.strftime("%Y-%m-%d"), "timestamp": self._stamp(7),
                       "open": "%.2f" % (p * .99), "high": "%.2f" % (p * 1.01), "low": "%.2f" % (p * .98), "close": "%.4f" % p, "volume": "1234567", "previous_close": "%.2f" % (p * .995),
                       "is_market_open": True})
         if "finnhub.io" in host:
             if path.endswith("/quote"):
-                if sym not in self.co:
+                if sym not in self.co and sym not in self.ETFS:
                     return J({"c": 0, "d": None, "dp": None, "h": 0, "l": 0, "o": 0, "pc": 0, "t": 0})
                 p = self._sym_price(sym)
                 return J({"c": p, "d": 0.5, "dp": 0.4, "h": p * 1.01, "l": p * .98, "o": p * .99, "pc": p * .995, "t": self._stamp(4)})

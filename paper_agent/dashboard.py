@@ -13,7 +13,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List, Optional
 
-from . import auth as auth_mod, config, control, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
+from . import auth as auth_mod, config, control, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
 from .config import DB_PATH, load_config
 from .timeutil import market_state, parse_ts, to_nz, utcnow, iso
 
@@ -29,7 +29,7 @@ table{border-collapse:collapse;width:100%;margin:6px 0 16px}th,td{padding:5px 8p
 .wrap{overflow-x:auto}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.mut{color:var(--mut)}h2{margin:18px 0 4px;font-size:16px}
 details summary{cursor:pointer;color:var(--acc)}pre{white-space:pre-wrap;background:var(--card);padding:8px;border-radius:6px;font-size:12px}button{padding:5px 10px}"""
 CSS += settings_ui.FORM_CSS
-TABS = ["overview", "theses", "positions", "dossiers", "decisions", "funnel", "risk", "intelligence", "system", "settings"]
+TABS = ["overview", "reports", "theses", "positions", "dossiers", "decisions", "funnel", "risk", "intelligence", "system", "settings"]
 
 
 def pct(x, d=1):
@@ -226,6 +226,22 @@ def page_decisions(c, cfg, s, q):
     return "".join(out)
 
 
+def page_reports(c, cfg, s, q):
+    name = (q.get("file") or ["latest.txt"])[0]
+    text = report_engine.read(name) or report_engine.read("latest.txt")
+    rows = report_engine.list_reports(14)
+    out = []
+    if text:
+        v = text.splitlines()[0] if text else ""
+        cls = "bad" if "FAILED" in v else ("warn" if "ATTENTION" in v else "ok")
+        out.append("<h2 class=%s>%s</h2><pre>%s</pre>" % (cls, E(v), E(text)))
+    else:
+        out.append("<p class=mut>No report yet. Reports are written automatically at 08:45, 09:45, 12:30 and 16:10 New York time on trading days (about 01:45, 02:45, 05:30 and 09:10 NZ time). "
+                   "To write one now: <code>python3 -m paper_agent report</code></p>")
+    out.append("<h2>Recent reports</h2>" + table(["Report", "Verdict"], [[Raw('<a href="?tab=reports&file=%s">%s</a>' % (E(r["file"]), E(r["file"]))), r["headline"]] for r in rows]))
+    return "".join(out)
+
+
 def page_funnel(c, cfg, s, q):
     hours = float((q.get("hours") or ["24"])[0] or 24) if (q.get("hours") or ["24"])[0].replace(".", "").isdigit() else 24.0
     r = funnel_engine.report(c, hours, s["now"])
@@ -309,7 +325,7 @@ def render(c, cfg, tab: str, q: Dict, ctx: Optional[dict] = None) -> str:
             health = {r["source_id"]: dict(r) for r in c.execute("SELECT source_id,last_status,failures,last_success FROM source_health")}
             inner = settings_ui.page_settings(cfg, base, ctx, pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status(), health)
         return layout(inner, tab, cfg, ctx)
-    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q),
+    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q), "reports": lambda: page_reports(c, cfg, s, q),
           "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s), "system": lambda: page_system(c, cfg, s)}.get(tab, lambda: page_overview(c, cfg, s))
     return layout((settings_ui.flash_html(ctx.get("flash")) if ctx.get("flash") else "") + fn(), tab, cfg, ctx)
 
