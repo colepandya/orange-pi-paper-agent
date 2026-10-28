@@ -20,7 +20,7 @@ def _setup():
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="paper_agent", description="Paper Agent v%s (virtual money only)" % VERSION)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("migrate", "cycle", "guard", "serve", "learn", "probe", "universe", "backup", "status", "keys"):
+    for name in ("migrate", "cycle", "guard", "serve", "learn", "probe", "universe", "backup", "status", "keys", "llm-test", "llm-eval"):
         sub.add_parser(name)
     dp = sub.add_parser("doctor", help="full health report")
     dp.add_argument("--fix", action="store_true")
@@ -80,6 +80,20 @@ def main(argv=None) -> int:
             except Exception as e:  # noqa: BLE001
                 print("%-22s FAIL %s" % (s["id"], e))
         return 0
+    if args.cmd in ("llm-test", "llm-eval"):
+        from . import event_intel, golden, llm_client
+        client = llm_client.LLMClient(conn, cfg)
+        if not client.enabled("analyst"):
+            print("LLM disabled: set intelligence.llm_enabled=true in /etc/paper-agent/config.json and provide the provider key (see `keys`).")
+            return 1
+        uni = pipeline.load_universe()
+        if args.cmd == "llm-test":
+            r = event_intel.analyze(client, uni, {"title": "Lockheed Martin wins $2.4 billion Pentagon contract for missile defense", "summary": "The Navy awarded the multi-year contract.", "tickers": []}, "triage")
+            print(json.dumps(r, indent=1, default=str) if r else "no valid result (see llm_usage table / doctor)")
+            print(json.dumps(client.usage_summary()))
+            return 0 if r else 1
+        res = golden.run(client, uni)
+        return 0 if res["passed"] >= res["total"] * 0.8 else 1
     if args.cmd == "learn":
         from . import learning
         print(json.dumps({"resolved": learning.resolve_due(conn, cfg), "recalibrated": learning.recalibrate(conn, cfg)}, default=str, indent=1))
@@ -93,10 +107,9 @@ def main(argv=None) -> int:
         print(json.dumps(r, default=str))
         return 0
     if args.cmd == "cycle":
-        from . import llm
         try:
             with pipeline.Lock(cfg["runtime"]["lock_file"]):
-                r = pipeline.run_cycle(conn, cfg, deps=pipeline.Deps(analyst=llm.make_analyst(cfg)))
+                r = pipeline.run_cycle(conn, cfg, deps=pipeline.Deps())
         except BlockingIOError:
             print("another cycle is running; exiting")
             return 0

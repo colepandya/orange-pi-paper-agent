@@ -51,7 +51,9 @@ rm -rf /opt/paper-agent/paper_agent /opt/paper-agent/scripts && cp -a "$R/paper_
 install -m0644 "$R/config/sources.json" /etc/paper-agent/sources.json
 if [[ -f "$R/config/market-data.env" ]]; then
   [[ -f /etc/paper-agent/market-data.env ]] && cp /etc/paper-agent/market-data.env "$B/market-data.env.old"
-  install -m0640 -o root -g paperagent "$R/config/market-data.env" /etc/paper-agent/market-data.env
+  # MERGE (never overwrite): keys already on the Pi survive unless the repo supplies a non-empty value
+  PYTHONPATH="$R" python3 -m paper_agent.envmerge /etc/paper-agent/market-data.env "$R/config/market-data.env" /etc/paper-agent/market-data.env.new
+  install -m0640 -o root -g paperagent /etc/paper-agent/market-data.env.new /etc/paper-agent/market-data.env; rm -f /etc/paper-agent/market-data.env.new
 elif [[ ! -f /etc/paper-agent/market-data.env ]]; then
   install -m0640 -o root -g paperagent "$R/config/market-data.env.example" /etc/paper-agent/market-data.env
 fi

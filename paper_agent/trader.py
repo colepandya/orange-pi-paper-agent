@@ -7,7 +7,7 @@ import math
 import os
 from typing import Callable, Dict, List, Optional
 
-from . import company, db, ev, learning, marketdata as md, opportunity, portfolio as pf, quotes, sizing, thesis as thesis_engine
+from . import company, db, ev, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
 from .timeutil import add_trading_days, iso, market_state, parse_ts, utcnow
 
 PENDING = ("AWAITING_MARKET", "AWAITING_CAPACITY")
@@ -74,6 +74,10 @@ def execute_buy(conn, cfg: dict, c: dict, f: dict, sz: dict, q: dict, did: int, 
         pid = cur.lastrowid
         conn.execute("INSERT INTO position_lifecycle(position_id,phase,remaining_shares,remaining_cost,updated) VALUES(?,?,?,?,?)", (pid, "OPEN", shares, cost, iso(now)))
         insert_plan(conn, pid, did, f, fill, iso(now))
+        why0 = "initial plan: %s" % (c.get("headline") or c.get("event_type"))
+        revisions.record(conn, now, "position", str(pid), c["ticker"], "target_price", None, fill * (1 + f["target_return"]), why0, None, f["confidence"], {"ev_net": f["ev_net"]})
+        revisions.record(conn, now, "position", str(pid), c["ticker"], "stop_price", None, fill * (1 + f["stop_return"]), why0, None, f["confidence"])
+        revisions.record(conn, now, "position", str(pid), c["ticker"], "max_hold_days", None, f["horizon_days"], why0, None, f["confidence"])
         reason = dict(reason, quote={"price": q["price"], "providers": q.get("providers_used"), "quoted_at": q.get("quoted_at"), "age_s": q.get("age_seconds")}, fill=fill, shares=shares)
         _set_decision(conn, did, "EXECUTED", reason, entry_price=fill, shares=shares, amount=cost)
         conn.execute("INSERT INTO quote_cache(ticker,price,source,quoted_at,updated_epoch) VALUES(?,?,?,?,?) ON CONFLICT(ticker) DO UPDATE SET price=excluded.price,source=excluded.source,quoted_at=excluded.quoted_at,updated_epoch=excluded.updated_epoch",
@@ -83,11 +87,11 @@ def execute_buy(conn, cfg: dict, c: dict, f: dict, sz: dict, q: dict, did: int, 
     return {"status": "EXECUTED", "position_id": pid, "cost": cost}
 
 
-def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quote_fn: Callable, md_fetch=None, existing_decision: Optional[int] = None) -> dict:
+def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quote_fn: Callable, md_fetch=None, existing_decision: Optional[int] = None, intel: Optional[dict] = None) -> dict:
     t = c["ticker"]
     meta = universe.meta(t) if universe is not None else {}
     score = eligibility_score(c)
-    reason: Dict = {"candidate": {k: c.get(k) for k in ("event_id", "news_uid", "event_type", "direction", "magnitude", "conf", "credibility", "age_hours", "headline", "source", "amount_usd", "horizon", "origin", "thesis_key", "p")}, "gates": []}
+    reason: Dict = {"candidate": {k: c.get(k) for k in ("event_id", "news_uid", "event_type", "direction", "magnitude", "conf", "credibility", "age_hours", "headline", "source", "amount_usd", "horizon", "origin", "thesis_key", "p", "mechanism", "chain_order")}, "gates": []}
     if not company.get(conn, t):
         company.refresh_company(conn, t, meta, cfg, use_network=(md_fetch is None))
     md.refresh_symbol(conn, t, 12, "1y", md_fetch if callable(md_fetch) else None, now)
@@ -139,6 +143,25 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
         return finish("RISK_REJECTED", opp["reason"])
     if not sz["ok"]:
         return finish("CAPACITY_DEFERRED", "size %.2f%% below minimum %.2f%% (%s)" % (sz["pct"] * 100, cfg["risk"]["min_position_pct"] * 100, sz["binding"]))
+    # ---- red team: a separate LLM pass tries to prove the idea wrong; the deterministic gate decides what to do with it
+    rt, size_mult = None, 1.0
+    client = (intel or {}).get("client")
+    if cfg["intelligence"]["redteam_enabled"] and client is not None:
+        rt = redteam.review(conn, cfg, client, c, f, comp, {"primary": f["thesis_key"], "state": th["state"], "p": th["p"]}, regime, now, did)
+        if rt:
+            g = redteam.gate(rt, cfg)
+            reason["redteam"] = {"net_conviction": rt["net_conviction"], "valuation": rt["valuation_view"], "fatal": rt["fatal_flaw"], "gate": g, "bear": [b["point"] for b in rt["bear_points"][:3]], "bull": [b["point"] for b in rt["bull_points"][:3]]}
+            conn.execute("UPDATE redteam_reviews SET gate=? WHERE decision_id=?", (json.dumps(g), did))
+            if not g["ok"]:
+                return finish("RISK_REJECTED", "red team: " + "; ".join(g["reasons"]))
+            size_mult = g["size_mult"]
+        elif cfg["intelligence"]["redteam_required"] and client.enabled("analyst"):
+            return finish("RISK_REJECTED", "red-team review required but unavailable")
+    if size_mult < 1.0:
+        sz["amount"] *= size_mult
+        sz["pct"] *= size_mult
+        if sz["pct"] < cfg["risk"]["min_position_pct"]:
+            return finish("CAPACITY_DEFERRED", "size after red-team adjustment %.2f%% below minimum" % (sz["pct"] * 100))
     if not market_state(now)["execution"]:
         return finish("AWAITING_MARKET", "market session %s; will retry while the event is fresh" % market_state(now)["session"])
     q = quote_fn(conn, t, "entry")
@@ -147,6 +170,9 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     reason["gates"].append("all gates passed")
     out = execute_buy(conn, cfg, c, f, sz, q, did, fid, now, theme, comp.get("sector") or "Unclassified", reason)
     out["decision_id"] = did
+    if out.get("status") == "EXECUTED" and rt:
+        with db.tx(conn):
+            redteam.store_tripwires(conn, out["position_id"], conn.execute("SELECT entry_price FROM positions WHERE id=?", (out["position_id"],)).fetchone()[0], rt, now)
     return out
 
 
@@ -162,7 +188,7 @@ def candidate_from_decision(row) -> Optional[dict]:
     return c
 
 
-def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict, now, quote_fn: Callable, md_fetch=None) -> dict:
+def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict, now, quote_fn: Callable, md_fetch=None, intel: Optional[dict] = None) -> dict:
     out = {"processed": 0, "executed": 0, "retried": 0, "by_status": {}}
     icfg = cfg["intelligence"]
     # 1. retry pending decisions while the underlying event is still fresh
@@ -176,7 +202,7 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
         c["age_hours"] = (c.get("age_hours") or 0) + age
         if conn.execute("SELECT 1 FROM positions WHERE decision_id=?", (row["id"],)).fetchone():
             continue
-        r = process_candidate(conn, cfg, universe, c, regime, now, quote_fn, md_fetch, existing_decision=row["id"])
+        r = process_candidate(conn, cfg, universe, c, regime, now, quote_fn, md_fetch, existing_decision=row["id"], intel=intel)
         out["retried"] += 1
         out["by_status"][r["status"]] = out["by_status"].get(r["status"], 0) + 1
         out["executed"] += r["status"] == "EXECUTED"
@@ -189,7 +215,7 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
             continue
         if c.get("origin") == "thesis" and conn.execute("SELECT 1 FROM decisions WHERE ticker=? AND origin='thesis' AND created>?", (c["ticker"], iso(now - dt.timedelta(hours=24)))).fetchone():
             continue
-        r = process_candidate(conn, cfg, universe, c, regime, now, quote_fn, md_fetch)
+        r = process_candidate(conn, cfg, universe, c, regime, now, quote_fn, md_fetch, intel=intel)
         out["processed"] += 1
         out["by_status"][r["status"]] = out["by_status"].get(r["status"], 0) + 1
         if r["status"] == "EXECUTED":

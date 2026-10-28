@@ -7,7 +7,7 @@ import json
 import math
 from typing import Dict, List, Optional
 
-from . import db, ev, evidence as evidence_engine, marketdata as md, thesis as thesis_engine, trader
+from . import db, ev, evidence as evidence_engine, marketdata as md, redteam, revisions, thesis as thesis_engine, trader
 from .timeutil import add_trading_days, iso, parse_ts, utcnow
 
 VERSION = "5.0.0"
@@ -94,6 +94,9 @@ def monitor(conn, cfg: dict, regime: dict, now=None, stress: Optional[dict] = No
         for v in views:
             if v["sign"] < 0 and v["state"] == "Strong" and v["probability"] >= 0.8:
                 signals.append(("RISK_ESCALATION", 0.6, "position is a victim of strong thesis %s" % v["name"]))
+        rv = conn.execute("SELECT valuation_view FROM redteam_reviews WHERE ticker=? ORDER BY id DESC LIMIT 1", (p["ticker"],)).fetchone()
+        revisions.log_confidence(conn, p["id"], now, float(th["confidence_quality"]) if th else 0.0, float(plan["confidence"]) / 100.0 if plan else 0.0,
+                                 float(plan["target_probability"]) if plan else 0.0, health / 100.0, rv["valuation_view"] if rv else "unknown", {"health": health, "state": state})
         with db.tx(conn):
             conn.execute("INSERT INTO position_health(position_id,ts,thesis_key,thesis_p,thesis_trend,health,support,contradiction,signals_json) VALUES(?,?,?,?,?,?,?,?,?)",
                          (p["id"], iso(now), th["key"] if th else None, th["probability"] if th else None, trend, health, ev_new["support"], ev_new["contra"], json.dumps([s[0] for s in signals])))
@@ -127,11 +130,15 @@ def monitor(conn, cfg: dict, regime: dict, now=None, stress: Optional[dict] = No
                                 rationale="Live reassessment: %d new evidence items, net direction %+.2f. Target %+.2f%%->%+.2f%%, stop %+.2f%%->%+.2f%%, hold %d->%d." % (ev_new["n"], w, pt * 100, nt * 100, ps * 100, ns * 100, pdays, nd))
                     ins = [c for c in cols if c != "id"]
                     cur = conn.execute("INSERT INTO position_forecast_plans(%s) VALUES(%s)" % (",".join(ins), ",".join("?" * len(ins))), [vals[c] for c in ins])
+                    for fld, oldv, newv in (("target_price", plan["target_price"], entry * (1 + nt)), ("stop_price", plan["stop_price"], entry * (1 + ns)), ("max_hold_days", pdays, nd)):
+                        revisions.record(conn, now, "position", str(p["id"]), p["ticker"], fld, oldv, newv, vals["rationale"], float(plan["confidence"]) / 100.0, float(plan["confidence"]) / 100.0, {"direction": w, "n_evidence": ev_new["n"]})
                     conn.execute("INSERT INTO position_plan_changes(position_id,created,prior_plan_id,new_plan_id,change_type,reason,event_uids_json) VALUES(?,?,?,?,?,?,?)",
                                  (p["id"], iso(now), plan["id"], cur.lastrowid, change, vals["rationale"], "[]"))
                 out["plans_changed"] += 1
         out["details"].append({"ticker": p["ticker"], "health": round(health, 1), "thesis": th["key"] if th else None, "state": state, "evidence_new": ev_new["n"], "change": change})
     with db.tx(conn):
+        for tw in redteam.check_tripwires(conn, now):
+            out["signals"].append({"ticker": tw["ticker"], "trigger": "THESIS_BROKEN", "reason": "tripwire: " + tw["why"]})
         conn.execute("INSERT INTO position_monitor_runs(created,status,open_positions,events_reviewed,plans_changed,detail_json) VALUES(?,?,?,?,?,?)",
                      (iso(now), "OK", out["open_positions"], sum(d["evidence_new"] for d in out["details"]), out["plans_changed"], json.dumps(out["details"])))
     return out

@@ -80,5 +80,5 @@ def universe():
     return Universe(WATCH)
 
 
-def deps(items, prices):
-    return Deps(fetch=make_fetch(items), fetch_json=lambda *a, **k: (_ for _ in ()).throw(net.FetchError("offline")), quote_fn=Quotes(prices), sleep=lambda s: None, series_fetch=series_fetch)
+def deps(items, prices, llm_transport=None):
+    return Deps(fetch=make_fetch(items), fetch_json=lambda *a, **k: (_ for _ in ()).throw(net.FetchError("offline")), quote_fn=Quotes(prices), sleep=lambda s: None, series_fetch=series_fetch, llm_transport=llm_transport)

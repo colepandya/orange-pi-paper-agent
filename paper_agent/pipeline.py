@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, List, Optional
 
-from . import (company, contradiction, db, evidence, executor, flows, gaps, learning, llm, marketdata as md, monitor, narrative, net, portfolio as pf,
+from . import (company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, marketdata as md, monitor, narrative, net, portfolio as pf,
                quotes, regime as regime_engine, sources, thesis, trader)
 from .config import load_json, CONFIG_DIR
 from .entities import Universe
@@ -24,13 +24,14 @@ from .timeutil import iso, market_state, utcnow
 class Deps:
     """Injectable I/O so the whole pipeline can be run offline in tests."""
 
-    def __init__(self, fetch=None, fetch_json=None, quote_fn=None, sleep=None, analyst=None, series_fetch=None):
+    def __init__(self, fetch=None, fetch_json=None, quote_fn=None, sleep=None, analyst=None, series_fetch=None, llm_transport=None):
         self.fetch = fetch or net.get
         self.fetch_json = fetch_json or net.get_json
         self.quote_fn = quote_fn
         self.sleep = sleep or time.sleep
         self.analyst = analyst
         self.series_fetch = series_fetch   # None => real network for Yahoo bars
+        self.llm_transport = llm_transport  # None => real HTTPS to the configured LLM provider
 
 
 def resources_ok(cfg: dict) -> Optional[str]:
@@ -106,6 +107,10 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, fetch=deps.fetch_json))
     thesis.seed(conn)
     icfg = cfg["intelligence"]
+    client = llm_client.LLMClient(conn, cfg, deps.llm_transport)
+    analyst = deps.analyst or event_intel.make_analyst(conn, cfg, universe, deps.llm_transport)
+    intel = {"client": client} if client.enabled("triage") else None
+    report["llm"] = {"enabled": bool(intel)}
 
     # ---- world state
     reg = regime_engine.current(conn)
@@ -137,7 +142,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     report["collect"] = _stage(report, "collect", collect)
 
     # ---- event / evidence / thesis / narrative
-    ev = _stage(report, "evidence", evidence.process_new_news, conn, universe, cfg, now, deps.analyst)
+    ev = _stage(report, "evidence", evidence.process_new_news, conn, universe, cfg, now, analyst)
     cands = ev["candidates"] if ev else []
     report["evidence"] = ev["stats"] if ev else {}
     _stage(report, "flows", flows.record_event_flows, conn, iso(now - dt.timedelta(days=3)))
@@ -170,9 +175,25 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         return n
     _stage(report, "companies", refresh_companies)
 
+    # ---- company knowledge base (SEC filings read by the LLM; skipped when the LLM is off)
+    def refresh_knowledge():
+        from . import filings
+        if not intel:
+            return {"skipped": "llm off"}
+        done = {}
+        for t in filings.due_tickers(conn, cfg, held, [c["ticker"] for c in cands], now):
+            meta = universe.meta(t)
+            try:
+                done[t] = filings.refresh(conn, cfg, client, t, meta.get("cik"), deps.fetch, now, sleep=deps.sleep)
+            except Exception as e:  # noqa: BLE001
+                done[t] = {"error": "%s: %s" % (type(e).__name__, e)}
+            db.mark_run(conn, "kb:" + t)
+        return done
+    report["knowledge"] = _stage(report, "knowledge", refresh_knowledge)
+
     # ---- capital allocation
     cands = cands + trader.thesis_candidates(conn, cfg, reg, universe)
-    ent = _stage(report, "entries", trader.run_entries, conn, cfg, universe, cands, reg, now, quote_fn, deps.series_fetch if deps.series_fetch else None)
+    ent = _stage(report, "entries", trader.run_entries, conn, cfg, universe, cands, reg, now, quote_fn, deps.series_fetch if deps.series_fetch else None, intel)
     report["entries"] = ent
 
     # ---- portfolio intelligence -> monitoring -> execution
@@ -195,6 +216,8 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
             report["learning"] = {"resolved": lr, "recalibrated": bool(rc and (rc["calibration"] or rc["event_types"] or rc["theses"]))}
         _stage(report, "gaps", gaps.scan, conn, cfg, now)
         _stage(report, "gaps_resolve", gaps.resolve_auto, conn, cfg, universe, deps.fetch_json, deps.fetch, now)
+    if intel:
+        report["llm"] = client.usage_summary()
     report["finished"] = iso()
     conn.execute("UPDATE cycle_runs SET finished=?,status=?,report_json=? WHERE id=?", (iso(), "ERROR" if report["errors"] else "OK", json.dumps(report, default=str), run_id))
     conn.execute("DELETE FROM cycle_runs WHERE id<?", (run_id - 2000,))

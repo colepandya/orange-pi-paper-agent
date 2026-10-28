@@ -31,8 +31,18 @@ DEFAULTS: Dict[str, Any] = {
         "stale_event_hours": 72, "trade_event_max_age_hours": 24, "thesis_entry_min_probability": 0.70,
         "allow_thesis_entries": True, "contradiction_hours": 6, "company_refresh_hours": 72,
         "regime_refresh_hours": 6, "learning_min_samples": 20, "llm_enabled": False,
-        "llm_model": "claude-haiku-5-5", "llm_max_per_cycle": 5, "gdelt_enabled": True,
+        "llm_max_per_cycle": 6, "gdelt_enabled": True,
         "finnhub_company_news_max": 15, "max_company_refresh_per_cycle": 6,
+        # --- LLM analyst (provider-agnostic). Off until llm_enabled=true AND a key for the tier's provider exists.
+        "llm_providers": {
+            "anthropic": {"kind": "anthropic", "key_env": "ANTHROPIC_API_KEY", "url": "https://api.anthropic.com/v1/messages"},
+            "github": {"kind": "openai", "key_env": "GITHUB_MODELS_TOKEN", "url": "https://models.github.ai/inference/chat/completions"},
+        },
+        "llm_tiers": {"triage": {"provider": "anthropic", "model": "claude-haiku-5-5"}, "analyst": {"provider": "anthropic", "model": "claude-sonnet-5-5"}},
+        "llm_prices": {"claude-haiku-5-5": [0.10, 0.50], "claude-sonnet-5-5": [2.0, 10.0], "claude-opus-5-5": [4.0, 20.0]},   # USD per million tokens in/out (verify on Anthropic's pricing page)
+        "llm_daily_budget_usd": 0.75, "llm_monthly_budget_usd": 15.0, "llm_daily_max_calls": {"triage": 150, "analyst": 40},
+        "max_trade_order": 1, "chain_decay": 0.55, "chain_order_prior": {"1": 0.60, "2": 0.45, "3": 0.30},
+        "max_knowledge_refresh_per_cycle": 2, "redteam_enabled": True, "redteam_min_conviction": 0.45, "redteam_required": False,
     },
 }
 

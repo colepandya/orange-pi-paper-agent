@@ -11,7 +11,7 @@ import json
 import math
 from typing import Dict, List, Optional
 
-from . import db, nlp
+from . import db, nlp, revisions
 from .theses_seed import REGIME_STYLE_TILT, SEED_THESES
 from .timeutil import iso, parse_ts, utcnow
 
@@ -139,6 +139,10 @@ def recompute(conn, now: Optional[dt.datetime] = None, record_history: bool = Tr
                 if not last_h or (now - lt).total_seconds() > 3300 or abs(p - last_h["probability"]) > 0.01 or state != t["state"]:
                     conn.execute("INSERT INTO thesis_history(thesis_key,ts,prior,probability,uncertainty,state,net_strength,new_evidence,detail_json) VALUES(?,?,?,?,?,?,?,?,?)",
                                  (key, iso(now), b["prior"], p, unc, state, net, b["clusters"], json.dumps({"shift": b["shift"], "mass": b["mass"], "sources": b["sources"]})))
+            lastp = revisions.last_value(conn, "thesis", key, "probability")
+            if abs(p - (lastp if lastp is not None else b["prior"])) >= 0.05:
+                revisions.record(conn, now, "thesis", key, None, "probability", lastp if lastp is not None else b["prior"], p,
+                                 "evidence update: %d independent stories, net strength %+.2f, state %s" % (b["clusters"], net, state), None, cq)
             if state != t["state"]:
                 db.audit(conn, "thesis_engine", "state_change", key, {"from": t["state"], "to": state, "p": round(p, 3)})
         out.append(row)

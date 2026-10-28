@@ -402,6 +402,8 @@ class TestDoctor(unittest.TestCase):
         text = "\n".join(lines)
         msgs = " | ".join(i["message"] for i in r["issues"])
         self.assertIn("universe", msgs)
+        self.assertIn("contact_email", msgs)
+        self.assertIn("[llm] OFF", text)
         self.assertIn("1/2 reachable", text)
         self.assertIn("dead", msgs)
         self.assertIn("VERDICT", text)

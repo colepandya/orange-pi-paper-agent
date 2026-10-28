@@ -15,7 +15,7 @@ from typing import Dict, Iterator, Optional
 
 from .timeutil import iso, utcnow
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 LEGACY = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -146,6 +146,21 @@ CREATE TABLE IF NOT EXISTS source_state(source_id TEXT PRIMARY KEY,etag TEXT,las
 CREATE TABLE IF NOT EXISTS task_schedule(task TEXT PRIMARY KEY,last_run TEXT,detail TEXT);
 CREATE TABLE IF NOT EXISTS cycle_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,started TEXT NOT NULL,finished TEXT,status TEXT NOT NULL,mode TEXT,report_json TEXT);
 CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,ts TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,subject TEXT,detail_json TEXT);
+CREATE TABLE IF NOT EXISTS llm_usage(id INTEGER PRIMARY KEY AUTOINCREMENT,ts TEXT NOT NULL,day TEXT NOT NULL,tier TEXT,task TEXT,provider TEXT,model TEXT,input_tokens INTEGER DEFAULT 0,output_tokens INTEGER DEFAULT 0,cost_usd REAL DEFAULT 0,ok INTEGER DEFAULT 0,cached INTEGER DEFAULT 0,error TEXT);
+CREATE INDEX IF NOT EXISTS ix_llm_usage_day ON llm_usage(day,tier);
+CREATE TABLE IF NOT EXISTS llm_cache(key TEXT PRIMARY KEY,task TEXT,response_json TEXT NOT NULL,created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS intel_events(event_id INTEGER PRIMARY KEY,created TEXT NOT NULL,tier TEXT,model TEXT,analysis_json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS proposed_narratives(key TEXT PRIMARY KEY,name TEXT,first_seen TEXT,last_seen TEXT,mentions INTEGER DEFAULT 1,status TEXT DEFAULT 'PROPOSED',sample_event_id INTEGER);
+CREATE TABLE IF NOT EXISTS redteam_reviews(id INTEGER PRIMARY KEY AUTOINCREMENT,created TEXT NOT NULL,ticker TEXT NOT NULL,decision_id INTEGER,position_id INTEGER,net_conviction REAL,fatal_flaw INTEGER,valuation_view TEXT,gate TEXT,review_json TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS ix_redteam_ticker ON redteam_reviews(ticker,created DESC);
+CREATE TABLE IF NOT EXISTS tripwires(id INTEGER PRIMARY KEY AUTOINCREMENT,position_id INTEGER NOT NULL,created TEXT NOT NULL,kind TEXT NOT NULL,threshold REAL,event_type TEXT,description TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'OPEN',triggered_at TEXT);
+CREATE TABLE IF NOT EXISTS forecast_revisions(id INTEGER PRIMARY KEY AUTOINCREMENT,ts TEXT NOT NULL,subject_type TEXT NOT NULL,subject TEXT NOT NULL,ticker TEXT,field TEXT NOT NULL,old_value REAL,new_value REAL,reason TEXT,conf_old REAL,conf_new REAL,detail_json TEXT);
+CREATE INDEX IF NOT EXISTS ix_revisions ON forecast_revisions(ticker,ts DESC);
+CREATE TABLE IF NOT EXISTS company_filings(accession TEXT PRIMARY KEY,ticker TEXT NOT NULL,form TEXT,filed TEXT,items TEXT,processed TEXT,ok INTEGER DEFAULT 0,extraction_json TEXT);
+CREATE INDEX IF NOT EXISTS ix_filings_ticker ON company_filings(ticker,filed DESC);
+CREATE TABLE IF NOT EXISTS company_knowledge(ticker TEXT PRIMARY KEY,summary_json TEXT NOT NULL,sources_json TEXT,updated TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS confidence_log(id INTEGER PRIMARY KEY AUTOINCREMENT,position_id INTEGER NOT NULL,ts TEXT NOT NULL,thesis REAL,forecast REAL,target REAL,position REAL,valuation TEXT,detail_json TEXT);
+CREATE INDEX IF NOT EXISTS ix_conflog ON confidence_log(position_id,ts DESC);
 """
 
 NEW_COLUMNS = {

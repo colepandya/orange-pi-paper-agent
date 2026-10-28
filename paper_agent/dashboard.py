@@ -9,7 +9,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List
 
-from . import db, learning, portfolio as pf, regime as regime_engine
+from . import db, dossier as dossier_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions
 from .config import DB_PATH, load_config
 from .timeutil import market_state, parse_ts, to_nz, utcnow, iso
 
@@ -24,7 +24,7 @@ main{padding:14px 16px;max-width:1300px;margin:auto}.grid{display:grid;grid-temp
 table{border-collapse:collapse;width:100%;margin:6px 0 16px}th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--mut);font-size:12px}
 .wrap{overflow-x:auto}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.mut{color:var(--mut)}h2{margin:18px 0 4px;font-size:16px}
 details summary{cursor:pointer;color:var(--acc)}pre{white-space:pre-wrap;background:var(--card);padding:8px;border-radius:6px;font-size:12px}button{padding:5px 10px}"""
-TABS = ["overview", "theses", "positions", "decisions", "risk", "intelligence", "system"]
+TABS = ["overview", "theses", "positions", "dossiers", "decisions", "risk", "intelligence", "system"]
 
 
 def pct(x, d=1):
@@ -129,6 +129,67 @@ def page_positions(c, cfg, s):
     return "".join(out)
 
 
+def _pts(rows, key):
+    return "<br>".join("&bull; %s" % E(r[key]) for r in rows) or "<span class=mut>none</span>"
+
+
+def page_dossiers(c, cfg, s, q):
+    tk = (q.get("ticker") or [""])[0].upper()
+    if not tk:
+        rows = [[Raw('<a href="?tab=dossiers&ticker=%s">%s</a>' % (E(h["ticker"]), E(h["ticker"]))), h["thesis_key"] or "", pct((h["value"] - h["cost"]) / h["cost"] if h["cost"] else 0)] for h in s["hs"]]
+        recent = [r[0] for r in c.execute("SELECT DISTINCT ticker FROM decisions ORDER BY id DESC LIMIT 12")]
+        return "<h2>Open positions</h2>" + table(["Ticker", "Thesis", "Unrealised"], rows) + "<h2>Recent candidates</h2><p>" + " ".join('<a href="?tab=dossiers&ticker=%s">%s</a>' % (E(t), E(t)) for t in recent) + "</p>"
+    d = dossier_engine.build(c, cfg, tk, s["now"])
+    if not d:
+        return "<p class=mut>No data for %s yet.</p>" % E(tk)
+    out = ["<h2>%s &mdash; %s</h2>" % (E(tk), E(d["company"].get("name") or ""))]
+    comp = d["company"]
+    out.append("<p class=mut>%s &middot; %s &middot; regime %s &middot; completeness %s</p>" % (E(comp.get("sector")), E(comp.get("dna")), E(d["regime"]), pct(comp.get("completeness"), 0)))
+    cards = ["<div class=grid>"]
+    if d.get("position"):
+        p = d["position"]
+        cards += [card("Position", "%s @ %.2f" % (p["status"], p["entry"])), card("Unrealised", pct(p["pnl_pct"]) if p["pnl_pct"] is not None else "n/a", cls(p["pnl_pct"]))]
+    if d.get("forecast"):
+        f = d["forecast"]
+        cards += [card("Target / Stop", "%.2f / %.2f" % (f["target_price"], f["stop_price"])), card("P(target)", pct(f["probability"], 0)), card("Review date", to_nz(f["review_date"], "%d %b"))]
+    if d.get("thesis"):
+        t = d["thesis"]
+        cards += [card("Thesis", "%s (%s)" % (t["name"], t["state"])), card("Thesis probability", "%s (prior %s)" % (pct(t["probability"], 0), pct(t["prior"], 0)))]
+    cl = (d.get("confidence") or {}).get("latest")
+    if cl:
+        cards += [card("Thesis conf.", "%.0f%%" % (cl["thesis"] * 100)), card("Forecast conf.", "%.0f%%" % (cl["forecast"] * 100)), card("Target conf.", "%.0f%%" % (cl["target"] * 100)), card("Position conf.", "%.0f%%" % (cl["position"] * 100)), card("Valuation", cl["valuation"])]
+    cards.append("</div>")
+    out.append("".join(cards))
+    ev = d["evidence"]
+    out.append("<h2>Supporting evidence</h2>" + table(["Source", "Weight", "Scope", "Headline"], [[r["source"], "%.3f" % r["weight"], r["scope"], r["headline"][:120]] for r in ev["supporting"]]))
+    out.append("<h2>Contradicting evidence</h2>" + table(["Source", "Weight", "Scope", "Headline"], [[r["source"], "%.3f" % r["weight"], r["scope"], r["headline"][:120]] for r in ev["contradicting"]]))
+    rt = d.get("redteam")
+    if rt:
+        out.append("<h2>Red-team review</h2><p>Net conviction <b>%.2f</b> &middot; valuation <b>%s</b> &middot; fatal flaw <b>%s</b></p>" % (rt["net_conviction"], E(rt["valuation_view"]), "YES: " + E(rt["fatal_reason"]) if rt["fatal_flaw"] else "no"))
+        out.append("<table><tr><th>Bear case</th><th>Bull case</th></tr><tr><td>%s</td><td>%s</td></tr></table>" % (_pts(rt["bear_points"], "point"), _pts(rt["bull_points"], "point")))
+    kb = d.get("knowledge")
+    if kb:
+        lat = kb.get("latest") or {}
+        out.append("<h2>Company knowledge (read from SEC filings)</h2>")
+        out.append(table(["Revenue drivers", "Cost drivers", "Customers", "Competitors", "Benefits"], [[_pts([{"x": i} for i in kb.get(k, [])], "x") for k in ("revenue_drivers", "cost_drivers", "customers", "competitors", "benefits")]]))
+        out.append(table(["Risk", "Severity"], [[r["risk"], "%.0f%%" % (r["severity"] * 100)] for r in kb.get("risks", [])]))
+        g, res = lat.get("guidance") or {}, lat.get("results") or {}
+        out.append("<p class=mut>Latest (%s filed %s): guidance revenue %s, EPS %s &middot; revenue growth %s &middot; margins %s &middot; vs expectations %s &middot; backlog %s &middot; tone %+.2f &middot; valuation %s</p>" % (
+            E(lat.get("form")), E(lat.get("filed")), E(g.get("revenue")), E(g.get("eps")), pct(res.get("revenue_growth_yoy")) if res.get("revenue_growth_yoy") is not None else "n/a", E(res.get("margin_trend")), E(res.get("vs_expectations")),
+            money(lat.get("backlog_usd")), lat.get("mgmt_tone") or 0, E(json.dumps(kb.get("valuation") or {}))))
+        if lat.get("changes_vs_prior"):
+            out.append("<p><b>What changed:</b> %s</p>" % E("; ".join(lat["changes_vs_prior"])))
+    if d.get("tripwires"):
+        out.append("<h2>Tripwires (what would prove us wrong)</h2>" + table(["Kind", "Condition", "Status"], [[t["kind"], t["description"] + (" (%.2f)" % t["threshold"] if t["threshold"] else ""), t["status"]] for t in d["tripwires"]]))
+    it = d.get("intel")
+    if it:
+        out.append("<h2>Causal analysis</h2><p><b>%s</b><br>%s</p>" % (E(it["summary"]), E(it["why"])))
+        out.append(table(["Order", "Effect", "Confidence", "Tickers"], [[ch["order"], ch["effect"], "%.0f%%" % (ch["confidence"] * 100), ", ".join(ch["tickers"])] for ch in it["chain"]]))
+    out.append("<h2>Forecast revision ledger</h2>" + table(["When", "Field", "Old", "New", "Confidence", "Reason"], [[to_nz(r["ts"], "%d %b %H:%M"), r["field"], "" if r["old_value"] is None else "%.2f" % r["old_value"], "%.2f" % (r["new_value"] or 0),
+                                                                                                      ("%.0f%%" % (r["conf_new"] * 100)) if r["conf_new"] is not None else "", (r["reason"] or "")[:110]] for r in d["revisions"]]))
+    return "".join(out)
+
+
 def page_decisions(c, cfg, s, q):
     st = (q.get("status") or [""])[0]
     tk = (q.get("ticker") or [""])[0].upper()
@@ -185,7 +246,8 @@ def page_intel(c, cfg, s):
 
 
 def page_system(c, cfg, s):
-    out = ["<h2>Sources</h2>" + table(["Source", "Last success", "Status", "Failures", "Items", "Error"], [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", r["last_status"], r["failures"], r["items_total"], (r["last_error"] or "")[:60]] for r in c.execute("SELECT * FROM source_health ORDER BY failures DESC,name")])]
+    u = llm_client.LLMClient(c, cfg).usage_summary()
+    out = ["<div class=grid>" + card("LLM spend today", "$%.3f / $%.2f" % (u["today_usd"], u["daily_budget"])) + card("LLM spend this month", "$%.2f / $%.0f" % (u["month_usd"], u["monthly_budget"])) + card("LLM calls today", "%d (cache hits %d, failed %d)" % (u["calls_today"], u["cache_hits_today"], u["failures_today"])) + "</div>", "<h2>Sources</h2>" + table(["Source", "Last success", "Status", "Failures", "Items", "Error"], [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", r["last_status"], r["failures"], r["items_total"], (r["last_error"] or "")[:60]] for r in c.execute("SELECT * FROM source_health ORDER BY failures DESC,name")])]
     out.append("<h2>Quote providers</h2>" + table(["Provider", "State", "OK", "Fail", "Rate-limited", "Auth fail", "Last success"], [[r["provider"], r["state"], r["successes"], r["failures"], r["rate_limits"], r["auth_failures"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never"] for r in c.execute("SELECT * FROM provider_health")]))
     out.append("<h2>Recent cycles</h2>" + table(["Started", "Mode", "Status", "Errors"], [[to_nz(r["started"], "%d %b %H:%M"), r["mode"], r["status"], ", ".join(json.loads(r["report_json"] or "{}").get("errors", []))] for r in c.execute("SELECT * FROM cycle_runs ORDER BY id DESC LIMIT 15")]))
     out.append("<h2>Executor runs</h2>" + table(["Time", "Status", "Checked", "Committed", "Blocked", "Errors"], [[to_nz(r["created"], "%d %b %H:%M"), r["status"], r["positions_checked"], r["actions_committed"], r["blocked_stale"], r["errors"]] for r in c.execute("SELECT * FROM executor_runs ORDER BY id DESC LIMIT 10")]))
@@ -195,7 +257,7 @@ def page_system(c, cfg, s):
 
 def render(c, cfg, tab: str, q: Dict) -> str:
     s = build_state(c, cfg)
-    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "decisions": lambda: page_decisions(c, cfg, s, q),
+    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q),
           "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s), "system": lambda: page_system(c, cfg, s)}.get(tab, lambda: page_overview(c, cfg, s))
     paused = os.path.exists(cfg["runtime"]["pause_file"])
     nav = "".join('<a class="%s" href="?tab=%s">%s</a>' % ("on" if t == tab else "", t, t.title()) for t in TABS)

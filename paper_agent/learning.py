@@ -33,6 +33,13 @@ def record_forecast_prediction(conn, forecast_id: int, f: dict, c: dict, now) ->
     return cur.lastrowid
 
 
+def record_chain_prediction(conn, ticker: str, claim: str, prob: float, horizon_trading_days: int, event_type: str, source: str, now) -> int:
+    p, spy = _base_prices(conn, ticker, now)
+    cur = conn.execute("INSERT INTO predictions(created,kind,subject,claim,probability,baseline_price,benchmark_price,horizon_date,source,event_type) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                       (iso(now), "llm_chain", ticker, claim, prob, p, spy, iso(add_trading_days(now, min(40, horizon_trading_days))), source, event_type))
+    return cur.lastrowid
+
+
 def record_position_prediction(conn, position_id: int, f: dict, fill: float, now) -> int:
     cur = conn.execute("INSERT INTO predictions(created,kind,subject,claim,probability,baseline_price,expected_return,horizon_date,event_type,thesis_key,forecast_id,position_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                        (iso(now), "position", f["ticker"], "position_profitable", f["p_positive"], fill, f["ev_net"], iso(add_trading_days(now, f["horizon_days"] + 5)), f["inputs"].get("event_type"), f["thesis_key"], None, position_id))
@@ -68,7 +75,7 @@ def _abn(conn, ticker: str, start_day: str, end_day: str, start_px: Optional[flo
 
 def resolve_due(conn, cfg: dict, now=None, fetch: Optional[Callable] = None, max_n: int = 40) -> dict:
     now = now or utcnow()
-    rows = conn.execute("SELECT * FROM predictions WHERE resolved=0 AND kind IN ('forecast','thesis') AND horizon_date<=? ORDER BY horizon_date LIMIT ?", (iso(now), max_n)).fetchall()
+    rows = conn.execute("SELECT * FROM predictions WHERE resolved=0 AND kind IN ('forecast','thesis','llm_chain') AND horizon_date<=? ORDER BY horizon_date LIMIT ?", (iso(now), max_n)).fetchall()
     done = skipped = 0
     refreshed = set()
     for p in rows:
@@ -97,7 +104,7 @@ def resolve_due(conn, cfg: dict, now=None, fetch: Optional[Callable] = None, max
             conn.execute("INSERT OR REPLACE INTO outcomes(prediction_id,observed_at,outcome,realized_return,benchmark_return,abnormal_return,brier,detail_json) VALUES(?,?,?,?,?,?,?,?)",
                          (p["id"], iso(now), outcome, ret, bret, abn, brier, json.dumps({"claim": p["claim"]})))
             conn.execute("UPDATE predictions SET resolved=1 WHERE id=?", (p["id"],))
-            if p["kind"] == "forecast" and p["source"] and p["event_type"]:
+            if p["kind"] in ("forecast", "llm_chain") and p["source"] and p["event_type"]:
                 conn.execute("INSERT INTO source_stats(source,event_type,hits,misses,updated) VALUES(?,?,?,?,?) ON CONFLICT(source,event_type) DO UPDATE SET hits=hits+excluded.hits,misses=misses+excluded.misses,updated=excluded.updated",
                              (p["source"], p["event_type"], outcome, 1 - outcome, iso(now)))
         done += 1

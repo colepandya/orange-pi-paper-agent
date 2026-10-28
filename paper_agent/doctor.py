@@ -8,7 +8,7 @@ import subprocess
 import urllib.request
 from typing import Callable, Dict, List, Optional
 
-from . import VERSION, db, marketdata, net, portfolio as pf, quotes, regime, sources
+from . import VERSION, db, llm_client, marketdata, net, portfolio as pf, quotes, regime, sources
 from .timeutil import age_seconds, market_state, to_nz, utcnow
 
 UNITS = ["paper-agent-cycle.timer", "paper-agent-guard.timer", "paper-agent-dashboard.service", "paper-agent-backup.timer", "paper-agent-universe.timer", "paper-agent-update.timer"]
@@ -45,6 +45,23 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
     out("[keys] set: %s | missing: %s" % (", ".join(have) or "none", ", ".join(k for k in KEYS if k not in have) or "none"))
     if len(have) < 3:
         issue("HIGH", "fewer than 3 quote-provider keys loaded; two providers must agree before any trade", "edit /etc/paper-agent/market-data.env")
+    # ---- SEC contact (fair-access policy asks for a real contact in the User-Agent)
+    if "example" in str(cfg["runtime"].get("contact_email", "")).lower():
+        issue("MEDIUM", "runtime.contact_email is still a placeholder; SEC (filings, company facts, universe) expects a real contact in the User-Agent and may throttle or block otherwise",
+              'edit /etc/paper-agent/config.json -> "runtime": {"contact_email": "you@yourdomain.com"}')
+    # ---- LLM analyst
+    cl = llm_client.LLMClient(conn, cfg)
+    u = cl.usage_summary()
+    on = cfg["intelligence"].get("llm_enabled")
+    out("[llm] %s | tiers: %s | today $%.3f/$%.2f month $%.2f/$%.0f | calls today %d (failed %d, cached %d)" % (
+        "ON" if on and cl.enabled("triage") else "OFF (deterministic engine only)", ", ".join("%s=%s" % (k, v["model"]) for k, v in cfg["intelligence"]["llm_tiers"].items()),
+        u["today_usd"], u["daily_budget"], u["month_usd"], u["monthly_budget"], u["calls_today"], u["failures_today"], u["cache_hits_today"]))
+    if on and not cl.enabled("triage"):
+        issue("MEDIUM", "llm_enabled is true but no API key is loaded for the triage tier", "sudo /opt/paper-agent/scripts/enable-llm.sh")
+    if u["calls_today"] >= 10 and u["failures_today"] / max(1, u["calls_today"]) > 0.5:
+        issue("HIGH", "more than half of today's LLM calls failed or were rejected", "run: python3 -m paper_agent llm-test; check provider key, model id and quota")
+    if u["today_usd"] >= u["daily_budget"]:
+        issue("LOW", "daily LLM budget reached; the system is running on the deterministic engine until tomorrow", "raise intelligence.llm_daily_budget_usd if intended")
     # ---- universe
     wl = os.path.join(config_dir, "watchlist.json")
     try:
