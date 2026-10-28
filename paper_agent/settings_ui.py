@@ -54,7 +54,7 @@ def _input(f: S.Field, cfg: dict, base: dict, raw: Dict[str, str]) -> str:
         chk = " checked" if val in ("1", "true", "on") else ""
         return '<input type=hidden name="%s" value=0><label><input type=checkbox name="%s" value=1%s> enabled</label>' % (E(f.name), E(f.name), chk)
     unit = " %" if f.kind == "pct" else ""
-    cls = "wide" if f.kind == "email" else "num"
+    cls = "wide" if f.kind in ("email", "hostlist") else "num"
     return '<input type=text class=%s name="%s" value="%s" inputmode=decimal>%s' % (cls, E(f.name), E(val), unit)
 
 
@@ -82,7 +82,25 @@ def _tiers(cfg: dict, raw: Dict[str, str]) -> str:
     return rows
 
 
-def page_settings(cfg: dict, base: dict, ctx: dict, sources: List[dict], units: Dict[str, str], secret_status: Dict[str, str]) -> str:
+DEAD_CODES = ("404", "410")
+
+
+def dead_feed_ids(sources: List[dict], cfg: dict, health: Dict[str, dict]) -> List[str]:
+    """Feeds that are still enabled but have failed with 404/410 (permanently gone) at least 3 times."""
+    so = cfg.get("source_overrides", {})
+    return [s["id"] for s in sources if so.get(s["id"], {}).get("enabled", True)
+            and str((health.get(s["id"]) or {}).get("last_status")) in DEAD_CODES and int((health.get(s["id"]) or {}).get("failures") or 0) >= 3]
+
+
+def _feed_status(h: Optional[dict]) -> str:
+    if not h:
+        return '<span class=mut>not polled yet</span>'
+    if int(h.get("failures") or 0) == 0 and h.get("last_success"):
+        return '<span class=ok>OK</span>'
+    return '<span class=warn>failing x%s (%s)</span>' % (E(h.get("failures")), E(h.get("last_status")))
+
+
+def page_settings(cfg: dict, base: dict, ctx: dict, sources: List[dict], units: Dict[str, str], secret_status: Dict[str, str], health: Optional[Dict[str, dict]] = None) -> str:
     raw = ctx.get("raw") or {}
     csrf = ctx.get("csrf", "")
     out = [flash_html(ctx.get("flash"), ctx.get("errors"), ctx.get("warnings"))]
@@ -95,14 +113,17 @@ def page_settings(cfg: dict, base: dict, ctx: dict, sources: List[dict], units: 
             out.append(_tiers(cfg, raw))
         out.append("</table></div>")
     so = cfg.get("source_overrides", {})
-    out.append("<h2>News & data feeds</h2><p class=help>Disable a feed or change how often it is polled (seconds, 60-86400). Failing feeds already back off automatically.</p><div class=wrap><table><tr><th>Feed</th><th>Type</th><th>Enabled</th><th>Poll every (s)</th></tr>")
+    out.append("<h2>News & data feeds</h2><p class=help>Disable a feed or change how often it is polled (seconds, 60-86400). Failing feeds already back off automatically.</p><div class=wrap><table><tr><th>Feed</th><th>Type</th><th>Status</th><th>Enabled</th><th>Poll every (s)</th></tr>")
     for s in sources:
         o = so.get(s["id"], {})
         en = o.get("enabled", True)
         iv = raw.get("src.%s.interval" % s["id"], o.get("interval", s.get("interval", 600)))
-        out.append("<tr><td>%s</td><td>%s</td><td><input type=hidden name='src.%s.enabled' value=0><input type=checkbox name='src.%s.enabled' value=1%s></td><td><input type=text class=num name='src.%s.interval' value='%s'></td></tr>"
-                   % (E(s["name"]), E(s["type"]), E(s["id"]), E(s["id"]), " checked" if en else "", E(s["id"]), E(iv)))
+        out.append("<tr><td>%s</td><td>%s</td><td>%s</td><td><input type=hidden name='src.%s.enabled' value=0><input type=checkbox name='src.%s.enabled' value=1%s></td><td><input type=text class=num name='src.%s.interval' value='%s'></td></tr>"
+                   % (E(s["name"]), E(s["type"]), _feed_status((health or {}).get(s["id"])), E(s["id"]), E(s["id"]), " checked" if en else "", E(s["id"]), E(iv)))
     out.append('</table></div><div class=savebar><button class=primary>Save settings</button> <span class=help>Most changes apply on the next cycle; schedule changes are applied to the system timers automatically.</span></div></form>')
+    dead = dead_feed_ids(sources, cfg, health or {})
+    if dead:
+        out.append("<div class=card2><form method=post action=/settings/disable-dead>%s<b>%d feed(s) are permanently gone</b> (HTTP 404/410 three or more times): %s. <button class=sec>Disable these %d feeds</button></form></div>" % (csrf_input(csrf), len(dead), E(", ".join(dead)), len(dead)))
     # ---- API keys
     out.append("<h2>API keys</h2><form method=post action=/settings/secrets>%s<div class=card2 style='margin-top:0'><p class=help>Keys are stored on the Pi (owner-only file) and are never shown again, only whether they are set. Leave a box empty to keep the current key.</p><table><tr><th>Key</th><th>Status</th><th>Replace with</th><th>Remove</th></tr>" % csrf_input(csrf))
     for name, label, help_ in S.SECRETS:

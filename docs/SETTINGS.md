@@ -22,8 +22,9 @@ are stored, so untouched settings keep following the defaults of new releases. A
 ## Security model (read this)
 * **Default: no password.** Anyone who can reach the dashboard on your network can open Settings, replace API keys and restart the bot's services. That is a reasonable trade-off for a paper bot
   on a home LAN. **Never expose port 8088 to the internet** (no port-forwarding); use a VPN for remote access.
-* Even without a password: only private-network addresses are served POSTs, every form carries a CSRF token, and cross-site requests (a malicious web page you happen to visit
-  trying to change your settings) are refused using the browser's Origin / Sec-Fetch-Site headers.
+* Even without a password: only private-network addresses are served POSTs, every form carries a CSRF token, cross-site requests (a malicious web page you visit trying to change
+  your settings) are refused using the browser's Origin / Sec-Fetch-Site headers, and the request's Host must look like your LAN (private IP, `localhost`, a single-label name such as
+  `orangepizero3`, `*.local`, `*.lan`, `*.home.arpa`...). That last rule defeats DNS-rebinding attacks. If you use some other hostname or a proxy, add it under Settings -> System -> Allowed hostnames.
 * **Optional password:** Settings -> System -> "Require a password to use Settings". On the next visit you create it (min. 10 chars; salted PBKDF2 hash; 8-hour HttpOnly session cookie;
   5 wrong attempts lock that address for 2 minutes). Traffic is still plain HTTP, so do not reuse a password.
 * The dashboard itself runs unprivileged. Restarts are done by a small root helper (`paper-agent-control.path`) that accepts only a fixed list of `paper-agent-*` units and integer timer

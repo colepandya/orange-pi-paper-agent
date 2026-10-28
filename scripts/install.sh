@@ -32,10 +32,16 @@ else
   TD=/dev/shm; [[ -w /dev/shm ]] || TD=/tmp          # RAM-backed temp: SQLite on the SD card made tests take ~2 min
   # hermetic: tests must never read this Pi's real config, dashboard settings, keys or admin file
   HERM="PAPER_AGENT_CONFIG_DIR=$TD/pa-t-etc PAPER_AGENT_STATE_DIR=$TD/pa-t-state PAPER_AGENT_SETTINGS=$TD/pa-t-state/settings.json PAPER_AGENT_SECRETS=$TD/pa-t-state/secrets.env PAPER_AGENT_ADMIN=$TD/pa-t-state/admin.json PAPER_AGENT_CONTROL=$TD/pa-t-state/control PYTHONWARNINGS=ignore::ResourceWarning"
-  if ! OUT=$(cd "$R" && env $HERM TMPDIR="$TD" PYTHONPATH="$R" python3 -m unittest discover -s tests -t . -p "test_*.py" 2>&1); then
+  if [[ "${FULL_TESTS:-0}" == "1" ]]; then
+    MODS=(discover -s tests -t . -p "test_*.py"); LABEL="full suite"
+  else
+    MODS=(tests.test_regressions tests.test_envmerge); LABEL="quick checks (full suite: FULL_TESTS=1; it is run before every release and takes ~2 min on a Pi)"
+  fi
+  if ! OUT=$(cd "$R" && env $HERM TMPDIR="$TD" PYTHONPATH="$R" python3 -m unittest "${MODS[@]}" 2>&1); then
     echo "$OUT" | tail -40; echo "FAIL: tests failed; aborting before any change"; exit 1
   fi
-  if [[ "${FULL_TESTS:-0}" == "1" ]]; then
+  echo "[$LABEL]"
+  if [[ "${SOAK:-0}" == "1" ]]; then
     (cd "$R" && env $HERM TMPDIR="$TD" PYTHONPATH="$R" python3 -m unittest discover -s tests -t . -p "soak_*.py" 2>&1 | tail -3) || { echo "FAIL: soak test failed"; exit 1; }
   fi
   echo "$OUT" | grep -E "^(Ran|OK)" ; echo "tests passed in $(( $(date +%s) - START ))s"

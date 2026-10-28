@@ -132,7 +132,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     held = [r[0] for r in conn.execute("SELECT DISTINCT ticker FROM positions WHERE status='OPEN'")]
 
     def collect():
-        out = sources.collect(conn, [s for s in srcs if icfg["gdelt_enabled"] or s["type"] != "gdelt"], deps.fetch)
+        out = sources.collect(conn, [s for s in srcs if icfg["gdelt_enabled"] or s["type"] != "gdelt"], deps.fetch, sleep=deps.sleep)
         names = list(dict.fromkeys(held + [r[0] for r in conn.execute("SELECT ticker FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_CAPACITY')")]))[: icfg["finnhub_company_news_max"]]
         extra = 0
         if os.getenv("FINNHUB_API_KEY") and db.due(conn, "company_news", 0.25, now):

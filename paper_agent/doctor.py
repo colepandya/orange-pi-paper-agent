@@ -4,7 +4,9 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import os
+import re
 import subprocess
+import time
 import urllib.request
 from typing import Callable, Dict, List, Optional
 
@@ -22,8 +24,21 @@ def _unit_state(unit: str) -> str:
         return "n/a"
 
 
+PROVIDER_HINTS = {
+    ("FINNHUB", 401): "Finnhub REJECTED the API key (401). Use the 20-character API key from finnhub.io/dashboard, NOT the webhook secret (a second 20-character string shown next to it). Fix it in Settings -> API keys. Until then company profiles, Finnhub news and insider data are unavailable.",
+    ("MASSIVE", 403): "Massive returned 403: its free plan has no real-time last-trade endpoint. This is expected and harmless: it just will not count toward trade execution (Twelve Data, Alpaca and Yahoo still can).",
+}
+
+
+def _classify(msg: str) -> str:
+    m = re.search(r"HTTP (\d{3})", msg)
+    if m:
+        return "HTTP " + m.group(1)
+    return "timeout" if "timed out" in msg or "timeout" in msg.lower() else ("DNS/network" if "Name or service" in msg or "URL error" in msg else msg[:30])
+
+
 def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json: Callable = net.get_json, live: bool = True, check_units: bool = True,
-        fix: bool = False, srcs: Optional[List[dict]] = None, out: Callable = print) -> dict:
+        fix: bool = False, srcs: Optional[List[dict]] = None, out: Callable = print, sleep: Callable = time.sleep) -> dict:
     issues: List[dict] = []
 
     def issue(sev: str, msg: str, fixcmd: str = "") -> None:
@@ -123,18 +138,26 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
                 return s["id"], True, "%d items" % len(items)
             except Exception as e:  # noqa: BLE001
                 return s["id"], False, str(e)[:90]
+        normal = [s for s in todo if s["type"] != "gdelt"]
+        gdelt = [s for s in todo if s["type"] == "gdelt"]
         with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
-            res = list(ex.map(probe, todo))
+            res = list(ex.map(probe, normal))
+        for k, s in enumerate(gdelt[:2]):               # GDELT allows 1 request / 5 s: sample two politely instead of hammering all of them
+            if k:
+                sleep(5.5)
+            res.append(probe(s))
         bad = [r for r in res if not r[1]]
-        out("[feeds] %d/%d reachable" % (len(res) - len(bad), len(res)))
-        for sid, ok, msg in bad[:8]:
-            out("   FAIL %-22s %s" % (sid, msg))
-        if len(bad) > 8:
-            out("   ... and %d more failing (same error pattern: %s)" % (len(bad) - 8, bad[0][2][:50]))
+        out("[feeds] %d/%d reachable%s" % (len(res) - len(bad), len(res), (" (GDELT: %d of %d sampled)" % (min(2, len(gdelt)), len(gdelt))) if gdelt else ""))
+        groups: dict = {}
+        for sid, ok, msg in bad:
+            groups.setdefault(_classify(msg), []).append(sid)
+        for cause, ids in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+            out("   %-12s x%-2d %s" % (cause, len(ids), ", ".join(ids)))
         if todo and len(bad) > len(todo) * 0.5:
             issue("HIGH", "more than half the news feeds are failing (network/DNS?)", "ping -c2 1.1.1.1; ping -c2 bbc.co.uk")
         elif bad:
-            issue("LOW", "%d feed(s) unreachable: %s (they back off automatically)" % (len(bad), ", ".join(r[0] for r in bad[:8])), "")
+            dead = [sid for c, ids in groups.items() if c in ("HTTP 404", "HTTP 410") for sid in ids]
+            issue("LOW", "%d feed(s) unreachable (%s). They back off automatically; permanently dead ones (404/410: %s) can be switched off in Settings -> News & data feeds" % (len(bad), "; ".join("%s x%d" % (c, len(i)) for c, i in groups.items()), ", ".join(dead) or "none"), "")
         # ---- quote providers
         try:
             q = quotes.consensus(None, "SPY", cfg, now, None, fetch_json)
@@ -144,6 +167,10 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
                 ok = o.get("price") is not None and not o.get("error")
                 usable += ok
                 out("   %-14s %s  price=%s age=%ss %s" % (o["provider"], "OK  " if ok else "FAIL", o["price"], None if o["age_seconds"] is None else int(o["age_seconds"]), o["reject_reason"] or ""))
+            for o in q["observations"]:
+                hint = PROVIDER_HINTS.get((o["provider"], o.get("http_status")))
+                if hint:
+                    issue("MEDIUM" if o["provider"] == "FINNHUB" else "LOW", hint, "")
             if usable < 2:
                 issue("HIGH", "fewer than 2 quote providers return data; no trade can execute", "check keys / provider status above")
             if market_state(now)["execution"] and q["status"] != "PASS":

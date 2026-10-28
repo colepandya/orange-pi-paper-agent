@@ -283,7 +283,8 @@ def render(c, cfg, tab: str, q: Dict, ctx: Optional[dict] = None) -> str:
         else:
             base = config.load_config(with_overrides=False)
             from . import pipeline
-            inner = settings_ui.page_settings(cfg, base, ctx, pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status())
+            health = {r["source_id"]: dict(r) for r in c.execute("SELECT source_id,last_status,failures,last_success FROM source_health")}
+            inner = settings_ui.page_settings(cfg, base, ctx, pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status(), health)
         return layout(inner, tab, cfg, ctx)
     fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q),
           "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s), "system": lambda: page_system(c, cfg, s)}.get(tab, lambda: page_overview(c, cfg, s))
@@ -311,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Content-Security-Policy", CSP)
-        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Referrer-Policy", "same-origin")   # NOT no-referrer: that makes browsers send "Origin: null" on same-origin form posts
         for k, v in (headers or []):
             self.send_header(k, v)
         self.end_headers()
@@ -353,6 +354,20 @@ class Handler(BaseHTTPRequestHandler):
         if not cfg["runtime"].get("require_password"):
             return {"csrf": self._csrf_token(), "open": True}
         return self.auth.session(self._token())
+
+    def _host_ok(self, cfg: dict) -> bool:
+        """Blocks DNS rebinding: a hostile site can make Origin == Host == its own domain, so the Host itself must look like your LAN
+        (private IP, localhost, a single-label name like 'orangepizero3', *.local / *.lan / *.home.arpa ...) or be listed in runtime.allowed_hosts."""
+        host = (self.headers.get("Host") or "").strip().lower()
+        name = host.split("]")[0].lstrip("[") if host.startswith("[") else host.rsplit(":", 1)[0]
+        try:
+            ip = ipaddress.ip_address(name)
+            return ip.is_private or ip.is_loopback or ip.is_link_local
+        except ValueError:
+            pass
+        if name == "localhost" or name in [h.lower() for h in cfg["runtime"].get("allowed_hosts", [])]:
+            return True
+        return "." not in name or name.endswith((".local", ".lan", ".home", ".internal", ".localdomain", ".home.arpa"))
 
     def _same_origin(self) -> bool:
         """CSRF defence that works without a login: browsers always send Origin / Sec-Fetch-Site on cross-site POSTs."""
@@ -442,11 +457,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._private():
             return self._send(403, "forbidden")
+        cfg = self.get_cfg()
+        if not self._host_ok(cfg):
+            return self._send(403, "refused: the Host header '%s' does not look like your local network. If you reach the dashboard through a custom hostname or proxy, add it in Settings -> System -> Allowed hostnames." % E(self.headers.get("Host", "")))
         if not self._same_origin():
-            return self._send(403, "cross-site request refused")
+            return self._send(403, "refused: cross-site request (Origin '%s' does not match Host '%s'). If you reach the dashboard through a proxy or custom hostname, add it in Settings -> System -> Allowed hostnames." % (E(self.headers.get("Origin", "-")), E(self.headers.get("Host", ""))))
         path = urllib.parse.urlparse(self.path)
         form = self._form()
-        cfg = self.get_cfg()
         try:
             if path.path in ("/setup", "/login", "/logout") and not cfg["runtime"].get("require_password"):
                 return self._redirect("/?tab=settings" if path.path != "/logout" else "/")
@@ -501,6 +518,21 @@ class Handler(BaseHTTPRequestHandler):
                 if errors:
                     return self._settings_page(400, cfg, sess, {"errors": errors})
                 return self._redirect(self._flash_url("Saved keys: %s" % (", ".join(changed) if changed else "nothing changed")))
+            if path.path == "/settings/disable-dead":
+                from . import pipeline
+                base = config.load_config(with_overrides=False)
+                c = db.connect(self.db_path, readonly=True)
+                try:
+                    health = {r["source_id"]: dict(r) for r in c.execute("SELECT source_id,last_status,failures,last_success FROM source_health")}
+                finally:
+                    c.close()
+                dead = settings_ui.dead_feed_ids(pipeline.load_sources(base), cfg, health)
+                new = json.loads(json.dumps(cfg))
+                for sid in dead:
+                    new.setdefault("source_overrides", {}).setdefault(sid, {})["enabled"] = False
+                S.save_overrides(S.overrides_for(new, base))
+                self._audit("dead_feeds_disabled", {"feeds": dead})
+                return self._redirect(self._flash_url("Disabled %d dead feed(s): %s" % (len(dead), ", ".join(dead) or "none")))
             if path.path == "/settings/reset":
                 if form.get("confirm") != "1":
                     return self._redirect(self._flash_url("Tick the confirmation box to reset."))

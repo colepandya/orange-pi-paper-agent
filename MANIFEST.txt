@@ -84,5 +84,6 @@ tests/test_engines.py
 tests/test_envmerge.py
 tests/test_filings.py
 tests/test_intel.py
+tests/test_polish.py
 tests/test_regressions.py
 tests/test_settings_ui.py

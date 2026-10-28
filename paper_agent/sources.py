@@ -186,14 +186,33 @@ def store_items(conn, src: dict, items: List[dict], now: Optional[dt.datetime] =
     return new
 
 
-def collect(conn, sources: List[dict], fetch: Callable = net.get, clock: Callable = time.time, max_items: int = 100, only_ids: Optional[set] = None) -> dict:
+GDELT_GAP_SECONDS, GDELT_MAX_PER_CYCLE = 5.5, 3        # GDELT asks for <= 1 request per 5 s; extra feeds simply wait for the next cycle
+
+
+def collect(conn, sources: List[dict], fetch: Callable = net.get, clock: Callable = time.time, max_items: int = 100, only_ids: Optional[set] = None,
+            sleep: Callable = time.sleep) -> dict:
     tot = {"sources_ok": 0, "fetch_failures": 0, "skipped": 0, "unchanged": 0, "new": 0, "errors": []}
-    for src in sources:
+    gdelt_done = 0
+
+    def last_attempt(src: dict) -> str:
+        r = conn.execute("SELECT last_attempt FROM source_health WHERE source_id=?", (src["id"],)).fetchone()
+        return (r[0] if r and r[0] else "")            # never polled sorts first
+
+    # fair rotation: with a per-cycle cap, the least-recently-polled GDELT feeds go first so none can be starved
+    ordered = [s for s in sources if s["type"] != "gdelt"] + sorted((s for s in sources if s["type"] == "gdelt"), key=last_attempt)
+    for src in ordered:
         if only_ids is not None and src["id"] not in only_ids:
             continue
         if src.get("enabled", True) is False or not source_due(conn, src, clock):
             tot["skipped"] += 1
             continue
+        if src["type"] == "gdelt":
+            if gdelt_done >= GDELT_MAX_PER_CYCLE:
+                tot["skipped"] += 1
+                continue
+            if gdelt_done:
+                sleep(GDELT_GAP_SECONDS)
+            gdelt_done += 1
         try:
             items, status = fetch_source(src, fetch, conn)
         except Exception as e:  # noqa: BLE001 - every failure mode must be isolated per source

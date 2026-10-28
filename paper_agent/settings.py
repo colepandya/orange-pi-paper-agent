@@ -79,6 +79,7 @@ FIELDS: List[Field] = [
     F("intelligence.max_knowledge_refresh_per_cycle", "Companies whose SEC filings are read per cycle", "int", "LLM analyst", 0, 10, ""),
     # ---------------------------------------------------------------- runtime
     F("runtime.require_password", "Require a password to use Settings", "bool", "System", help="Off (default): anyone on your network can open Settings. Turn on to be asked to create a password on your next visit."),
+    F("runtime.allowed_hosts", "Allowed hostnames (only if you use a custom name or proxy)", "hostlist", "System", help="Comma-separated. Private IPs, localhost and names like orangepizero3 or pi.local are always allowed."),
     F("runtime.contact_email", "Contact email (sent to SEC in the User-Agent)", "email", "System", help="SEC asks for a real contact."),
     F("runtime.min_available_memory_mb", "Skip a cycle below this free memory (MB)", "int", "System", 50, 500, ""),
     F("runtime.max_load_per_core", "Skip a cycle above this load per core", "float", "System", 0.5, 4.0, ""),
@@ -149,6 +150,8 @@ def display_value(f: Field, cfg: dict) -> str:
         return ("%.4f" % (v * 100)).rstrip("0").rstrip(".")
     if f.kind == "bool":
         return "1" if v else "0"
+    if f.kind == "hostlist":
+        return ", ".join(v)
     return str(v)
 
 
@@ -156,6 +159,11 @@ def _parse(f: Field, raw: str):
     raw = (raw or "").strip()
     if f.kind == "bool":
         return raw.lower() in ("1", "true", "on", "yes")
+    if f.kind == "hostlist":
+        names = [h.strip().lower() for h in re.split(r"[,\s]+", raw) if h.strip()]
+        if len(names) > 10 or any(not re.fullmatch(r"[a-z0-9]([a-z0-9.-]{0,60}[a-z0-9])?", h) for h in names):
+            raise ValueError("up to 10 hostnames (letters, digits, dots, hyphens), separated by commas")
+        return names
     if raw == "":
         raise ValueError("a value is required")
     if f.kind == "email":

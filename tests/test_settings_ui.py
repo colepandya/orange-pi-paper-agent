@@ -17,6 +17,7 @@ import helpers as H  # noqa: E402
 from paper_agent import auth, config, control, dashboard, db, pipeline, settings as S, sources  # noqa: E402
 
 SECRET = "sk-ant-TESTSECRET-abcdef12345"
+iso_now = "2026-10-28T00:00:00+00:00"
 
 
 def read(path):
@@ -528,6 +529,64 @@ class TestDashboardOpenByDefault(HTTPHarness, unittest.TestCase):
         self.assertTrue(os.path.exists(self.pause))
         self.req("POST", "/control/resume", {"csrf": tok})
         self.assertFalse(os.path.exists(self.pause))
+
+    def test_pages_do_not_ask_browsers_to_send_origin_null(self):
+        """REGRESSION (found on the Pi): `Referrer-Policy: no-referrer` makes browsers send `Origin: null` on same-origin form posts,
+        which our cross-site check then (correctly) refused - blocking every legitimate Save."""
+        _, h, _ = self.req("GET", "/?tab=settings")
+        self.assertEqual(h["referrer-policy"], "same-origin")
+        _, h, _ = self.req("GET", "/")
+        self.assertEqual(h["referrer-policy"], "same-origin")
+
+    def test_a_real_browsers_same_origin_post_is_accepted(self):
+        """Exactly what Chrome/Safari/Firefox send for a form on http://<pi>:8088 (no Sec-Fetch-* headers on plain HTTP)."""
+        tok, _ = self.csrf()
+        host = "127.0.0.1:%d" % self.port
+        st, _, _ = self.req("POST", "/settings/save", {"csrf": tok, "f.risk.max_position_pct": "6"},
+                            headers={"Origin": "http://" + host, "Referer": "http://%s/?tab=settings" % host, "Host": host, "Upgrade-Insecure-Requests": "1"})
+        self.assertEqual(st, 303)
+        self.assertEqual(jload(config.SETTINGS_PATH), {"risk": {"max_position_pct": 0.06}})
+
+    def test_dns_rebinding_is_refused(self):
+        """A hostile site can point its own domain at the Pi: Origin == Host == evil domain. The Host itself must look like a LAN."""
+        tok, _ = self.csrf()
+        for evil in ("evil.example.com", "attacker.net", "192.168.1.91.evil.example.org"):
+            h = "%s:%d" % (evil, self.port)
+            st, _, body = self.req("POST", "/settings/save", {"csrf": tok, "f.risk.max_position_pct": "9"}, headers={"Host": h, "Origin": "http://" + h})
+            self.assertEqual(st, 403, evil)
+            self.assertIn("does not look like your local network", body)
+        self.assertFalse(os.path.exists(config.SETTINGS_PATH))
+
+    def test_normal_lan_hostnames_work(self):
+        tok, _ = self.csrf()
+        for i, name in enumerate(("192.168.1.91", "10.0.0.5", "orangepizero3", "pi.local", "localhost", "pi.home.arpa", "[::1]")):
+            h = "%s:%d" % (name, self.port)
+            st, _, _ = self.req("POST", "/settings/save", {"csrf": tok, "f.risk.max_position_pct": str(5 + i)}, headers={"Host": h, "Origin": "http://" + h})
+            self.assertEqual(st, 303, name)
+
+    def test_custom_hostname_can_be_allowed_from_settings(self):
+        tok, _ = self.csrf()
+        h = "pi.example.com:%d" % self.port
+        hdr = {"Host": h, "Origin": "http://" + h}
+        self.assertEqual(self.req("POST", "/settings/save", {"csrf": tok, "f.risk.max_position_pct": "8"}, headers=hdr)[0], 403)
+        self.assertEqual(self.req("POST", "/settings/save", {"csrf": tok, "f.runtime.allowed_hosts": "pi.example.com"})[0], 303)
+        self.assertEqual(self.req("POST", "/settings/save", {"csrf": tok, "f.risk.max_position_pct": "8"}, headers=hdr)[0], 303)
+
+    def test_disable_dead_feeds_button_disables_only_permanently_dead_ones(self):
+        os.makedirs(config.CONFIG_DIR, exist_ok=True)
+        write(os.path.join(config.CONFIG_DIR, "sources.json"), json.dumps({"sources": [
+            {"id": "imf", "name": "IMF", "type": "rss", "url": "u", "interval": 600}, {"id": "state", "name": "State", "type": "rss", "url": "u", "interval": 600},
+            {"id": "good", "name": "Good", "type": "rss", "url": "u", "interval": 600}]}))
+        c = db.connect(self.dbpath)
+        for sid, st, fails in (("imf", "404", 5), ("state", "403", 9), ("good", "200", 0)):
+            c.execute("INSERT INTO source_health(source_id,name,last_status,failures,last_success) VALUES(?,?,?,?,?)", (sid, sid, st, fails, iso_now if fails == 0 else None))
+        c.close()
+        tok, page = self.csrf()
+        self.assertIn("Disable these 1 feeds", page)
+        self.assertEqual(self.req("POST", "/settings/disable-dead", {})[0], 403)                      # still needs the CSRF token
+        self.assertEqual(self.req("POST", "/settings/disable-dead", {"csrf": tok})[0], 303)
+        self.assertEqual(jload(config.SETTINGS_PATH), {"source_overrides": {"imf": {"enabled": False}}})   # state (403) and good feeds untouched
+        self.assertNotIn("Disable these", self.req("GET", "/?tab=settings")[2])
 
     def test_a_password_can_be_switched_on_from_settings_later(self):
         tok, _ = self.csrf()
