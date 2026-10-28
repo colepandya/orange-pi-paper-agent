@@ -255,6 +255,26 @@ class TestNoCandidateIsEverSilentlyDropped(unittest.TestCase):
         out3, calls3 = self.run_entries(c, [], NOW + dt.timedelta(minutes=20))
         self.assertEqual(len(calls3), 2)
 
+    def test_cap_of_zero_means_no_per_cycle_limit_and_a_positive_cap_still_works(self):
+        for cap, expect_calls, expect_deferred in ((0, 8, 0), (5, 5, 3), (3, 3, 5)):
+            c = H.fresh_db()
+            cfg = H.cfg()
+            cfg["risk"]["max_new_per_cycle"] = cap
+            calls = []
+
+            def fake(conn, cfg_, universe, cand, regime, now_, quote_fn, md_fetch=None, existing_decision=None, intel=None):
+                calls.append(cand["ticker"])
+                return {"status": "EXECUTED", "decision_id": 0}
+            from unittest import mock
+            from paper_agent import trader
+            with mock.patch.object(trader, "process_candidate", fake):
+                out = trader.run_entries(c, cfg, None, self.candidates(8), {"regime": "risk_on"}, NOW, None)
+            self.assertEqual((len(calls), out["deferred"]), (expect_calls, expect_deferred), "cap=%s" % cap)
+
+    def test_the_shipped_default_is_no_per_cycle_limit(self):
+        from paper_agent import config
+        self.assertEqual(config.DEFAULTS["risk"]["max_new_per_cycle"], 0)
+
     def test_deferred_candidates_expire_with_the_event_instead_of_lingering(self):
         c = H.fresh_db()
         self.run_entries(c, self.candidates(5))

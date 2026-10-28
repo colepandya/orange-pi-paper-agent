@@ -39,7 +39,7 @@ FIELDS: List[Field] = [
     F("risk.daily_loss_pause_pct", "Pause new trades after one-day loss of", "pct", "Risk limits", 0.005, 0.2, ""),
     F("risk.min_ev_net", "Minimum expected value (net of costs)", "pct", "Risk limits", 0.0, 0.05, "Candidates below this expected return are not traded."),
     F("risk.min_confidence", "Minimum forecast confidence", "pct", "Risk limits", 0.0, 0.95, ""),
-    F("risk.max_new_per_cycle", "Max new positions per cycle", "int", "Risk limits", 0, 10, ""),
+    F("risk.max_new_per_cycle", "Max new positions per cycle (0 = no limit)", "int", "Risk limits", 0, 200, "0 = open as many as the other limits allow. Cash reserve, max invested, per-company, per-theme and stress-loss limits always apply."),
     F("risk.min_adv_usd", "Minimum average daily dollar volume", "int", "Risk limits", 100_000, 1_000_000_000, "Illiquid stocks below this are rejected (USD)."),
     # ---------------------------------------------------------------- portfolio / execution
     F("portfolio.slippage_bps", "Simulated slippage", "int", "Execution", 0, 100, "Basis points added to buys / removed from sells."),

@@ -100,6 +100,22 @@ class TestWholeSystemAgainstTheSimulatedInternet(Env):
         self.assertTrue([u for u in net.requests if "companyfacts" in u], "...and SEC company facts")
         books_balance(self, c)
 
+    def test_with_no_per_cycle_cap_the_money_limits_are_what_stop_it(self):
+        """The user's rule: open as many as we want as long as the funds are there. Cash reserve, max invested, per-company and per-theme limits must still hold."""
+        from paper_agent import portfolio as pf
+        c, errors, net = self.morning(seed=1, cycles=12)
+        self.assertEqual(errors, [])
+        cfg = H.cfg()
+        per_cycle = [r[0] for r in c.execute("SELECT COUNT(*) FROM positions GROUP BY opened")]
+        self.assertGreater(max(per_cycle), 3, "with no cap a single cycle should be able to open more than 3 positions: %s" % per_cycle)
+        now = T0 + dt.timedelta(minutes=5 * 11)
+        eq = pf.equity_of(c, pf.holdings(c, now), now)
+        self.assertLessEqual(eq["gross"], cfg["risk"]["max_gross_pct"] + 0.02)                        # never more than 80% invested (small drift allowed)
+        self.assertGreaterEqual(eq["cash"] / eq["equity"], cfg["risk"]["min_cash_pct"] - 0.02)        # the 20% cash reserve holds
+        for r in c.execute("SELECT ticker,SUM(remaining_cost) v FROM position_lifecycle l JOIN positions p ON p.id=l.position_id WHERE p.status='OPEN' GROUP BY ticker"):
+            self.assertLessEqual(r["v"] / eq["equity"], cfg["risk"]["max_issuer_pct"] + 0.03, r["ticker"])    # per-company limit
+        books_balance(self, c)
+
     def test_and_the_positions_it_opened_are_sold_when_prices_fall(self):
         c, errors, net = self.morning(seed=1, cycles=12)
         original = [r[0] for r in c.execute("SELECT id FROM positions WHERE status='OPEN'")]

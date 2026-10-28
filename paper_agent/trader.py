@@ -221,7 +221,7 @@ def _defer(conn, c: dict, now, why: str) -> int:
 def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict, now, quote_fn: Callable, md_fetch=None, intel: Optional[dict] = None, deadline: Optional[float] = None) -> dict:
     out = {"processed": 0, "executed": 0, "retried": 0, "deferred": 0, "errors": 0, "by_status": {}}
     icfg = cfg["intelligence"]
-    cap = int(cfg["risk"]["max_new_per_cycle"])
+    cap = int(cfg["risk"]["max_new_per_cycle"])          # 0 = unlimited: funds / risk limits / the time budget are the real limits
     new_exec = 0                                    # executions this cycle (retries AND fresh) count against the per-cycle cap
 
     def late() -> bool:
@@ -261,7 +261,7 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
         if row["status"] in ("AWAITING_MARKET", "AWAITING_QUOTE") and not market_open:
             out["waiting_market"] += 1              # nothing can change until the open: do NOT redo the evaluation and market-data calls every 10 minutes all night
             continue
-        if new_exec >= cap:
+        if (cap > 0 and new_exec >= cap):
             out["deferred"] += 1                    # still pending; will be retried next cycle
             continue
         c["age_hours"] = (c.get("age_hours") or 0) + age
@@ -281,7 +281,7 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
             break
         if c.get("origin") == "thesis" and conn.execute("SELECT 1 FROM decisions WHERE ticker=? AND origin='thesis' AND created>?", (c["ticker"], iso(now - dt.timedelta(hours=24)))).fetchone():
             continue
-        if new_exec >= cap:
+        if (cap > 0 and new_exec >= cap):
             _defer(conn, c, now, "per-cycle new-position cap (%d) reached; retried next cycle" % cap)
             candqueue.done(conn, c, now)                     # the AWAITING_CAPACITY decision row now carries it
             out["deferred"] += 1

@@ -1,3 +1,7 @@
+# Build 20
+* **No per-cycle position limit by default.** `risk.max_new_per_cycle` now defaults to 0 = unlimited (it was 3, a pacing guard, not a funds check). Settings -> Risk limits accepts 0-200.
+  The real limits still always apply: 20% cash reserve, 80% max invested, per-company 15%, per-theme 30%, stress-loss cap, risk-per-trade sizing, and the cycle time budget.
+
 # Build 19
 * **Old errors no longer raise false flags** (and nothing is deleted): errors from cycles that started before the current build, or that you acknowledge (`acknowledge-errors`), become history. The funnel,
   doctor and pre-open checklist count only errors since then; a NEW error always shows. History is still mentioned and kept in the database.
