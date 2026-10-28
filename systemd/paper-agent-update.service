@@ -1,0 +1,10 @@
+[Unit]
+Description=Update Paper Agent from GitHub (tests gate the install; no-op when unchanged)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+TimeoutStartSec=1200
+ExecStart=/bin/bash /opt/paper-agent/scripts/update.sh

@@ -22,6 +22,9 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("migrate", "cycle", "guard", "serve", "learn", "probe", "universe", "backup", "status", "keys"):
         sub.add_parser(name)
+    dp = sub.add_parser("doctor", help="full health report")
+    dp.add_argument("--fix", action="store_true")
+    dp.add_argument("--offline", action="store_true")
     qp = sub.add_parser("quote", help="show what every quote provider returns for a ticker")
     qp.add_argument("ticker")
     args = ap.parse_args(argv)
@@ -30,6 +33,11 @@ def main(argv=None) -> int:
         for k in ("TWELVE_DATA_API_KEY", "FINNHUB_API_KEY", "ALPACA_API_KEY", "ALPACA_API_SECRET", "MASSIVE_API_KEY", "ALPHA_VANTAGE_API_KEY", "TIINGO_API_KEY", "EODHD_API_KEY", "ANTHROPIC_API_KEY"):
             print("%-24s %s" % (k, "set" if os.getenv(k) else "-"))
         return 0
+    if args.cmd == "doctor":
+        from . import doctor
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        r = doctor.run(conn, cfg, CONFIG_DIR, live=not args.offline, fix=args.fix, srcs=pipeline.load_sources())
+        return 1 if any(i["severity"] in ("CRITICAL", "HIGH") for i in r["issues"]) else 0
     if args.cmd == "quote":
         from . import quotes
         c = quotes.consensus(None, args.ticker.upper(), cfg, providers=None, fetch=net.get_json)

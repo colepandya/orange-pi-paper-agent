@@ -7,23 +7,19 @@ It models the world as **events → evidence → probabilistic theses → expect
 * Runs **24/7**: news, theses, regime and monitoring update around the clock; only *execution* waits for the US regular session and a verified quote.
 * Every decision is auditable: the dashboard's *Decisions* tab shows the forecast scenarios, EV, sizing steps, gates and quote used.
 
-## Install (on the Pi)
+## Install / update (on the Pi): one line
 ```bash
-sudo apt update && sudo apt install -y unzip python3 tzdata curl
-cd /tmp && unzip -o paper-agent-v5.zip && cd paper-agent-v5
-sudo bash scripts/install.sh      # tests first, backs up, migrates your live DB, installs keys + units
+curl -fsSL https://raw.githubusercontent.com/colepandya/orange-pi-paper-agent/main/scripts/update.sh | sudo bash
 ```
-This package **includes your API keys** (`config/market-data.env`); the installer places them in `/etc/paper-agent/market-data.env` (0640 root:paperagent). Delete the unzipped copy afterwards:
-`sudo shred -u /tmp/paper-agent-v5.zip; sudo rm -rf /tmp/paper-agent-v5`
+That downloads the latest code from GitHub, runs the tests, backs up your database, migrates it, installs keys + services, runs a first cycle and prints a health report.
+After that the Pi **checks GitHub every 3 hours and updates itself** (tests gate every update; unchanged code is a no-op). To force it now: `sudo FORCE=1 /opt/paper-agent/scripts/update.sh`.
 
-Verify:
-```bash
-PA="sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent"
-$PA keys          # which keys are loaded (names only)
-$PA probe         # validate every news feed
-$PA quote MSFT    # see each quote provider (run during US market hours for full results)
-$PA status
-```
+Health report any time (paste it to Claude if anything is red): `sudo /opt/paper-agent/scripts/doctor.sh`
+Add `--fix` to let it restart stopped services and rebuild a missing universe.
+
+Fallback without GitHub: `unzip` the package on the Pi and run `sudo bash scripts/install.sh`.
+Keys: `config/market-data.env` in the repo is installed to `/etc/paper-agent/market-data.env`; if the repo has none, an existing Pi file is kept.
+
 Dashboard: `http://<pi-ip>:8088`. Rollback: `sudo scripts/rollback.sh /var/backups/paper-agent/v5-<timestamp>`.
 
 Your existing database is **preserved**: ledger, positions, decisions and plans carry over; the legacy per-decision `theses` table is renamed `decision_theses`.

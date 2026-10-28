@@ -1,0 +1,10 @@
+[Unit]
+Description=Check GitHub for Paper Agent updates every 3 hours
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=3h
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

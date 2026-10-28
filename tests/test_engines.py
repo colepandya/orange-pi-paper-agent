@@ -385,6 +385,29 @@ class TestDashboard(unittest.TestCase):
             self.assertIn("Paper Agent", html)
 
 
+class TestDoctor(unittest.TestCase):
+    def test_flags_real_problems_and_offline_fixes(self):
+        import tempfile
+        from paper_agent import doctor, net
+        c, cfg = H.fresh_db(), H.cfg()
+        cfg["runtime"]["bind_port"] = 1
+        lines = []
+        srcs = [{"id": "ok", "name": "OK", "type": "rss", "url": "http://ok", "trust": .5, "interval": 0}, {"id": "dead", "name": "Dead", "type": "rss", "url": "http://dead", "trust": .5, "interval": 0}]
+
+        def fetch(url, **k):
+            if "dead" in url:
+                raise net.FetchError("HTTP 404", 404)
+            return H.rss([("Hello world headline", "", "Tue, 27 Oct 2026 14:00:00 +0000")]), 200, {}
+        r = doctor.run(c, cfg, tempfile.mkdtemp(), fetch=fetch, fetch_json=H.series_fetch, srcs=srcs, check_units=False, out=lines.append)
+        text = "\n".join(lines)
+        msgs = " | ".join(i["message"] for i in r["issues"])
+        self.assertIn("universe", msgs)
+        self.assertIn("1/2 reachable", text)
+        self.assertIn("dead", msgs)
+        self.assertIn("VERDICT", text)
+        self.assertTrue(all("severity" in i for i in r["issues"]))
+
+
 class TestGuard(unittest.TestCase):
     def test_guard_skips_when_closed_and_acts_when_open(self):
         c = H.fresh_db()

@@ -7,13 +7,21 @@ DB=/var/lib/paper-agent/paper-agent.db
 mkdir -p "$B" /opt/paper-agent /etc/paper-agent /var/lib/paper-agent /var/log/paper-agent
 id paperagent >/dev/null 2>&1 || useradd --system --home /var/lib/paper-agent --shell /usr/sbin/nologin paperagent
 
-echo "[1/7] Pre-flight tests (nothing is changed if these fail)"
+echo "[1/7] Pre-flight tests (nothing is changed if these fail)..."
 python3 - <<'PY'
 import sys; assert sys.version_info >= (3, 9), "Python 3.9+ required"
 PY
 python3 -m compileall -q "$R/paper_agent"
-(cd "$R" && PYTHONPATH="$R" python3 -m unittest discover -s tests -t . 2>&1 | tail -4)
-(cd "$R" && PYTHONPATH="$R" python3 -m unittest discover -s tests -t . >/dev/null 2>&1) || { echo "FAIL: tests failed; aborting before any change"; exit 1; }
+if [[ "${SKIP_TESTS:-0}" == "1" ]]; then
+  echo "SKIP_TESTS=1: skipping tests"
+else
+  START=$(date +%s)
+  PAT="test_[re]*.py"; [[ "${FULL_TESTS:-0}" == "1" ]] && PAT="test_*.py"     # default skips the slow soak test
+  if ! OUT=$(cd "$R" && PYTHONPATH="$R" python3 -m unittest discover -s tests -t . -p "$PAT" 2>&1); then
+    echo "$OUT" | tail -40; echo "FAIL: tests failed; aborting before any change"; exit 1
+  fi
+  echo "$OUT" | grep -E "^(Ran|OK)" ; echo "tests passed in $(( $(date +%s) - START ))s"
+fi
 
 echo "[2/7] Backup -> $B"
 if [[ -f $DB ]]; then
@@ -36,7 +44,8 @@ done
 
 echo "[4/7] Installing code and config"
 [[ -d /opt/paper-agent/app ]] && mv /opt/paper-agent/app "/opt/paper-agent/app.legacy-$TS"
-rm -rf /opt/paper-agent/paper_agent && cp -a "$R/paper_agent" /opt/paper-agent/paper_agent
+rm -rf /opt/paper-agent/paper_agent /opt/paper-agent/scripts && cp -a "$R/paper_agent" /opt/paper-agent/paper_agent && cp -a "$R/scripts" /opt/paper-agent/scripts && chmod +x /opt/paper-agent/scripts/*.sh
+[[ -n "${VERSION_ID:-}" ]] && echo "$VERSION_ID" > /opt/paper-agent/.version || true
 [[ -f /etc/paper-agent/config.json ]] || install -m0644 "$R/config/config.example.json" /etc/paper-agent/config.json
 [[ -f /etc/paper-agent/sources.json ]] && cp /etc/paper-agent/sources.json "$B/sources.json.old"
 install -m0644 "$R/config/sources.json" /etc/paper-agent/sources.json
@@ -54,16 +63,17 @@ runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent 
 [[ -f /etc/paper-agent/watchlist.json ]] || { echo "building universe (needs network)"; env PYTHONPATH=/opt/paper-agent python3 -m paper_agent universe || echo "WARN: universe build failed; run: sudo systemctl start paper-agent-universe"; }
 
 echo "[6/7] Installing units"
-for f in cycle.service cycle.timer guard.service guard.timer dashboard.service backup.service backup.timer universe.service universe.timer; do install -m0644 "$R/systemd/paper-agent-$f" /etc/systemd/system/; done
+for f in cycle.service cycle.timer guard.service guard.timer dashboard.service backup.service backup.timer universe.service universe.timer update.service update.timer; do install -m0644 "$R/systemd/paper-agent-$f" /etc/systemd/system/; done
 systemctl daemon-reload
-systemctl enable --now paper-agent-dashboard.service paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer
+systemctl enable paper-agent-dashboard.service paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer paper-agent-update.timer
+systemctl restart paper-agent-dashboard.service
+systemctl start paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer paper-agent-update.timer
 
-echo "[7/7] Verifying"
-sleep 2
-runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent status
-runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent keys
+echo "[7/7] First cycle + health report"
+ls -1dt /var/backups/paper-agent/v5-* 2>/dev/null | tail -n +6 | xargs -r rm -rf      # keep the 5 newest backups
+PA=(runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent)
+timeout 600 "${PA[@]}" cycle || echo "(first cycle reported problems; see doctor below)"
+"${PA[@]}" doctor --fix || true
 echo
-echo "PASS: v5 installed. Backup: $B"
-echo "Next: 1) put API keys in /etc/paper-agent/market-data.env (one KEY=VALUE per line)"
-echo "      2) sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent probe   # validate every news feed"
-echo "      3) open http://<pi-ip>:8088   4) rollback: sudo $R/scripts/rollback.sh $B"
+echo "DONE. Backup: $B   Dashboard: http://$(hostname -I | awk '{print $1}'):8088"
+echo "Updates: this Pi now checks GitHub every 3 hours by itself. Health report any time:  sudo /opt/paper-agent/scripts/doctor.sh"
