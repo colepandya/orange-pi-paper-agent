@@ -17,6 +17,8 @@ After that the Pi **checks GitHub every 3 hours and updates itself** (tests gate
 Health report any time (paste it to Claude if anything is red): `sudo /opt/paper-agent/scripts/doctor.sh`
 Add `--fix` to let it restart stopped services and rebuild a missing universe.
 
+**Private repo?** The plain download only works for public repos. For a private one, create a fine-grained token (GitHub → Settings → Developer settings → Fine-grained tokens → this repo only → Contents: Read-only) and put `GITHUB_TOKEN=...` in `/etc/paper-agent/update.conf` on the Pi; the update script then uses it automatically. The first-time one-liner must also send the token: `curl -fsSL -H "Authorization: Bearer TOKEN" https://raw.githubusercontent.com/colepandya/orange-pi-paper-agent/main/scripts/update.sh | sudo bash`.
+
 Fallback without GitHub: `unzip` the package on the Pi and run `sudo bash scripts/install.sh`.
 Keys: `config/market-data.env` in the repo is installed to `/etc/paper-agent/market-data.env`; if the repo has none, an existing Pi file is kept.
 
