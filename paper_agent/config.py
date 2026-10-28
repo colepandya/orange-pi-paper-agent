@@ -9,6 +9,10 @@ from typing import Any, Dict
 CONFIG_DIR = os.getenv("PAPER_AGENT_CONFIG_DIR", "/etc/paper-agent")
 STATE_DIR = os.getenv("PAPER_AGENT_STATE_DIR", "/var/lib/paper-agent")
 DB_PATH = os.getenv("PAPER_AGENT_DB", os.path.join(STATE_DIR, "paper-agent.db"))
+SETTINGS_PATH = os.getenv("PAPER_AGENT_SETTINGS", os.path.join(STATE_DIR, "settings.json"))     # dashboard-managed overrides (written by the unprivileged dashboard)
+SECRETS_PATH = os.getenv("PAPER_AGENT_SECRETS", os.path.join(STATE_DIR, "secrets.env"))         # dashboard-managed API keys (0600)
+CONTROL_DIR = os.getenv("PAPER_AGENT_CONTROL", os.path.join(STATE_DIR, "control"))              # request/result files for the root control worker
+ADMIN_PATH = os.getenv("PAPER_AGENT_ADMIN", os.path.join(STATE_DIR, "admin.json"))              # dashboard login (salted PBKDF2 hash)
 
 DEFAULTS: Dict[str, Any] = {
     "portfolio": {"starting_cash": 1_000_000.0, "slippage_bps": 8, "entry_score": 65},
@@ -22,11 +26,13 @@ DEFAULTS: Dict[str, Any] = {
     },
     "runtime": {"min_available_memory_mb": 120, "max_load_per_core": 1.5, "pihole_health_required": False,
                 "bind_host": "0.0.0.0", "bind_port": 8088, "contact_email": "paper-agent@example.invalid",
-                "pause_file": os.path.join(STATE_DIR, "PAUSE_TRADES"), "lock_file": os.path.join(STATE_DIR, "cycle.lock")},
+                "require_password": False, "pause_file": os.path.join(STATE_DIR, "PAUSE_TRADES"), "lock_file": os.path.join(STATE_DIR, "cycle.lock")},
     "quotes": {"min_providers": 2, "max_deviation": 0.005, "max_age_seconds": 180, "entry_max_age_seconds": 90,
                "allow_single_source": False,
                "limits": {"TWELVE_DATA": [7, 60], "FINNHUB": [50, 60], "ALPACA": [100, 60], "MASSIVE": [4, 60],
                           "ALPHA_VANTAGE": [20, 86400], "TIINGO": [40, 3600], "EODHD": [18, 86400], "YAHOO": [30, 60]}},
+    "schedule": {"cycle_minutes": 10, "guard_minutes": 2, "update_hours": 3},      # applied to systemd timers by the control worker
+    "source_overrides": {},                                                       # {"<source id>": {"enabled": bool, "interval": seconds}}
     "intelligence": {
         "stale_event_hours": 72, "trade_event_max_age_hours": 24, "thesis_entry_min_probability": 0.70,
         "allow_thesis_entries": True, "contradiction_hours": 6, "company_refresh_hours": 72,
@@ -54,7 +60,7 @@ def deep_merge(base: dict, over: dict) -> dict:
     return out
 
 
-def load_env_file(path: str) -> int:
+def load_env_file(path: str, override: bool = False) -> int:
     """Load KEY=VALUE lines into os.environ without overriding values already set. Returns count loaded."""
     n = 0
     try:
@@ -65,7 +71,7 @@ def load_env_file(path: str) -> int:
                     continue
                 k, v = line.split("=", 1)
                 k, v = k.strip(), v.strip().strip('"').strip("'")
-                if k and v and k not in os.environ:
+                if k and v and (override or k not in os.environ):
                     os.environ[k] = v
                     n += 1
     except OSError:
@@ -73,7 +79,8 @@ def load_env_file(path: str) -> int:
     return n
 
 
-def load_config(path: str = "") -> dict:
+def load_config(path: str = "", with_overrides: bool = True, settings_path: str = "") -> dict:
+    """defaults < /etc/paper-agent/config.json < dashboard settings (state dir)."""
     path = path or os.path.join(CONFIG_DIR, "config.json")
     user: dict = {}
     try:
@@ -82,6 +89,14 @@ def load_config(path: str = "") -> dict:
     except (OSError, ValueError):
         pass
     cfg = deep_merge(DEFAULTS, user)
+    if with_overrides:
+        try:
+            with open(settings_path or SETTINGS_PATH, encoding="utf-8") as f:
+                ov = json.load(f)
+            if isinstance(ov, dict):
+                cfg = deep_merge(cfg, ov)
+        except (OSError, ValueError):
+            pass
     # Legacy config used portfolio.* limits of 50/80/90%. They are intentionally NOT honoured: the new
     # `risk` section is authoritative. Starting cash / slippage / entry score are carried across.
     return cfg
@@ -98,3 +113,4 @@ def load_json(path: str, default: Any) -> Any:
 def load_secrets() -> None:
     for name in ("market-data.env", "secrets.env"):
         load_env_file(os.path.join(CONFIG_DIR, name))
+    load_env_file(SECRETS_PATH, override=True)      # keys entered in the dashboard win over file / systemd values

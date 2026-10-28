@@ -75,9 +75,16 @@ def load_universe() -> Universe:
     return Universe(load_json(os.path.join(CONFIG_DIR, "watchlist.json"), {}))
 
 
-def load_sources() -> List[dict]:
+def load_sources(cfg: Optional[dict] = None) -> List[dict]:
     d = load_json(os.path.join(CONFIG_DIR, "sources.json"), {"sources": []})
-    return d["sources"] if isinstance(d, dict) else d
+    srcs = [dict(s) for s in (d["sources"] if isinstance(d, dict) else d)]
+    for s in srcs:                                   # per-feed overrides made in the dashboard
+        o = ((cfg or {}).get("source_overrides") or {}).get(s["id"], {})
+        if "enabled" in o:
+            s["enabled"] = bool(o["enabled"])
+        if "interval" in o:
+            s["interval"] = int(o["interval"])
+    return srcs
 
 
 def _stage(report: dict, name: str, fn: Callable, *a, **kw):
@@ -96,7 +103,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     deps = deps or Deps()
     now = now or utcnow()
     universe = universe if universe is not None else load_universe()
-    srcs = srcs if srcs is not None else load_sources()
+    srcs = srcs if srcs is not None else load_sources(cfg)
     report: Dict = {"started": iso(now), "mode": mode, "stages": {}, "errors": [], "market": market_state(now)}
     run_id = conn.execute("INSERT INTO cycle_runs(started,status,mode) VALUES(?,?,?)", (iso(now), "RUNNING", mode)).lastrowid
     bad = resources_ok(cfg)

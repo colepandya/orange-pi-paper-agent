@@ -1,0 +1,12 @@
+[Unit]
+Description=Paper Agent control worker (runs ONLY whitelisted paper-agent systemctl actions requested via the dashboard)
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/paper-agent
+Environment=PYTHONPATH=/opt/paper-agent PAPER_AGENT_STATE_DIR=/var/lib/paper-agent PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m paper_agent.control
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true

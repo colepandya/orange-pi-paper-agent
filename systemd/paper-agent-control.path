@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for Paper Agent dashboard control requests
+
+[Path]
+PathExists=/var/lib/paper-agent/control/request.json
+Unit=paper-agent-control.service
+
+[Install]
+WantedBy=multi-user.target

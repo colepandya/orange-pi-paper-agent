@@ -29,5 +29,12 @@ def merge(existing: str, repo: str) -> str:
 
 
 if __name__ == "__main__":      # python3 -m paper_agent.envmerge <existing> <repo> <out>
-    ex = open(sys.argv[1]).read() if len(sys.argv) > 1 and __import__("os").path.exists(sys.argv[1]) else ""
-    open(sys.argv[3], "w").write(merge(ex, open(sys.argv[2]).read()))
+    import os
+    ex = ""
+    if os.path.exists(sys.argv[1]):
+        with open(sys.argv[1]) as fh:
+            ex = fh.read()
+    with open(sys.argv[2]) as fh:
+        repo = fh.read()
+    with open(sys.argv[3], "w") as fh:
+        fh.write(merge(ex, repo))

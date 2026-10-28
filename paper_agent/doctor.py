@@ -11,7 +11,7 @@ from typing import Callable, Dict, List, Optional
 from . import VERSION, db, llm_client, marketdata, net, portfolio as pf, quotes, regime, sources
 from .timeutil import age_seconds, market_state, to_nz, utcnow
 
-UNITS = ["paper-agent-cycle.timer", "paper-agent-guard.timer", "paper-agent-dashboard.service", "paper-agent-backup.timer", "paper-agent-universe.timer", "paper-agent-update.timer"]
+UNITS = ["paper-agent-cycle.timer", "paper-agent-guard.timer", "paper-agent-dashboard.service", "paper-agent-backup.timer", "paper-agent-universe.timer", "paper-agent-update.timer", "paper-agent-control.path"]
 KEYS = ["TWELVE_DATA_API_KEY", "FINNHUB_API_KEY", "ALPACA_API_KEY", "ALPACA_API_SECRET", "MASSIVE_API_KEY", "ALPHA_VANTAGE_API_KEY", "TIINGO_API_KEY", "EODHD_API_KEY"]
 
 
@@ -45,6 +45,15 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
     out("[keys] set: %s | missing: %s" % (", ".join(have) or "none", ", ".join(k for k in KEYS if k not in have) or "none"))
     if len(have) < 3:
         issue("HIGH", "fewer than 3 quote-provider keys loaded; two providers must agree before any trade", "edit /etc/paper-agent/market-data.env")
+    # ---- dashboard-managed settings
+    from . import config as _cfg
+    try:
+        if os.path.exists(_cfg.SETTINGS_PATH):
+            with open(_cfg.SETTINGS_PATH) as fh:
+                ov = json.load(fh)
+            out("[settings] dashboard overrides active: %s" % (", ".join(sorted(ov)) or "none"))
+    except (OSError, ValueError) as e:
+        issue("MEDIUM", "dashboard settings file is unreadable (%s); defaults are being used" % e, "reset it from the dashboard Settings tab, or delete %s" % _cfg.SETTINGS_PATH)
     # ---- SEC contact (fair-access policy asks for a real contact in the User-Agent)
     if "example" in str(cfg["runtime"].get("contact_email", "")).lower():
         issue("MEDIUM", "runtime.contact_email is still a placeholder; SEC (filings, company facts, universe) expects a real contact in the User-Agent and may throttle or block otherwise",
@@ -65,7 +74,8 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
     # ---- universe
     wl = os.path.join(config_dir, "watchlist.json")
     try:
-        n = len(json.load(open(wl)))
+        with open(wl) as fh:
+            n = len(json.load(fh))
     except (OSError, ValueError):
         n = 0
     out("[universe] %d companies" % n)
@@ -148,7 +158,8 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
             issue("MEDIUM", "Yahoo chart endpoint unreachable: %s (regime, volatility and outcome scoring degrade)" % e, "")
         # ---- dashboard
         try:
-            body = urllib.request.urlopen("http://127.0.0.1:%d/health" % cfg["runtime"]["bind_port"], timeout=5).read().decode()
+            with urllib.request.urlopen("http://127.0.0.1:%d/health" % cfg["runtime"]["bind_port"], timeout=5) as resp:
+                body = resp.read().decode()
             out("[dashboard] %s" % body[:120])
         except Exception as e:  # noqa: BLE001
             out("[dashboard] not responding: %s" % e)

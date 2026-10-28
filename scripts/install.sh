@@ -30,11 +30,13 @@ if [[ "${SKIP_TESTS:-0}" == "1" ]]; then
 else
   START=$(date +%s)
   TD=/dev/shm; [[ -w /dev/shm ]] || TD=/tmp          # RAM-backed temp: SQLite on the SD card made tests take ~2 min
-  if ! OUT=$(cd "$R" && TMPDIR="$TD" PYTHONPATH="$R" python3 -m unittest discover -s tests -t . -p "test_*.py" 2>&1); then
+  # hermetic: tests must never read this Pi's real config, dashboard settings, keys or admin file
+  HERM="PAPER_AGENT_CONFIG_DIR=$TD/pa-t-etc PAPER_AGENT_STATE_DIR=$TD/pa-t-state PAPER_AGENT_SETTINGS=$TD/pa-t-state/settings.json PAPER_AGENT_SECRETS=$TD/pa-t-state/secrets.env PAPER_AGENT_ADMIN=$TD/pa-t-state/admin.json PAPER_AGENT_CONTROL=$TD/pa-t-state/control PYTHONWARNINGS=ignore::ResourceWarning"
+  if ! OUT=$(cd "$R" && env $HERM TMPDIR="$TD" PYTHONPATH="$R" python3 -m unittest discover -s tests -t . -p "test_*.py" 2>&1); then
     echo "$OUT" | tail -40; echo "FAIL: tests failed; aborting before any change"; exit 1
   fi
   if [[ "${FULL_TESTS:-0}" == "1" ]]; then
-    (cd "$R" && TMPDIR="$TD" PYTHONPATH="$R" python3 -m unittest discover -s tests -t . -p "soak_*.py" 2>&1 | tail -3) || { echo "FAIL: soak test failed"; exit 1; }
+    (cd "$R" && env $HERM TMPDIR="$TD" PYTHONPATH="$R" python3 -m unittest discover -s tests -t . -p "soak_*.py" 2>&1 | tail -3) || { echo "FAIL: soak test failed"; exit 1; }
   fi
   echo "$OUT" | grep -E "^(Ran|OK)" ; echo "tests passed in $(( $(date +%s) - START ))s"
 fi
@@ -78,6 +80,7 @@ elif [[ ! -f /etc/paper-agent/market-data.env ]]; then
   install -m0640 -o root -g paperagent "$R/config/market-data.env.example" /etc/paper-agent/market-data.env
 fi
 chown -R paperagent:paperagent /var/lib/paper-agent /var/log/paper-agent
+install -d -o paperagent -g paperagent -m0755 /var/lib/paper-agent/control        # dashboard -> root-helper request/result files
 chmod 0640 /etc/paper-agent/market-data.env; chgrp paperagent /etc/paper-agent/market-data.env
 
 echo "[5/7] Migrating database (non-destructive)"
@@ -85,10 +88,11 @@ runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent 
 [[ -f /etc/paper-agent/watchlist.json ]] || { echo "building universe (needs network)"; env PYTHONPATH=/opt/paper-agent python3 -m paper_agent universe || echo "WARN: universe build failed; run: sudo systemctl start paper-agent-universe"; }
 
 echo "[6/7] Installing units"
-for f in cycle.service cycle.timer guard.service guard.timer dashboard.service backup.service backup.timer universe.service universe.timer update.service update.timer; do install -m0644 "$R/systemd/paper-agent-$f" /etc/systemd/system/; done
+for f in cycle.service cycle.timer guard.service guard.timer dashboard.service backup.service backup.timer universe.service universe.timer update.service update.timer control.service control.path; do install -m0644 "$R/systemd/paper-agent-$f" /etc/systemd/system/; done
 systemctl daemon-reload
-systemctl enable paper-agent-dashboard.service paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer paper-agent-update.timer
+systemctl enable paper-agent-dashboard.service paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer paper-agent-update.timer paper-agent-control.path
 systemctl restart paper-agent-dashboard.service
+systemctl start paper-agent-control.path
 systemctl start paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer paper-agent-update.timer
 
 echo "[7/7] First cycle + health report"
@@ -100,4 +104,5 @@ echo
 [[ -f "$R/BUILD" ]] && cp "$R/BUILD" /opt/paper-agent/BUILD
 [[ -n "${VERSION_ID:-}" ]] && echo "$VERSION_ID" > /opt/paper-agent/.version   # only now: a failed install is retried by the next update
 echo "DONE. Backup: $B   Dashboard: http://$(hostname -I | awk '{print $1}'):8088"
+echo "Settings: open the dashboard -> Settings tab (no password by default). ALL settings, API keys (incl. Anthropic), refresh times, feeds and service restarts are editable there."
 echo "Updates: this Pi now checks GitHub every 3 hours by itself. Health report any time:  sudo /opt/paper-agent/scripts/doctor.sh"

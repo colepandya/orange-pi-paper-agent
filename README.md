@@ -27,6 +27,10 @@ Dashboard: `http://<pi-ip>:8088`. Rollback: `sudo scripts/rollback.sh /var/backu
 Your existing database is **preserved**: ledger, positions, decisions and plans carry over; the legacy per-decision `theses` table is renamed `decision_theses`.
 Open positions without a plan get an EV-derived one on the first cycle so the executor can manage them.
 
+## Settings in the dashboard (no more editing config files)
+Dashboard -> **Settings** (no password by default; optional): risk limits, refresh times, LLM budgets/providers, per-feed polling, **all API keys incl. Anthropic**,
+service restarts and connection tests. See `docs/SETTINGS.md` for the security model.
+
 ## V6: LLM analyst (optional, off by default)
 `sudo /opt/paper-agent/scripts/enable-llm.sh` switches on structured event reading with causal chains, SEC-filing company knowledge, a red-team
 challenge before every entry, tripwires, a forecast revision ledger and per-company dossiers (dashboard -> Dossiers). Hard dollar caps apply.

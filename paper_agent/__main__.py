@@ -36,7 +36,7 @@ def main(argv=None) -> int:
     if args.cmd == "doctor":
         from . import doctor
         conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
-        r = doctor.run(conn, cfg, CONFIG_DIR, live=not args.offline, fix=args.fix, srcs=pipeline.load_sources())
+        r = doctor.run(conn, cfg, CONFIG_DIR, live=not args.offline, fix=args.fix, srcs=pipeline.load_sources(cfg))
         return 1 if any(i["severity"] in ("CRITICAL", "HIGH") for i in r["issues"]) else 0
     if args.cmd == "quote":
         from . import quotes
@@ -70,7 +70,7 @@ def main(argv=None) -> int:
         return 0
     if args.cmd == "probe":
         from . import sources
-        for s in pipeline.load_sources():
+        for s in pipeline.load_sources(cfg):
             if s["type"] == "finnhub_general" and not os.getenv("FINNHUB_API_KEY"):
                 print("%-22s SKIP (no key)" % s["id"])
                 continue

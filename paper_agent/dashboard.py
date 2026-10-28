@@ -1,15 +1,19 @@
 """Read-only dashboard (plus pause/resume). No network I/O while rendering a page. Times shown in NZ time."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import html
 import ipaddress
 import json
 import os
+import secrets as _secrets
 import urllib.parse
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from . import db, dossier as dossier_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions
+from . import auth as auth_mod, config, control, db, dossier as dossier_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
 from .config import DB_PATH, load_config
 from .timeutil import market_state, parse_ts, to_nz, utcnow, iso
 
@@ -24,7 +28,8 @@ main{padding:14px 16px;max-width:1300px;margin:auto}.grid{display:grid;grid-temp
 table{border-collapse:collapse;width:100%;margin:6px 0 16px}th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--mut);font-size:12px}
 .wrap{overflow-x:auto}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.mut{color:var(--mut)}h2{margin:18px 0 4px;font-size:16px}
 details summary{cursor:pointer;color:var(--acc)}pre{white-space:pre-wrap;background:var(--card);padding:8px;border-radius:6px;font-size:12px}button{padding:5px 10px}"""
-TABS = ["overview", "theses", "positions", "dossiers", "decisions", "risk", "intelligence", "system"]
+CSS += settings_ui.FORM_CSS
+TABS = ["overview", "theses", "positions", "dossiers", "decisions", "risk", "intelligence", "system", "settings"]
 
 
 def pct(x, d=1):
@@ -200,7 +205,7 @@ def page_decisions(c, cfg, s, q):
         sql += " AND ticker=?"; args.append(tk)
     rows = c.execute(sql + " ORDER BY id DESC LIMIT 120", args).fetchall()
     stats = [r[0] for r in c.execute("SELECT DISTINCT status FROM decisions")]
-    out = ["<form>Status <select name=status onchange=this.form.submit()><option value=''>all</option>%s</select> Ticker <input name=ticker value='%s' size=6><input type=hidden name=tab value=decisions><button>Filter</button></form>" % ("".join("<option%s>%s</option>" % (" selected" if x == st else "", E(x)) for x in stats), E(tk))]
+    out = ["<form>Status <select name=status><option value=''>all</option>%s</select> Ticker <input name=ticker value='%s' size=6><input type=hidden name=tab value=decisions><button>Filter</button></form>" % ("".join("<option%s>%s</option>" % (" selected" if x == st else "", E(x)) for x in stats), E(tk))]
     body = []
     for r in rows:
         try:
@@ -255,37 +260,165 @@ def page_system(c, cfg, s):
     return "".join(out)
 
 
-def render(c, cfg, tab: str, q: Dict) -> str:
-    s = build_state(c, cfg)
-    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q),
-          "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s), "system": lambda: page_system(c, cfg, s)}.get(tab, lambda: page_overview(c, cfg, s))
+def layout(inner: str, tab: str, cfg: dict, ctx: Optional[dict] = None) -> str:
+    ctx = ctx or {}
     paused = os.path.exists(cfg["runtime"]["pause_file"])
     nav = "".join('<a class="%s" href="?tab=%s">%s</a>' % ("on" if t == tab else "", t, t.title()) for t in TABS)
-    ctl = '<form method=post action="/control/%s" style="margin-left:auto"><button>%s</button></form>' % ("resume" if paused else "pause", "Resume trading" if paused else "Pause trading")
-    return "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Paper Agent</title><style>%s</style><header><b>Paper Agent v5</b><nav>%s</nav>%s</header><main>%s</main>" % (CSS, nav, ctl, fn())
+    if ctx.get("authed"):
+        csrf = settings_ui.csrf_input(ctx.get("csrf", ""))
+        logout = ('<form method=post action=/logout>%s<button>Log out</button></form>' % csrf) if ctx.get("auth_required") else ""
+        ctl = ('<span style="margin-left:auto;display:flex;gap:8px"><form method=post action="/control/%s">%s<button>%s</button></form>%s</span>'
+               % ("resume" if paused else "pause", csrf, "Resume trading" if paused else "Pause trading", logout))
+    else:
+        ctl = '<span style="margin-left:auto"><b class="%s">%s</b> &nbsp; <a href="/login">Log in</a></span>' % ("warn" if paused else "mut", "TRADING PAUSED" if paused else "")
+    return "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Paper Agent</title><style>%s</style><header><b>Paper Agent v5</b><nav>%s</nav>%s</header><main>%s</main>" % (CSS, nav, ctl, inner)
+
+
+def render(c, cfg, tab: str, q: Dict, ctx: Optional[dict] = None) -> str:
+    ctx = ctx or {}
+    s = build_state(c, cfg)
+    if tab == "settings":
+        if not ctx.get("authed"):
+            inner = "<p>Settings, API keys and service control need a login. <a href='/login'>Log in</a></p>"
+        else:
+            base = config.load_config(with_overrides=False)
+            from . import pipeline
+            inner = settings_ui.page_settings(cfg, base, ctx, pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status())
+        return layout(inner, tab, cfg, ctx)
+    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q),
+          "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s), "system": lambda: page_system(c, cfg, s)}.get(tab, lambda: page_overview(c, cfg, s))
+    return layout((settings_ui.flash_html(ctx.get("flash")) if ctx.get("flash") else "") + fn(), tab, cfg, ctx)
+
+
+CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+MAX_BODY = 200_000
 
 
 class Handler(BaseHTTPRequestHandler):
-    cfg: dict = {}
     db_path: str = DB_PATH
+    auth: "auth_mod.Auth" = None            # set by serve()
+    control_dir: str = ""
+    csrf_secret: bytes = _secrets.token_bytes(32)          # per-process; tokens simply change after a restart
+    get_cfg = staticmethod(config.load_config)
 
-    def _send(self, code, body, ctype="text/html; charset=utf-8"):
+    # ---------------------------------------------------------------- plumbing
+    def _send(self, code, body, ctype="text/html; charset=utf-8", headers=None):
         b = body.encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(b)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", CSP)
+        self.send_header("Referrer-Policy", "no-referrer")
+        for k, v in (headers or []):
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(b)
+
+    def _redirect(self, loc, headers=None):
+        self.send_response(303)
+        self.send_header("Location", loc)
+        self.send_header("Content-Length", "0")
+        for k, v in (headers or []):
+            self.send_header(k, v)
+        self.end_headers()
 
     def log_message(self, *a):
         pass
 
+    def _ip(self) -> str:
+        return self.client_address[0]
+
+    def _private(self) -> bool:
+        try:
+            ip = ipaddress.ip_address(self._ip())
+            return ip.is_private or ip.is_loopback
+        except ValueError:
+            return False
+
+    def _token(self) -> Optional[str]:
+        try:
+            ck = SimpleCookie(self.headers.get("Cookie", ""))
+            return ck["pa_session"].value if "pa_session" in ck else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _csrf_token(self) -> str:
+        return hmac.new(self.csrf_secret, b"paper-agent-csrf-v1", hashlib.sha256).hexdigest()[:40]
+
+    def _session(self, cfg: dict) -> Optional[dict]:
+        """Password mode: a real login session. Open mode (default): a synthetic session whose only job is to carry the CSRF token."""
+        if not cfg["runtime"].get("require_password"):
+            return {"csrf": self._csrf_token(), "open": True}
+        return self.auth.session(self._token())
+
+    def _same_origin(self) -> bool:
+        """CSRF defence that works without a login: browsers always send Origin / Sec-Fetch-Site on cross-site POSTs."""
+        site = self.headers.get("Sec-Fetch-Site")
+        if site and site not in ("same-origin", "none"):
+            return False
+        origin = self.headers.get("Origin")
+        if origin and urllib.parse.urlparse(origin).netloc != self.headers.get("Host", ""):
+            return False
+        return True
+
+    def _form(self) -> Dict[str, str]:
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > MAX_BODY:
+            return {}
+        body = self.rfile.read(n).decode("utf-8", "replace") if n else ""
+        return {k: v[-1] for k, v in urllib.parse.parse_qs(body, keep_blank_values=True).items()}
+
+    def _flash_url(self, msg: str, tab: str = "settings") -> str:
+        return "/?tab=%s&flash=%s" % (tab, urllib.parse.quote(msg[:300]))
+
+    def _audit(self, action: str, detail=None):
+        try:
+            c = db.connect(self.db_path)
+            try:
+                db.audit(c, "dashboard", action, self._ip(), detail or {})
+            finally:
+                c.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _ctx(self, sess: Optional[dict], q=None, extra=None) -> dict:
+        ctx = {"authed": bool(sess), "csrf": sess["csrf"] if sess else "", "flash": (q or {}).get("flash", [""])[0][:300],
+               "auth_required": bool(self.get_cfg()["runtime"].get("require_password"))}
+        if sess:
+            from . import doctor
+            ctx["control"] = control.last_result(self.control_dir or None)
+            ctx["units"] = {u: doctor._unit_state(u) for u in control.RESTARTABLE}
+            ctx["control_path"] = doctor._unit_state("paper-agent-control.path")
+            ctx["secret_status"] = S.secret_status()
+        ctx.update(extra or {})
+        return ctx
+
+    def _page(self, code, inner_or_none, tab="overview", ctx=None, cfg=None, raw_html=None):
+        cfg = cfg or self.get_cfg()
+        body = layout(raw_html, tab, cfg, ctx) if raw_html is not None else inner_or_none
+        self._send(code, body)
+
+    # ---------------------------------------------------------------- GET
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
+        cfg = self.get_cfg()
         try:
+            if u.path in ("/login", "/setup"):
+                if not cfg["runtime"].get("require_password"):
+                    return self._redirect("/?tab=settings")
+                if u.path == "/login" and not self.auth.configured():
+                    return self._redirect("/setup")
+                if u.path == "/setup" and self.auth.configured():
+                    return self._redirect("/login")
+                if not self._private():
+                    return self._send(403, "forbidden")
+                f = (q.get("flash") or [""])[0]
+                inner = settings_ui.page_setup(f) if u.path == "/setup" else settings_ui.page_login(f, locked=not self.auth.allowed(self._ip()))
+                return self._page(200, None, "settings", {"authed": False}, cfg, raw_html=inner)
             c = db.connect(self.db_path, readonly=True)
             try:
                 if u.path == "/health":
@@ -293,38 +426,172 @@ class Handler(BaseHTTPRequestHandler):
                     age = (utcnow() - parse_ts(last["started"])).total_seconds() if last else None
                     return self._send(200, json.dumps({"ok": bool(last) and age is not None and age < 1800, "last_cycle": dict(last) if last else None, "age_seconds": age}), "application/json")
                 if u.path == "/api/summary":
-                    s = build_state(c, self.cfg)
+                    s = build_state(c, cfg)
                     return self._send(200, json.dumps({"equity": s["eq"], "regime": s["reg"].get("regime"), "positions": len(s["hs"])}, default=str), "application/json")
-                return self._send(200, render(c, self.cfg, (q.get("tab") or ["overview"])[0], q))
+                tab = (q.get("tab") or ["overview"])[0]
+                sess = self._session(cfg)
+                if tab == "settings" and not sess:
+                    return self._redirect("/setup" if not self.auth.configured() else "/login")
+                return self._send(200, render(c, cfg, tab, q, self._ctx(sess, q)))
             finally:
                 c.close()
         except Exception as e:  # noqa: BLE001
             return self._send(500, "<pre>dashboard error: %s</pre>" % E(e))
 
+    # ---------------------------------------------------------------- POST
     def do_POST(self):
-        try:
-            ip = ipaddress.ip_address(self.client_address[0])
-            if not (ip.is_private or ip.is_loopback):
-                return self._send(403, "forbidden")
-        except ValueError:
+        if not self._private():
             return self._send(403, "forbidden")
-        pf_ = self.cfg["runtime"]["pause_file"]
-        if self.path == "/control/pause":
-            os.makedirs(os.path.dirname(pf_), exist_ok=True)
-            open(pf_, "w").write(iso())
-        elif self.path == "/control/resume":
-            try:
-                os.remove(pf_)
-            except OSError:
-                pass
-        else:
+        if not self._same_origin():
+            return self._send(403, "cross-site request refused")
+        path = urllib.parse.urlparse(self.path)
+        form = self._form()
+        cfg = self.get_cfg()
+        try:
+            if path.path in ("/setup", "/login", "/logout") and not cfg["runtime"].get("require_password"):
+                return self._redirect("/?tab=settings" if path.path != "/logout" else "/")
+            if path.path == "/setup":
+                if self.auth.configured():
+                    return self._redirect("/login")
+                pw, conf = form.get("password", ""), form.get("confirm", "")
+                if pw != conf:
+                    return self._page(400, None, "settings", {"authed": False}, cfg, raw_html=settings_ui.page_setup("Passwords do not match."))
+                try:
+                    self.auth.set_password(pw)
+                except ValueError as e:
+                    return self._page(400, None, "settings", {"authed": False}, cfg, raw_html=settings_ui.page_setup(str(e)))
+                tok, _ = self.auth.new_session(self._ip())
+                self._audit("admin_password_created")
+                return self._redirect("/?tab=settings", [("Set-Cookie", "pa_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=%d" % (tok, auth_mod.SESSION_SECONDS))])
+            if path.path == "/login":
+                r = self.auth.login(self._ip(), form.get("password", ""))
+                if not r:
+                    self._audit("login_failed")
+                    inner = settings_ui.page_login("Wrong password." if self.auth.allowed(self._ip()) else "", locked=not self.auth.allowed(self._ip()))
+                    return self._page(401, None, "settings", {"authed": False}, cfg, raw_html=inner)
+                self._audit("login")
+                return self._redirect("/?tab=settings", [("Set-Cookie", "pa_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=%d" % (r[0], auth_mod.SESSION_SECONDS))])
+            # everything below needs a session AND a valid CSRF token
+            sess = self._session(cfg)
+            if not sess:
+                return self._redirect("/login")
+            if not auth_mod.Auth.csrf_ok(sess, form.get("csrf")):
+                return self._send(403, "invalid or missing CSRF token (reload the page and try again)")
+            if path.path == "/logout":
+                self.auth.logout(self._token())
+                return self._redirect("/", [("Set-Cookie", "pa_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0")])
+            if path.path in ("/control/pause", "/control/resume"):
+                pf_ = cfg["runtime"]["pause_file"]
+                if path.path.endswith("pause"):
+                    os.makedirs(os.path.dirname(pf_), exist_ok=True)
+                    with open(pf_, "w") as pf_fh:
+                        pf_fh.write(iso())
+                else:
+                    try:
+                        os.remove(pf_)
+                    except OSError:
+                        pass
+                self._audit(path.path.strip("/").replace("/", "_"))
+                return self._redirect("/")
+            if path.path == "/settings/save":
+                return self._save_settings(form, cfg, sess)
+            if path.path == "/settings/secrets":
+                changed, errors = S.apply_secret_form(form)
+                self._audit("secrets_changed", {"keys": changed})
+                if errors:
+                    return self._settings_page(400, cfg, sess, {"errors": errors})
+                return self._redirect(self._flash_url("Saved keys: %s" % (", ".join(changed) if changed else "nothing changed")))
+            if path.path == "/settings/reset":
+                if form.get("confirm") != "1":
+                    return self._redirect(self._flash_url("Tick the confirmation box to reset."))
+                S.reset_overrides()
+                self._audit("settings_reset")
+                try:
+                    control.send_request("set_schedule", {k: v for k, v in config.DEFAULTS["schedule"].items()}, self.control_dir or None)
+                except OSError:
+                    pass
+                return self._redirect(self._flash_url("All dashboard settings reset to defaults."))
+            if path.path == "/service":
+                act, unit = form.get("action", ""), form.get("unit", "")
+                ok = (act == "restart" and unit in control.RESTARTABLE) or (act == "start" and unit in control.STARTABLE) or act == "restart_all"
+                if not ok:
+                    return self._redirect(self._flash_url("Not an allowed service action."))
+                try:
+                    rid = control.send_request(act, {"unit": unit} if unit else {}, self.control_dir or None)
+                except OSError as e:
+                    return self._redirect(self._flash_url("Could not send the request: %s" % e))
+                self._audit("service_request", {"action": act, "unit": unit})
+                return self._redirect(self._flash_url("Request sent (%s). The result appears under Services within a few seconds; refresh to see it." % rid))
+            if path.path == "/test/llm":
+                tier = (urllib.parse.parse_qs(path.query).get("tier") or ["triage"])[0]
+                return self._settings_page(200, cfg, sess, {"test_output": self._test_llm(cfg, tier if tier in ("triage", "analyst") else "triage")})
+            if path.path == "/test/doctor":
+                return self._settings_page(200, cfg, sess, {"test_output": self._run_doctor(cfg)})
             return self._send(404, "not found")
-        self.send_response(303)
-        self.send_header("Location", "/")
-        self.end_headers()
+        except Exception as e:  # noqa: BLE001
+            return self._send(500, "<pre>dashboard error: %s</pre>" % E(e))
+
+    def _settings_page(self, code, cfg, sess, extra):
+        c = db.connect(self.db_path, readonly=True)
+        try:
+            self._send(code, render(c, cfg, "settings", {}, self._ctx(sess, None, extra)))
+        finally:
+            c.close()
+
+    def _save_settings(self, form, cfg, sess):
+        from . import pipeline
+        base = config.load_config(with_overrides=False)
+        new, errors, warnings = S.apply_form(form, cfg, base, {s["id"]: s.get("interval", 600) for s in pipeline.load_sources(base)})
+        if errors:
+            return self._settings_page(400, cfg, sess, {"errors": errors, "warnings": warnings, "raw": form})
+        ov = S.overrides_for(new, base)
+        S.save_overrides(ov)
+        changed = sorted(k for k in (f.path for f in S.FIELDS) if S.get_path(new, k) != S.get_path(cfg, k))
+        self._audit("settings_saved", {"changed": changed})
+        msg = "Settings saved (%d changed)." % len(changed)
+        if any(new["schedule"][k] != cfg["schedule"][k] for k in new["schedule"]):
+            try:
+                control.send_request("set_schedule", dict(new["schedule"]), self.control_dir or None)
+                msg += " Timer schedule update requested."
+            except OSError as e:
+                msg += " (Could not request the schedule change: %s)" % e
+        if new["runtime"]["bind_port"] != cfg["runtime"]["bind_port"]:
+            msg += " Restart the dashboard for the new port."
+        if warnings:
+            msg += " Note: " + " ".join(warnings)
+        return self._redirect(self._flash_url(msg))
+
+    def _test_llm(self, cfg, tier: str) -> str:
+        from . import event_intel, pipeline
+        c = db.connect(self.db_path)
+        try:
+            client = llm_client.LLMClient(c, cfg)
+            if not client.enabled(tier):
+                return "LLM is OFF for the %s tier: enable it in the LLM analyst settings and save a key for its provider." % tier
+            r = event_intel.analyze(client, pipeline.load_universe(), {"title": "Lockheed Martin wins $2.4 billion Pentagon contract for missile defense", "summary": "The Navy awarded the multi-year contract.", "tickers": []}, tier)
+            u = client.usage_summary()
+            last = c.execute("SELECT model,input_tokens,output_tokens,cost_usd,ok,error FROM llm_usage ORDER BY id DESC LIMIT 1").fetchone()
+            head = "OK: valid structured analysis returned." if r else "FAILED: the call did not return a valid analysis (%s)." % (last["error"] if last else "no call made")
+            return "%s\nmodel=%s tokens in/out=%s/%s cost=$%.5f\nspend today $%.4f of $%.2f\n\n%s" % (head, last["model"] if last else "?", last["input_tokens"] if last else 0, last["output_tokens"] if last else 0,
+                                                                                                    last["cost_usd"] if last else 0, u["today_usd"], u["daily_budget"], json.dumps(r, indent=1, default=str)[:1500] if r else "")
+        finally:
+            c.close()
+
+    def _run_doctor(self, cfg) -> str:
+        from . import doctor, pipeline
+        lines: List[str] = []
+        c = db.connect(self.db_path, readonly=True)
+        try:
+            doctor.run(c, cfg, config.CONFIG_DIR, live=True, check_units=True, fix=False, srcs=pipeline.load_sources(cfg), out=lines.append)
+        finally:
+            c.close()
+        return "\n".join(lines)
 
 
 def serve(cfg: dict, db_path: str = DB_PATH) -> None:
-    Handler.cfg, Handler.db_path = cfg, db_path
+    Handler.db_path = db_path
+    Handler.auth = auth_mod.Auth()
+    Handler.control_dir = config.CONTROL_DIR
+    Handler.csrf_secret = _secrets.token_bytes(32)
     srv = ThreadingHTTPServer((cfg["runtime"]["bind_host"], int(cfg["runtime"]["bind_port"])), Handler)
     srv.serve_forever()

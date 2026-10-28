@@ -3,6 +3,7 @@ import datetime as dt
 import json
 import os
 import random
+import shutil
 import sys
 import tempfile
 
@@ -65,12 +66,24 @@ class Quotes:
         return {"ticker": ticker, "status": "PASS", "price": p, "execution_eligible": True, "age_seconds": 4.0, "quoted_at": "x", "providers_used": ["A", "B"], "provider_count": 2}
 
 
+_TEMPLATE = None
+
+
 def fresh_db():
-    return db.open_db(tempfile.mktemp(suffix=".db"))
+    """Migrated empty DB. The schema is built ONCE per process and copied (the Pi spends most of its test time creating tables otherwise)."""
+    global _TEMPLATE
+    if _TEMPLATE is None:
+        _TEMPLATE = tempfile.mktemp(suffix=".db")
+        c = db.open_db(_TEMPLATE)
+        c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        c.close()
+    p = tempfile.mktemp(suffix=".db")
+    shutil.copyfile(_TEMPLATE, p)
+    return db.connect(p)
 
 
 def cfg():
-    c = load_config("/nonexistent")
+    c = load_config("/nonexistent", with_overrides=False)      # never read the host's dashboard settings
     c["runtime"]["pause_file"] = "/nonexistent/pause"
     c["runtime"]["min_available_memory_mb"] = 0
     return c

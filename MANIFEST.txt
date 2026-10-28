@@ -10,12 +10,15 @@ docs/BUGS_FIXED.md
 docs/INTELLIGENCE.md
 docs/LIMITS.md
 docs/OMEGA_MAPPING.md
+docs/SETTINGS.md
 paper_agent/__init__.py
 paper_agent/__main__.py
+paper_agent/auth.py
 paper_agent/backup.py
 paper_agent/company.py
 paper_agent/config.py
 paper_agent/contradiction.py
+paper_agent/control.py
 paper_agent/dashboard.py
 paper_agent/db.py
 paper_agent/doctor.py
@@ -45,6 +48,8 @@ paper_agent/quotes.py
 paper_agent/redteam.py
 paper_agent/regime.py
 paper_agent/revisions.py
+paper_agent/settings.py
+paper_agent/settings_ui.py
 paper_agent/sizing.py
 paper_agent/sources.py
 paper_agent/theses_seed.py
@@ -61,6 +66,8 @@ scripts/status.sh
 scripts/update.sh
 systemd/paper-agent-backup.service
 systemd/paper-agent-backup.timer
+systemd/paper-agent-control.path
+systemd/paper-agent-control.service
 systemd/paper-agent-cycle.service
 systemd/paper-agent-cycle.timer
 systemd/paper-agent-dashboard.service
@@ -78,3 +85,4 @@ tests/test_envmerge.py
 tests/test_filings.py
 tests/test_intel.py
 tests/test_regressions.py
+tests/test_settings_ui.py
