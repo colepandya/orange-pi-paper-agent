@@ -80,6 +80,7 @@ systemd/paper-agent-cycle.timer
 systemd/paper-agent-dashboard.service
 systemd/paper-agent-guard.service
 systemd/paper-agent-guard.timer
+systemd/paper-agent-open.timer
 systemd/paper-agent-universe.service
 systemd/paper-agent-universe.timer
 systemd/paper-agent-update.service
@@ -100,3 +101,4 @@ tests/test_recall.py
 tests/test_regressions.py
 tests/test_settings_ui.py
 tests/test_systemd.py
+tests/test_trade_lifecycle.py

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run a Paper Agent cycle just after the US market opens, so BUY decisions that waited overnight execute promptly
+
+[Timer]
+# 09:35 New York time, Mon-Fri; the timezone is part of the schedule so US daylight-saving changes are handled automatically
+OnCalendar=Mon..Fri 09:35:00 America/New_York
+AccuracySec=10s
+Unit=paper-agent-cycle.service
+
+[Install]
+WantedBy=timers.target

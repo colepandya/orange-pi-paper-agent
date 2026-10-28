@@ -218,7 +218,10 @@ def page_decisions(c, cfg, s, q):
             sc = json.loads(f["scenarios_json"])
             det = "<details><summary>why</summary><pre>%s</pre></details>" % E(json.dumps({"gates": rs.get("gates"), "forecast": rs.get("forecast"), "sizing": rs.get("sizing"), "opportunity": rs.get("opportunity"),
                                                                                          "scenarios": {k: "p=%.3f ret=%+.2f%%" % (v["p"], v["ret"] * 100) for k, v in sc.items()}, "headline": (rs.get("candidate") or {}).get("headline")}, indent=1, default=str))
-        body.append([to_nz(r["created"], "%d %b %H:%M"), r["ticker"], r["status"], r["action"], "%.0f" % (r["score"] or 0), pct(r["ev_net"], 2), r["thesis_key"] or "", money(r["amount"]) if r["amount"] else "", Raw(det)])
+        waiting = ""
+        if r["status"] in ("AWAITING_MARKET", "AWAITING_QUOTE", "AWAITING_CAPACITY") and (rs.get("gates") or []):
+            waiting = "<br><span class=mut style='font-size:12px'>%s</span>" % E(str(rs["gates"][-1])[:160])        # WHAT it is waiting for, right in the table
+        body.append([to_nz(r["created"], "%d %b %H:%M"), r["ticker"], Raw(E(r["status"]) + waiting), r["action"], "%.0f" % (r["score"] or 0), pct(r["ev_net"], 2), r["thesis_key"] or "", money(r["amount"]) if r["amount"] else "", Raw(det)])
     out.append(table(["Time", "Ticker", "Status", "Action", "Elig.", "EV net", "Thesis", "Amount", "Audit"], body))
     return "".join(out)
 
@@ -231,6 +234,8 @@ def page_funnel(c, cfg, s, q):
     out.append("<p class=mut>Cycles: %s &middot; last cycle %s &middot; last decision %s</p>" % (E(", ".join("%s=%d" % kv for kv in sorted(r["cycles"].items())) or "none"), E(to_nz(r["last_cycle"]) if r["last_cycle"] else "never"), E(to_nz(r["last_decision"]) if r["last_decision"] else "never")))
     for f in r["findings"]:
         out.append(settings_ui.flash_html(None, [f["text"] + (" Fix: " + f["fix"] if f["fix"] else "")] if f["severity"] == "HIGH" else None, [f["text"]] if f["severity"] == "MEDIUM" else None) if f["severity"] != "INFO" else "<p class=mut>%s</p>" % E(f["text"]))
+    if r["pending"]:
+        out.append("<h2>BUY decisions waiting</h2>" + table(["Ticker", "Status", "Since", "EV net", "Waiting for"], [[p["ticker"], p["status"], to_nz(p["since"], "%d %b %H:%M"), pct(p["ev_net"], 2) if p["ev_net"] is not None else "n/a", p["waiting_for"][:200]] for p in r["pending"]]))
     rows = []
     for g, n in r["gates"].items():
         ex = r["samples"].get(g, [])

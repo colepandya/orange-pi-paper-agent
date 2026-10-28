@@ -10,7 +10,28 @@ from typing import Callable, Dict, List, Optional
 from . import company, db, ev, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
 from .timeutil import add_trading_days, iso, market_state, parse_ts, utcnow
 
-PENDING = ("AWAITING_MARKET", "AWAITING_CAPACITY")
+PENDING = ("AWAITING_MARKET", "AWAITING_QUOTE", "AWAITING_CAPACITY")
+
+
+def quote_diagnosis(q: Optional[dict], cfg: dict) -> str:
+    """Why a price could not be verified, in words: which providers failed and how (so a waiting BUY is never a mystery)."""
+    if not q:
+        return "no quote returned"
+    max_age = float(cfg["quotes"]["entry_max_age_seconds"])
+    need = 1 if cfg["quotes"].get("allow_single_source") else int(cfg["quotes"]["min_providers"])
+    bits = []
+    for o in q.get("observations") or []:
+        if o.get("error"):
+            bits.append("%s %s" % (o["provider"], str(o["error"])[:28]))
+        elif not o.get("accepted"):
+            bits.append("%s rejected (%s)" % (o["provider"], o.get("reject_reason") or "validation"))
+        elif o.get("age_seconds") is None:
+            bits.append("%s has no timestamp" % o["provider"])
+        elif o["age_seconds"] > max_age:
+            bits.append("%s stale (%ds old, limit %ds)" % (o["provider"], o["age_seconds"], max_age))
+        else:
+            bits.append("%s ok (%ds)" % (o["provider"], max(0, o["age_seconds"])))
+    return "%s%s; need %d fresh agreeing provider(s), have %d" % ("; ".join(bits), "" if bits else (q.get("status") or "none"), need, int(q.get("provider_count") or 0) if q.get("status") == "PASS" else sum(1 for o in q.get("observations") or [] if o.get("accepted") and o.get("age_seconds") is not None and o["age_seconds"] <= max_age))
 
 
 def eligibility_score(c: dict) -> float:
@@ -166,7 +187,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
         return finish("AWAITING_MARKET", "market session %s; will retry while the event is fresh" % market_state(now)["session"])
     q = quote_fn(conn, t, "entry")
     if not q or q.get("status") != "PASS" or not q.get("execution_eligible") or q.get("price") is None:
-        return finish("AWAITING_MARKET", "no fresh verified consensus quote (%s)" % (q or {}).get("status", "none"))
+        return finish("AWAITING_QUOTE", "market is open but no verified price: " + quote_diagnosis(q, cfg))      # distinct from "market closed"; retried every cycle
     reason["gates"].append("all gates passed")
     out = execute_buy(conn, cfg, c, f, sz, q, did, fid, now, theme, comp.get("sector") or "Unclassified", reason)
     out["decision_id"] = did
@@ -210,12 +231,17 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
             new_exec += 1
 
     # 1. retry pending decisions while the underlying event is still fresh (skipped cheaply once the cap is used up)
-    for row in conn.execute("SELECT * FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_CAPACITY') ORDER BY id LIMIT 60").fetchall():
+    market_open = market_state(now)["execution"]
+    out["waiting_market"] = 0
+    for row in conn.execute("SELECT * FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY') ORDER BY id LIMIT 80").fetchall():
         c = candidate_from_decision(row)
         age = (now - parse_ts(row["created"])).total_seconds() / 3600 if parse_ts(row["created"]) else 999
         if not c or age > icfg["trade_event_max_age_hours"]:
             with db.tx(conn):
                 conn.execute("UPDATE decisions SET status='EXPIRED' WHERE id=?", (row["id"],))
+            continue
+        if row["status"] in ("AWAITING_MARKET", "AWAITING_QUOTE") and not market_open:
+            out["waiting_market"] += 1              # nothing can change until the open: do NOT redo the evaluation and market-data calls every 10 minutes all night
             continue
         if new_exec >= cap:
             out["deferred"] += 1                    # still pending; will be retried next cycle

@@ -103,6 +103,7 @@ for u in /etc/systemd/system/paper-agent*.service /etc/systemd/system/paper-agen
     paper-agent-backup.service|paper-agent-backup.timer|\
     paper-agent-universe.service|paper-agent-universe.timer|\
     paper-agent-update.service|paper-agent-update.timer|\
+    paper-agent-open.timer|\
     paper-agent-control.service|paper-agent-control.path)
       ;;
     *)
@@ -145,13 +146,13 @@ echo "[5b] Release settings entries (your own changes are never overwritten; see
 runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent apply-deploy /opt/paper-agent/deploy-settings.json || echo "WARN: could not process release settings (continuing)"
 
 echo "[6/7] Installing units"
-for f in cycle.service cycle.timer guard.service guard.timer dashboard.service backup.service backup.timer universe.service universe.timer update.service update.timer control.service control.path; do install -m0644 "$R/systemd/paper-agent-$f" /etc/systemd/system/; done
+for f in cycle.service cycle.timer guard.service guard.timer dashboard.service backup.service backup.timer universe.service universe.timer update.service update.timer open.timer control.service control.path; do install -m0644 "$R/systemd/paper-agent-$f" /etc/systemd/system/; done
 systemctl daemon-reload
 PYTHONPATH=/opt/paper-agent python3 -m paper_agent.control reconcile || echo "WARN: could not reconcile timer schedule with saved settings"
-systemctl enable paper-agent-dashboard.service paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer paper-agent-update.timer paper-agent-control.path
+systemctl enable paper-agent-dashboard.service paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer paper-agent-update.timer paper-agent-open.timer paper-agent-control.path
 systemctl restart paper-agent-dashboard.service
 systemctl start paper-agent-control.path
-systemctl start paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer paper-agent-update.timer
+systemctl start paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer paper-agent-update.timer paper-agent-open.timer
 
 echo "[7/7] First cycle + health report"
 ls -1dt /var/backups/paper-agent/v5-* 2>/dev/null | tail -n +6 | xargs -r rm -rf      # keep the 5 newest backups

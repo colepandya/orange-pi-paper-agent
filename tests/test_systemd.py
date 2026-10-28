@@ -43,7 +43,14 @@ class TestUnitFiles(unittest.TestCase):
     def test_timers_point_at_existing_services(self):
         svc = {n for n, _ in units("*.service")}
         for name, text in units("*.timer"):
-            self.assertIn(name.replace(".timer", ".service"), svc, name)
+            m = re.search(r"(?m)^Unit=(\S+)", text)
+            self.assertIn(m.group(1) if m else name.replace(".timer", ".service"), svc, name)
+
+    def test_the_open_timer_runs_in_new_york_time_so_daylight_saving_is_automatic(self):
+        text = dict(units("*.timer"))["paper-agent-open.timer"]
+        self.assertRegex(text, r"(?m)^OnCalendar=Mon\.\.Fri 09:35:00 America/New_York$")
+        self.assertRegex(text, r"(?m)^Unit=paper-agent-cycle\.service$")
+        self.assertNotRegex(text, r"(?m)^\s*OnBootSec\s*=")
 
     def test_update_job_is_not_restartable_and_is_memory_guarded(self):
         self.assertNotIn("paper-agent-update.timer", control.RESTARTABLE)

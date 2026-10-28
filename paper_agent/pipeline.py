@@ -111,7 +111,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         report["skipped"] = bad
         conn.execute("UPDATE cycle_runs SET finished=?,status='SKIPPED',report_json=? WHERE id=?", (iso(), json.dumps(report), run_id))
         return report
-    quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, fetch=deps.fetch_json))
+    quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json))
     thesis.seed(conn)
     icfg = cfg["intelligence"]
     client = llm_client.LLMClient(conn, cfg, deps.llm_transport)
@@ -252,5 +252,5 @@ def run_guard(conn, cfg: dict, deps: Optional[Deps] = None, now=None) -> dict:
         return {"skipped": "market %s" % market_state(now)["session"]}
     if not conn.execute("SELECT 1 FROM positions WHERE status='OPEN' LIMIT 1").fetchone():
         return {"skipped": "no open positions"}
-    quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, fetch=deps.fetch_json))
+    quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json))
     return executor.run(conn, cfg, now, quote_fn)

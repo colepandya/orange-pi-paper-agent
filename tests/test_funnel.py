@@ -132,8 +132,13 @@ class TestFindings(unittest.TestCase):
         self.assertIn("no_company_matched x20", f[0]["text"])
 
     def test_healthy_pipeline_has_no_findings(self):
-        c = run([("Chevron to acquire Hess in $53 billion all-stock deal", "", RF(NOW - dt.timedelta(hours=1)))])
+        c = run([("Chevron to acquire Hess in $53 billion all-stock deal", "", RF(NOW - dt.timedelta(hours=1)))], prices={"HES": 150.0, "CVX": 160.0})
         self.assertEqual([x for x in funnel.report(c, 24, NOW)["findings"] if x["severity"] in ("HIGH", "MEDIUM")], [])
+
+    def test_a_buy_that_cannot_get_a_price_while_the_market_is_open_is_called_out_with_the_reason(self):
+        c = run([("Chevron to acquire Hess in $53 billion all-stock deal", "", RF(NOW - dt.timedelta(hours=1)))])          # no quotes available at all
+        f = [x for x in funnel.report(c, 24, NOW)["findings"] if "no verified price" in x["text"]]
+        self.assertEqual((len(f), f[0]["severity"]), (1, "MEDIUM"))
 
 
 class TestSurfaces(unittest.TestCase):

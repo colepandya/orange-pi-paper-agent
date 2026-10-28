@@ -1,0 +1,23 @@
+--- docs/OPERATIONS.md	2026-10-28 20:02:41.200258741 +0000
++++ docs/OPERATIONS.md	2026-10-28 20:02:41.215235567 +0000
+@@ -13,6 +13,20 @@
+ *no cycle in 2h*, *events flowing but nothing qualifies*. Candidates beyond the per-cycle cap are recorded as `AWAITING_CAPACITY` and retried, never dropped.
+ `python3 -m paper_agent recall-check` runs 36 realistic headlines through company recognition + qualification on the real watchlist and lists any misses.
+ 
++## What the Decisions statuses mean
++| Status | Meaning |
++|---|---|
++| `REJECTED` / `NO_TRADE` | evaluated and not worth trading (low expected value, low confidence, illiquid, ...). The "why" shows the exact gates. |
++| `AWAITING_MARKET` | a BUY that passed every check but the US market is closed. It is re-evaluated by the first cycle after the open (a cycle runs at 09:35 New York) and executed if still good. |
++| `AWAITING_QUOTE` | the market IS open but two providers could not confirm a fresh, agreeing price. The reason names each provider (stale / error / no key). It retries every cycle while the news is under 24 h old. |
++| `AWAITING_CAPACITY` | more candidates than the per-cycle limit allows, or waiting for room in the portfolio. Retried next cycle. |
++| `EXECUTED` | a virtual position was opened (see Positions). |
++| `RISK_REJECTED` / `CAPACITY_DEFERRED` / `PAUSED` | blocked by a risk limit / position too small / trading paused. |
++| `EXPIRED` | the news got too old to trade (24 h). |
++| `ERROR` | an internal error on this one candidate (it never blocks the others). |
++**Selling:** exits run every 2 minutes during regular hours (guard) and in every cycle, only on a verified fresh price, never outside regular hours. A position exits on its stop, its target (partial sale, the rest runs
++with a trailing exit - or the system re-forecasts and *extends the hold*, which is expected and shown as HOLD_EXTENDED), a time stop, or a broken thesis.
++
+ ## "Hundreds of events but no decisions" - the cycle was killed
+ The cycle has a time limit (10 min) and a memory cap. Before build 15, trade candidates lived only in memory between the evidence stage and the entries stage, so a cycle that
+ was killed in between (slow network calls during company refresh, out-of-memory, a restart) kept the events but **lost every candidate**, silently.

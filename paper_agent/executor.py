@@ -121,7 +121,7 @@ def commit_action(conn, cfg: dict, p, life, plan, trigger: str, reason: str, q: 
 
 def run(conn, cfg: dict, now=None, quote_fn: Optional[Callable] = None) -> dict:
     now = now or utcnow()
-    quote_fn = quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose))
+    quote_fn = quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now))
     checked = committed = extended = blocked = errors = 0
     details = []
     rows = conn.execute("SELECT p.*,l.phase lphase,l.remaining_shares,l.remaining_cost,l.realized_pnl,l.last_action_at FROM positions p JOIN position_lifecycle l ON l.position_id=p.id WHERE p.status='OPEN'").fetchall()
