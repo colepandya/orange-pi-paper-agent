@@ -1,0 +1,20 @@
+[Unit]
+Description=Paper Agent intelligence cycle (collect, evidence, theses, EV, allocation, monitor, execute, learn)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+User=paperagent
+Group=paperagent
+WorkingDirectory=/opt/paper-agent
+Environment=PYTHONPATH=/opt/paper-agent PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/paper-agent/market-data.env
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/paper-agent /var/log/paper-agent /run/lock
+Nice=10
+MemoryMax=320M
+TimeoutStartSec=420
+ExecStart=/usr/bin/python3 -m paper_agent cycle

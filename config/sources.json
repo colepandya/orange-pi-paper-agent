@@ -1,0 +1,371 @@
+{
+ "poll_seconds": 600,
+ "max_items_per_source": 100,
+ "sources": [
+  {
+   "id": "sec_latest",
+   "name": "SEC EDGAR Latest Filings",
+   "type": "sec_atom",
+   "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&output=atom&count=100",
+   "trust": 1.0,
+   "interval": 300
+  },
+  {
+   "id": "federal_register_pi",
+   "name": "Federal Register Public Inspection",
+   "type": "federal_register",
+   "url": "https://www.federalregister.gov/api/v1/public-inspection-documents/current.json",
+   "trust": 0.95,
+   "interval": 900
+  },
+  {
+   "id": "usaspending_awards",
+   "name": "USAspending New Awards",
+   "type": "usaspending",
+   "url": "https://api.usaspending.gov/api/v2/search/spending_by_award/",
+   "trust": 0.95,
+   "interval": 3600
+  },
+  {
+   "id": "ftc_press",
+   "name": "FTC Press Releases",
+   "type": "rss",
+   "url": "https://www.ftc.gov/feeds/press-release.xml",
+   "trust": 0.95,
+   "interval": 900
+  },
+  {
+   "id": "openfda_drug",
+   "name": "openFDA Drug Enforcement",
+   "type": "openfda",
+   "url": "https://api.fda.gov/drug/enforcement.json?limit=100&sort=report_date:desc",
+   "trust": 0.9,
+   "interval": 3600
+  },
+  {
+   "id": "openfda_device",
+   "name": "openFDA Device Enforcement",
+   "type": "openfda",
+   "url": "https://api.fda.gov/device/enforcement.json?limit=100&sort=report_date:desc",
+   "trust": 0.9,
+   "interval": 3600
+  },
+  {
+   "id": "techcrunch",
+   "name": "TechCrunch",
+   "type": "rss",
+   "url": "https://techcrunch.com/feed/",
+   "trust": 0.7,
+   "interval": 600
+  },
+  {
+   "id": "ars_tech",
+   "name": "Ars Technica",
+   "type": "rss",
+   "url": "https://feeds.arstechnica.com/arstechnica/index",
+   "trust": 0.7,
+   "interval": 900
+  },
+  {
+   "id": "the_verge",
+   "name": "The Verge",
+   "type": "rss",
+   "url": "https://www.theverge.com/rss/index.xml",
+   "trust": 0.65,
+   "interval": 900
+  },
+  {
+   "id": "techmeme",
+   "name": "Techmeme",
+   "type": "rss",
+   "url": "https://www.techmeme.com/feed.xml",
+   "trust": 0.6,
+   "interval": 600
+  },
+  {
+   "id": "hacker_news",
+   "name": "Hacker News",
+   "type": "rss",
+   "url": "https://news.ycombinator.com/rss",
+   "trust": 0.4,
+   "interval": 600
+  },
+  {
+   "id": "geekwire",
+   "name": "GeekWire",
+   "type": "rss",
+   "url": "https://www.geekwire.com/feed/",
+   "trust": 0.65,
+   "interval": 900
+  },
+  {
+   "id": "nvidia_news",
+   "name": "NVIDIA Newsroom",
+   "type": "rss",
+   "url": "https://nvidianews.nvidia.com/rss.xml",
+   "trust": 0.9,
+   "interval": 600
+  },
+  {
+   "id": "bbc_world",
+   "name": "BBC World News",
+   "type": "rss",
+   "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+   "trust": 0.85,
+   "interval": 600
+  },
+  {
+   "id": "bbc_business",
+   "name": "BBC Business",
+   "type": "rss",
+   "url": "https://feeds.bbci.co.uk/news/business/rss.xml",
+   "trust": 0.85,
+   "interval": 600
+  },
+  {
+   "id": "guardian_world",
+   "name": "The Guardian World",
+   "type": "rss",
+   "url": "https://www.theguardian.com/world/rss",
+   "trust": 0.8,
+   "interval": 900
+  },
+  {
+   "id": "guardian_business",
+   "name": "The Guardian Business",
+   "type": "rss",
+   "url": "https://www.theguardian.com/uk/business/rss",
+   "trust": 0.8,
+   "interval": 900
+  },
+  {
+   "id": "aljazeera",
+   "name": "Al Jazeera",
+   "type": "rss",
+   "url": "https://www.aljazeera.com/xml/rss/all.xml",
+   "trust": 0.7,
+   "interval": 900
+  },
+  {
+   "id": "npr_news",
+   "name": "NPR News",
+   "type": "rss",
+   "url": "https://feeds.npr.org/1001/rss.xml",
+   "trust": 0.8,
+   "interval": 900
+  },
+  {
+   "id": "npr_economy",
+   "name": "NPR Economy",
+   "type": "rss",
+   "url": "https://feeds.npr.org/1017/rss.xml",
+   "trust": 0.8,
+   "interval": 1200
+  },
+  {
+   "id": "cnbc_top",
+   "name": "CNBC Top News",
+   "type": "rss",
+   "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+   "trust": 0.75,
+   "interval": 600
+  },
+  {
+   "id": "cnbc_economy",
+   "name": "CNBC Economy",
+   "type": "rss",
+   "url": "https://www.cnbc.com/id/20910258/device/rss/rss.html",
+   "trust": 0.75,
+   "interval": 600
+  },
+  {
+   "id": "cnbc_world",
+   "name": "CNBC World",
+   "type": "rss",
+   "url": "https://www.cnbc.com/id/100727362/device/rss/rss.html",
+   "trust": 0.75,
+   "interval": 600
+  },
+  {
+   "id": "marketwatch_top",
+   "name": "MarketWatch Top Stories",
+   "type": "rss",
+   "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+   "trust": 0.75,
+   "interval": 600
+  },
+  {
+   "id": "fed_press",
+   "name": "Federal Reserve Press Releases",
+   "type": "rss",
+   "url": "https://www.federalreserve.gov/feeds/press_all.xml",
+   "trust": 1.0,
+   "interval": 600
+  },
+  {
+   "id": "ecb_press",
+   "name": "ECB Press Releases",
+   "type": "rss",
+   "url": "https://www.ecb.europa.eu/rss/press.html",
+   "trust": 1.0,
+   "interval": 1800
+  },
+  {
+   "id": "imf_news",
+   "name": "IMF News",
+   "type": "rss",
+   "url": "https://www.imf.org/en/News/rss?language=eng",
+   "trust": 0.9,
+   "interval": 3600
+  },
+  {
+   "id": "treasury_press",
+   "name": "US Treasury Press Releases",
+   "type": "rss",
+   "url": "https://home.treasury.gov/system/files/136/treasury-press-releases.xml",
+   "trust": 0.95,
+   "interval": 1800
+  },
+  {
+   "id": "bls_latest",
+   "name": "BLS Latest Numbers",
+   "type": "rss",
+   "url": "https://www.bls.gov/feed/bls_latest.rss",
+   "trust": 1.0,
+   "interval": 1800
+  },
+  {
+   "id": "eia_today",
+   "name": "EIA Today in Energy",
+   "type": "rss",
+   "url": "https://www.eia.gov/rss/todayinenergy.xml",
+   "trust": 0.9,
+   "interval": 3600
+  },
+  {
+   "id": "state_dept",
+   "name": "US State Department",
+   "type": "rss",
+   "url": "https://www.state.gov/rss-feed/press-releases/feed/",
+   "trust": 0.9,
+   "interval": 1800
+  },
+  {
+   "id": "defense_contracts",
+   "name": "DoD Contract Announcements",
+   "type": "rss",
+   "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=400&Site=945&max=15",
+   "trust": 1.0,
+   "interval": 1800
+  },
+  {
+   "id": "nrc_news",
+   "name": "NRC News Releases",
+   "type": "rss",
+   "url": "https://www.nrc.gov/reading-rm/doc-collections/news/rss.xml",
+   "trust": 0.95,
+   "interval": 3600
+  },
+  {
+   "id": "cisa_alerts",
+   "name": "CISA Alerts",
+   "type": "rss",
+   "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml",
+   "trust": 0.9,
+   "interval": 3600
+  },
+  {
+   "id": "globenewswire_biz",
+   "name": "GlobeNewswire Business",
+   "type": "rss",
+   "url": "https://www.globenewswire.com/RssFeed/subjectcode/27-Business%20Contracts/feedTitle/GlobeNewswire%20-%20Business%20Contracts",
+   "trust": 0.8,
+   "interval": 900
+  },
+  {
+   "id": "prnewswire_contracts",
+   "name": "PR Newswire Contracts",
+   "type": "rss",
+   "url": "https://www.prnewswire.com/rss/financial-services-latest-news/financial-services-latest-news-list.rss",
+   "trust": 0.75,
+   "interval": 900
+  },
+  {
+   "id": "gdelt_taiwan",
+   "name": "GDELT: Taiwan / China",
+   "type": "gdelt",
+   "query": "(taiwan OR \"taiwan strait\") (china OR military OR drills OR blockade OR tariff)",
+   "trust": 0.55,
+   "interval": 1800,
+   "timespan": "6h",
+   "max": 40
+  },
+  {
+   "id": "gdelt_mideast",
+   "name": "GDELT: Middle East / Oil",
+   "type": "gdelt",
+   "query": "(\"strait of hormuz\" OR \"red sea\" OR opec OR \"oil supply\" OR houthi OR iran) sourcelang:eng",
+   "trust": 0.55,
+   "interval": 1800,
+   "timespan": "6h",
+   "max": 40
+  },
+  {
+   "id": "gdelt_ukraine",
+   "name": "GDELT: Russia / Ukraine",
+   "type": "gdelt",
+   "query": "(ukraine OR russia) (ceasefire OR sanctions OR offensive OR \"peace talks\")",
+   "trust": 0.55,
+   "interval": 1800,
+   "timespan": "6h",
+   "max": 40
+  },
+  {
+   "id": "gdelt_trade",
+   "name": "GDELT: Trade & Tariffs",
+   "type": "gdelt",
+   "query": "(tariffs OR \"export controls\" OR \"trade war\" OR \"trade deal\") sourcelang:eng",
+   "trust": 0.55,
+   "interval": 1800,
+   "timespan": "6h",
+   "max": 40
+  },
+  {
+   "id": "gdelt_central_banks",
+   "name": "GDELT: Central Banks",
+   "type": "gdelt",
+   "query": "(\"federal reserve\" OR ecb OR \"bank of japan\" OR \"bank of england\") (rate OR inflation OR hike OR cut)",
+   "trust": 0.55,
+   "interval": 1800,
+   "timespan": "6h",
+   "max": 40
+  },
+  {
+   "id": "gdelt_credit",
+   "name": "GDELT: Credit stress",
+   "type": "gdelt",
+   "query": "(\"bank failure\" OR \"credit crunch\" OR \"private credit\" OR \"bank run\" OR \"debt crisis\") sourcelang:eng",
+   "trust": 0.55,
+   "interval": 3600,
+   "timespan": "6h",
+   "max": 40
+  },
+  {
+   "id": "gdelt_supply",
+   "name": "GDELT: Supply chain",
+   "type": "gdelt",
+   "query": "(\"supply chain\" OR \"port strike\" OR \"chip shortage\" OR \"rare earth\") sourcelang:eng",
+   "trust": 0.55,
+   "interval": 3600,
+   "timespan": "6h",
+   "max": 40
+  },
+  {
+   "id": "finnhub_general",
+   "name": "Finnhub Market News",
+   "type": "finnhub_general",
+   "trust": 0.7,
+   "interval": 600
+  }
+ ]
+}

@@ -1,0 +1,21 @@
+[Unit]
+Description=Paper Agent dashboard (read-only)
+After=network.target
+
+[Service]
+User=paperagent
+Group=paperagent
+WorkingDirectory=/opt/paper-agent
+Environment=PYTHONPATH=/opt/paper-agent PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m paper_agent serve
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/paper-agent
+MemoryMax=150M
+
+[Install]
+WantedBy=multi-user.target

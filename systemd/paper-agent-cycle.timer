@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Paper Agent intelligence cycle every 10 minutes (24/7: the world does not close)
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=10min
+AccuracySec=20s
+
+[Install]
+WantedBy=timers.target

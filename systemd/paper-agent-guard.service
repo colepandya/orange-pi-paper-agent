@@ -1,0 +1,19 @@
+[Unit]
+Description=Paper Agent exit guard (fresh-quote stop/target checks during regular hours only)
+After=network-online.target
+[Service]
+Type=oneshot
+User=paperagent
+Group=paperagent
+WorkingDirectory=/opt/paper-agent
+Environment=PYTHONPATH=/opt/paper-agent PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/paper-agent/market-data.env
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/paper-agent /var/log/paper-agent /run/lock
+Nice=10
+MemoryMax=200M
+TimeoutStartSec=90
+ExecStart=/usr/bin/python3 -m paper_agent guard

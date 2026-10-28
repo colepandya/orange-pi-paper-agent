@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh the US company universe (SEC ticker list)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/paper-agent
+Environment=PYTHONPATH=/opt/paper-agent PAPER_AGENT_CONFIG_DIR=/etc/paper-agent
+ExecStart=/usr/bin/python3 -m paper_agent universe
+ExecStartPost=/bin/chmod 0644 /etc/paper-agent/watchlist.json

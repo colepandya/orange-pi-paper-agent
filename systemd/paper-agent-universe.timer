@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly universe refresh
+
+[Timer]
+OnCalendar=Sun 02:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

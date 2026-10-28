@@ -1,0 +1,11 @@
+{
+  "portfolio": {"starting_cash": 1000000, "slippage_bps": 8, "entry_score": 65},
+  "risk": {
+    "max_position_pct": 0.10, "max_issuer_pct": 0.15, "max_theme_pct": 0.30, "max_gross_pct": 0.80,
+    "min_cash_pct": 0.20, "risk_per_trade_pct": 0.01, "drawdown_pause_pct": 0.12, "daily_loss_pause_pct": 0.03,
+    "max_stress_loss_pct": 0.20, "min_ev_net": 0.006, "max_new_per_cycle": 3
+  },
+  "runtime": {"bind_host": "0.0.0.0", "bind_port": 8088, "contact_email": "you@example.com"},
+  "quotes": {"min_providers": 2, "allow_single_source": false},
+  "intelligence": {"allow_thesis_entries": true, "thesis_entry_min_probability": 0.70, "llm_enabled": false, "llm_model": "claude-haiku-5-5", "gdelt_enabled": true}
+}
