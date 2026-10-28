@@ -61,9 +61,24 @@ mkdir -p "$B/units"; cp -a /etc/systemd/system/paper-agent* "$B/units/" 2>/dev/n
 systemctl list-units 'paper-agent*' --all --no-legend 2>/dev/null | awk '{print $1}' > "$B/active-units.txt" || true
 
 echo "[3/7] Stopping and disabling legacy units"
-for u in $(ls /etc/systemd/system | grep -E '^paper-agent.*\.(service|timer)$' || true); do
-  case "$u" in paper-agent-cycle.*|paper-agent-guard.*|paper-agent-dashboard.service|paper-agent-backup.*|paper-agent-universe.*) ;; *)
-    systemctl disable --now "$u" 2>/dev/null || true; rm -f "/etc/systemd/system/$u";; esac
+for u in /etc/systemd/system/paper-agent*.service /etc/systemd/system/paper-agent*.timer; do
+  [[ -e "$u" ]] || continue
+  u="$(basename "$u")"
+  case "$u" in
+    paper-agent-cycle.service|paper-agent-cycle.timer|\
+    paper-agent-guard.service|paper-agent-guard.timer|\
+    paper-agent-dashboard.service|\
+    paper-agent-backup.service|paper-agent-backup.timer|\
+    paper-agent-universe.service|paper-agent-universe.timer|\
+    paper-agent-update.service|paper-agent-update.timer|\
+    paper-agent-control.service)
+      ;;
+    *)
+      echo "Removing legacy unit: $u"
+      systemctl disable --now "$u" 2>/dev/null || true
+      rm -f "/etc/systemd/system/$u"
+      ;;
+  esac
 done
 
 echo "[4/7] Installing code and config"
