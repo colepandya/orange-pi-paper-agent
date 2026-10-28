@@ -1,3 +1,11 @@
+# Build 18
+* **Fixed (the real cause of the 64 failed cycles and zero trades): `entries: OperationalError: no such column: backoff_until`.** The database began as an older install whose `provider_health` table lacked
+  that column; `CREATE TABLE IF NOT EXISTS` never adds columns, so every real quote lookup failed - but only while the market was open (the only time quotes are fetched). Migration now compares the REAL
+  database with the intended schema and adds every missing column to every existing table (data preserved), then creates indexes. Runs automatically on install and on every start.
+* **New checks that would have caught it:** `[schema]` line + HIGH issue in the doctor; "Database schema matches the code" and "Recent cycles free of stage errors" in the pre-open checklist (which previously
+  said READY); the checklist's live quote check now goes through the database exactly like a real BUY.
+* New tests start from LEGACY-shaped databases (every table missing every non-key column), including the complete buy -> wait -> open -> sell lifecycle.
+
 # Build 17
 * **Fixed (the cause of cycles ending in ERROR): numbers from providers arriving as text** ("28.4", "N/A", "", null) crashed the company scoring and the BUY path with `TypeError`. One strict `num()` is now
   used at every parse boundary, scoring defends itself, and numeric columns are neutralised on read. Found with the new "fake internet" tests (below).

@@ -106,6 +106,7 @@ tests/test_polish.py
 tests/test_preflight.py
 tests/test_recall.py
 tests/test_regressions.py
+tests/test_schema_drift.py
 tests/test_settings_ui.py
 tests/test_systemd.py
 tests/test_trade_lifecycle.py

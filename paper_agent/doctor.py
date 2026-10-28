@@ -66,6 +66,16 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
     out("[keys] set: %s | missing: %s" % (", ".join(have) or "none", ", ".join(k for k in KEYS if k not in have) or "none"))
     if len(have) < 3:
         issue("HIGH", "fewer than 3 quote-provider keys loaded; two providers must agree before any trade", "edit /etc/paper-agent/market-data.env")
+    # ---- schema: a database that began as an OLDER install keeps old tables; a missing column breaks only the code path that needs it (e.g. quotes, only while the market is open)
+    try:
+        from . import db as _db
+        drift = _db.schema_drift(conn)
+        out("[schema] %s" % ("matches the code" if not drift else "DRIFT: " + "; ".join("%s missing %s" % (t, ",".join(c)) for t, c in list(drift.items())[:4])))
+        if drift:
+            issue("HIGH", "the database is missing columns the code needs (%s)" % "; ".join("%s: %s" % (t, ",".join(c)) for t, c in list(drift.items())[:4]),
+                  "sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent migrate   (adds them, keeps all data; the installer does this automatically)")
+    except Exception as e:  # noqa: BLE001
+        out("[schema] check failed: %s" % e)
     # ---- dashboard-managed settings
     from . import config as _cfg
     try:

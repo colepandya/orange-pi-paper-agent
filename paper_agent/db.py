@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
-from typing import Dict, Iterator, Optional
+from typing import Dict, Iterator, List, Optional, Tuple
 
 from .timeutil import iso, utcnow
 
@@ -212,6 +212,87 @@ def columns(c, table: str) -> set:
     return {r[1] for r in c.execute("PRAGMA table_info(%s)" % table)}
 
 
+_EXPECTED: Optional[Dict[str, list]] = None
+
+
+def _statements(script: str) -> List[str]:
+    return [s.strip() for s in script.split(";") if s.strip()]
+
+
+def expected_schema() -> Dict[str, list]:
+    """The intended schema: {table: [(name, type, notnull, default, pk), ...]}, built by running the schema scripts in a scratch in-memory database."""
+    global _EXPECTED
+    if _EXPECTED is None:
+        m = sqlite3.connect(":memory:")
+        try:
+            m.executescript(LEGACY)
+            m.executescript(V5)
+            _EXPECTED = {n: [(r[1], r[2] or "", r[3], r[4], r[5]) for r in m.execute('PRAGMA table_info("%s")' % n)]
+                         for (n,) in m.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()}
+        finally:
+            m.close()
+    return _EXPECTED
+
+
+def schema_drift(c: sqlite3.Connection) -> Dict[str, List[str]]:
+    """Tables/columns the code expects but this database does not have (read-only). {} = healthy.
+    A database that began life as an OLDER install keeps its old tables: CREATE TABLE IF NOT EXISTS never adds columns to them."""
+    have = tables(c)
+    out: Dict[str, List[str]] = {}
+    for t, cols in expected_schema().items():
+        if t not in have:
+            out[t] = ["<table missing>"]
+            continue
+        present = {r[1] for r in c.execute('PRAGMA table_info("%s")' % t)}
+        miss = [col[0] for col in cols if col[0] not in present]
+        if miss:
+            out[t] = miss
+    return out
+
+
+def reconcile_columns(c: sqlite3.Connection) -> Tuple[List[str], List[str]]:
+    """Add every missing column to every existing table (data preserved). Returns (added 'table.column' list, unfixable list)."""
+    added: List[str] = []
+    unfixable: List[str] = []
+    exp = expected_schema()
+    for t, missing in schema_drift(c).items():
+        if missing == ["<table missing>"]:
+            continue
+        defs = {col[0]: col for col in exp[t]}
+        for name in missing:
+            _, typ, notnull, dflt, pk = defs[name]
+            if pk:
+                unfixable.append("%s.%s (primary key)" % (t, name))
+                continue
+            ddl = 'ALTER TABLE "%s" ADD COLUMN "%s" %s' % (t, name, typ)
+            if dflt is not None:
+                ddl += " DEFAULT %s" % dflt
+            elif notnull:
+                ddl += " DEFAULT %s" % ("''" if any(k in typ.upper() for k in ("CHAR", "TEXT", "CLOB")) or not typ else "0")
+            try:
+                c.execute(ddl)
+                added.append("%s.%s" % (t, name))
+            except sqlite3.OperationalError as e:
+                unfixable.append("%s.%s (%s)" % (t, name, e))
+    return added, unfixable
+
+
+def create_schema(c: sqlite3.Connection) -> Tuple[List[str], List[str]]:
+    """Create missing tables, REPAIR existing ones, then create indexes (an index on a column an old table lacked used to be impossible)."""
+    stmts = _statements(LEGACY) + _statements(V5)
+    for s in stmts:
+        if s.upper().startswith("CREATE TABLE"):
+            c.execute(s)
+    added, unfixable = reconcile_columns(c)
+    for s in stmts:
+        if not s.upper().startswith("CREATE TABLE"):
+            try:
+                c.execute(s)
+            except sqlite3.OperationalError as e:
+                unfixable.append("%s (%s)" % (" ".join(s.split())[:60], e))
+    return added, unfixable
+
+
 def migrate(c: sqlite3.Connection, starting_cash: float = 1_000_000.0) -> dict:
     """Idempotent. Safe to run on an empty DB, a v1-v4 production DB, or a v5 DB."""
     report = {"renamed": [], "added_columns": [], "created_ledger": False}
@@ -219,8 +300,8 @@ def migrate(c: sqlite3.Connection, starting_cash: float = 1_000_000.0) -> dict:
     if "theses" in have and "decision_id" in columns(c, "theses") and "decision_theses" not in have:
         c.execute("ALTER TABLE theses RENAME TO decision_theses")
         report["renamed"].append("theses->decision_theses")
-    c.executescript(LEGACY)
-    c.executescript(V5)
+    repaired, unfixable = create_schema(c)
+    report["repaired_columns"], report["unfixable"] = repaired, unfixable
     for table, cols in NEW_COLUMNS.items():
         have_cols = columns(c, table)
         for name, ddl in cols.items():

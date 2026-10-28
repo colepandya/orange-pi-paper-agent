@@ -5,6 +5,7 @@ import datetime as dt
 import json
 import os
 import shutil
+import sqlite3
 from typing import Callable, Dict, List, Optional
 
 from . import config, control, db, doctor, funnel, marketdata, net, portfolio as pf, quotes, recall, settings as S, sources
@@ -26,6 +27,10 @@ def run(conn, cfg: dict, universe=None, config_dir: str = "", fetch: Callable = 
     # ---- 1. database
     integ = conn.execute("PRAGMA integrity_check").fetchone()[0]
     chk("Database", PASS if integ == "ok" else FAIL, "integrity %s, schema %s" % (integ, conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]), "restore a backup from /var/lib/paper-agent/backups" if integ != "ok" else "")
+    from . import db as _db
+    drift = _db.schema_drift(conn)
+    chk("Database schema matches the code", PASS if not drift else FAIL, "all tables and columns present" if not drift else "; ".join("%s missing %s" % (t, ",".join(c)) for t, c in list(drift.items())[:4]),
+        "sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent migrate" if drift else "")
     # ---- 2. services + schedule
     if check_units:
         states = {u: doctor._unit_state(u) for u in ("paper-agent-cycle.timer", "paper-agent-guard.timer", "paper-agent-dashboard.service", "paper-agent-control.path")}
@@ -55,6 +60,12 @@ def run(conn, cfg: dict, universe=None, config_dir: str = "", fetch: Callable = 
         chk("Cycle running", PASS if ok else (WARN if age_m <= interval * 4 else FAIL), "last cycle %.0f min ago, status %s (every %d min)" % (age_m, last["status"], interval), "sudo /opt/paper-agent/scripts/doctor.sh" if not ok else "")
     killed = conn.execute("SELECT COUNT(*) FROM cycle_runs WHERE (status='KILLED' OR (status='RUNNING' AND started<?)) AND started>?", (iso(now - dt.timedelta(minutes=12)), iso(now - dt.timedelta(hours=2)))).fetchone()[0]
     chk("No killed cycles (last 2h)", PASS if not killed else FAIL, "%d cycle(s) started but never finished" % killed if killed else "none", "see `funnel` for the stage they died in; journalctl -u paper-agent-cycle --since -3h" if killed else "")
+    recent = [r["status"] for r in conn.execute("SELECT status FROM cycle_runs WHERE status IN ('OK','ERROR') ORDER BY id DESC LIMIT 6")]
+    if recent:
+        nerr = recent.count("ERROR")
+        top = funnel.report(conn, 3, now, samples=0)["stage_errors"][:1]
+        chk("Recent cycles free of stage errors", PASS if nerr == 0 else (WARN if nerr == 1 else FAIL), "%d of the last %d cycles had stage errors%s" % (nerr, len(recent), (": " + top[0][0][:120]) if (nerr and top) else ""),
+            "run `funnel` for every error message" if nerr else "")
     skipped = conn.execute("SELECT COUNT(*) FROM cycle_runs WHERE status='SKIPPED' AND started>?", (iso(now - dt.timedelta(hours=2)),)).fetchone()[0]
     chk("No skipped cycles (last 2h)", PASS if not skipped else FAIL, "%d skipped" % skipped if skipped else "none skipped", "low memory: sudo bash /opt/paper-agent/scripts/cleanup-ram.sh" if skipped else "")
     opens = conn.execute("SELECT COUNT(*) FROM positions WHERE status='OPEN'").fetchone()[0]
@@ -109,7 +120,12 @@ def run(conn, cfg: dict, universe=None, config_dir: str = "", fetch: Callable = 
             ratio = okc / min(len(todo), 25)
             chk("News feeds reachable", PASS if ratio >= 0.7 else (WARN if ratio >= 0.4 else FAIL), "%d/%d sampled feeds respond" % (okc, min(len(todo), 25)), "Settings -> News & data feeds" if ratio < 0.7 else "")
         try:
-            q = quotes.consensus(None, "SPY", cfg, now, None, fetch_json)
+            try:                                                     # through the DATABASE, exactly as a real BUY does (provider budgets / backoff live in tables)
+                q = quotes.consensus(conn, "SPY", cfg, now, None, fetch_json)
+            except sqlite3.OperationalError as e:
+                if "readonly" not in str(e).lower():
+                    raise
+                q = quotes.consensus(None, "SPY", cfg, now, None, fetch_json)      # read-only connection (dashboard button): cannot record calls
             have = [o["provider"] for o in q["observations"] if o.get("price") is not None and not o.get("error")]
             chk("Quote providers returning data", PASS if len(have) >= 2 else FAIL, ", ".join(have) or "none", "check keys in Settings -> API keys; run the health check" if len(have) < 2 else "")
             if st["execution"]:
