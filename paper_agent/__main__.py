@@ -33,6 +33,9 @@ def main(argv=None) -> int:
     rp = sub.add_parser("recover", help="re-evaluate recent events whose candidates were lost when a cycle died")
     rp.add_argument("--hours", type=float, default=24)
     sub.add_parser("common-words", help="learn which words are ordinary English from the stored news")
+    sub.add_parser("acknowledge-errors", help="treat all errors so far as history (kept, but no longer flagged)")
+    ep = sub.add_parser("errors", help="print the stored traceback of the most recent failed stages")
+    ep.add_argument("--limit", type=int, default=3)
     sub.add_parser("recall-check", help="test company recognition on realistic headlines using the real watchlist")
     fp = sub.add_parser("funnel", help="why did / did not news become decisions")
     fp.add_argument("--hours", type=float, default=24)
@@ -78,6 +81,23 @@ def main(argv=None) -> int:
     if args.cmd == "common-words":
         conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
         print("common words learned from stored news: %d" % pipeline.refresh_common_words(conn))
+        return 0
+    if args.cmd == "acknowledge-errors":
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        n = conn.execute("SELECT COUNT(*) FROM cycle_runs WHERE status='ERROR'").fetchone()[0]
+        conn.execute("INSERT OR REPLACE INTO meta VALUES('errors_ack_at',?)", (utcnow().strftime("%Y-%m-%dT%H:%M:%S+00:00"),))
+        print("acknowledged: %d earlier failed cycle(s) are now history (kept in the database, no longer flagged). New errors will still be reported." % n)
+        return 0
+    if args.cmd == "errors":
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        seen = set()
+        for r in conn.execute("SELECT started,report_json FROM cycle_runs WHERE status='ERROR' ORDER BY id DESC LIMIT 200"):
+            for name, st in (json.loads(r["report_json"] or "{}").get("stages") or {}).items():
+                if isinstance(st, dict) and st.get("error") and (name, st["error"]) not in seen and len(seen) < args.limit:
+                    seen.add((name, st["error"]))
+                    print("=== %s  stage %s: %s\n    where: %s\n%s\n" % (r["started"], name, st["error"], st.get("where") or "(not recorded by that build)", st.get("trace") or ""))
+        if not seen:
+            print("no failed stages recorded")
         return 0
     if args.cmd == "recall-check":
         from . import recall

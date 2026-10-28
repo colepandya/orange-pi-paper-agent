@@ -96,6 +96,7 @@ tests/test_deploy_settings.py
 tests/test_durability.py
 tests/test_engines.py
 tests/test_envmerge.py
+tests/test_error_baseline.py
 tests/test_fake_internet.py
 tests/test_filings.py
 tests/test_funnel.py

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import sqlite3
 from typing import Dict, Iterator, List, Optional, Tuple
 
@@ -293,6 +294,23 @@ def create_schema(c: sqlite3.Connection) -> Tuple[List[str], List[str]]:
     return added, unfixable
 
 
+def package_build() -> str:
+    try:
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "BUILD")) as f:
+            return f.read().strip() or "?"
+    except OSError:
+        return "?"
+
+
+def error_baseline(c: sqlite3.Connection, now=None) -> Optional[str]:
+    """Errors from cycles that started BEFORE this ISO time are history (an earlier build, or acknowledged by the operator) and do not raise flags.
+    Nothing is deleted: the rows stay as an audit trail. A baseline in the future relative to ``now`` is ignored (a build cannot have been installed tomorrow)."""
+    vals = [r[0] for r in c.execute("SELECT value FROM meta WHERE key IN ('build_since','errors_ack_at')") if r[0]]
+    if now is not None:
+        vals = [v for v in vals if v <= iso(now)]                    # discard future markers FIRST, then take the latest of what remains
+    return max(vals) if vals else None
+
+
 def migrate(c: sqlite3.Connection, starting_cash: float = 1_000_000.0) -> dict:
     """Idempotent. Safe to run on an empty DB, a v1-v4 production DB, or a v5 DB."""
     report = {"renamed": [], "added_columns": [], "created_ledger": False}
@@ -318,6 +336,11 @@ def migrate(c: sqlite3.Connection, starting_cash: float = 1_000_000.0) -> dict:
                       (iso(), "START", starting_cash, "initial virtual capital", starting_cash))
             report["created_ledger"] = True
         c.execute("INSERT OR REPLACE INTO meta VALUES('schema_version',?)", (str(SCHEMA_VERSION),))
+        b = package_build()
+        cur = c.execute("SELECT value FROM meta WHERE key='build'").fetchone()
+        if not cur or cur[0] != b:                                   # a new build is running: errors from earlier builds become history
+            c.execute("INSERT OR REPLACE INTO meta VALUES('build',?)", (b,))
+            c.execute("INSERT OR REPLACE INTO meta VALUES('build_since',?)", (iso(),))
         c.execute("UPDATE meta SET value='5.0.0' WHERE key='rules_version'")
         # Seed lifecycle rows for legacy open positions that predate the lifecycle table.
         for r in c.execute("SELECT id,shares,cost FROM positions WHERE status='OPEN'").fetchall():

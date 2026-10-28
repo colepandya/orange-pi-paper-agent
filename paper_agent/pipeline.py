@@ -122,7 +122,9 @@ def _stage(report: dict, name: str, fn: Callable, *a, **kw):
         report["stages"][name] = {"ok": True, "seconds": round(time.time() - t0, 2)}
         return out
     except Exception as e:  # noqa: BLE001
-        report["stages"][name] = {"ok": False, "error": "%s: %s" % (type(e).__name__, e), "trace": traceback.format_exc()[-600:]}
+        frames = [f for f in traceback.extract_tb(e.__traceback__) if "paper_agent" in f.filename]
+        where = " <- ".join("%s:%d %s" % (os.path.basename(f.filename), f.lineno, f.name) for f in reversed(frames[-3:]))      # innermost first
+        report["stages"][name] = {"ok": False, "error": "%s: %s" % (type(e).__name__, e), "where": where, "trace": traceback.format_exc()[-900:]}
         report["errors"].append(name)
         return None
 

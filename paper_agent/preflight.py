@@ -60,7 +60,8 @@ def run(conn, cfg: dict, universe=None, config_dir: str = "", fetch: Callable = 
         chk("Cycle running", PASS if ok else (WARN if age_m <= interval * 4 else FAIL), "last cycle %.0f min ago, status %s (every %d min)" % (age_m, last["status"], interval), "sudo /opt/paper-agent/scripts/doctor.sh" if not ok else "")
     killed = conn.execute("SELECT COUNT(*) FROM cycle_runs WHERE (status='KILLED' OR (status='RUNNING' AND started<?)) AND started>?", (iso(now - dt.timedelta(minutes=12)), iso(now - dt.timedelta(hours=2)))).fetchone()[0]
     chk("No killed cycles (last 2h)", PASS if not killed else FAIL, "%d cycle(s) started but never finished" % killed if killed else "none", "see `funnel` for the stage they died in; journalctl -u paper-agent-cycle --since -3h" if killed else "")
-    recent = [r["status"] for r in conn.execute("SELECT status FROM cycle_runs WHERE status IN ('OK','ERROR') ORDER BY id DESC LIMIT 6")]
+    base = _db.error_baseline(conn, now)
+    recent = [r["status"] for r in conn.execute("SELECT status FROM cycle_runs WHERE status IN ('OK','ERROR') AND started>? ORDER BY id DESC LIMIT 6", (base or "",))]
     if recent:
         nerr = recent.count("ERROR")
         top = funnel.report(conn, 3, now, samples=0)["stage_errors"][:1]

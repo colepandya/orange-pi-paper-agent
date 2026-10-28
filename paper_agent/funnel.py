@@ -56,20 +56,25 @@ def report(conn, hours: float = 24, now=None, samples: int = 3) -> dict:
         except ValueError:
             pgates = []
         pend.append({"ticker": r["ticker"], "status": r["status"], "since": r["created"], "ev_net": r["ev_net"], "waiting_for": pgates[-1] if pgates else ""})
+    from . import db as _db
+    base = _db.error_baseline(conn, now)
+    err_since = max(since, base) if base else since
+    recent_err = conn.execute("SELECT COUNT(*) FROM cycle_runs WHERE status='ERROR' AND started>?", (err_since,)).fetchone()[0]
+    old_err = conn.execute("SELECT COUNT(*) FROM cycle_runs WHERE status='ERROR' AND started>? AND started<=?", (since, err_since)).fetchone()[0] if base else 0
     errs: Dict[str, int] = {}
-    for r in conn.execute("SELECT report_json FROM cycle_runs WHERE status='ERROR' AND started>? ORDER BY id DESC LIMIT 400", (since,)):
+    for r in conn.execute("SELECT report_json FROM cycle_runs WHERE status='ERROR' AND started>? ORDER BY id DESC LIMIT 400", (err_since,)):
         try:
             rj = json.loads(r["report_json"] or "{}")
         except ValueError:
             continue
         for name, st in (rj.get("stages") or {}).items():
             if isinstance(st, dict) and st.get("error"):
-                k = "%s: %s" % (name, str(st["error"])[:160])
+                k = "%s: %s%s" % (name, str(st["error"])[:160], (" [%s]" % st["where"]) if st.get("where") else "")
                 errs[k] = errs.get(k, 0) + 1
     stage_errors = sorted(errs.items(), key=lambda kv: -kv[1])[:6]
     q = candqueue.counts(conn)
     oldest = conn.execute("SELECT MIN(created) FROM candidate_queue WHERE status='NEW'").fetchone()[0]
-    rep = {"hours": hours, "now": iso(now), "market": market_state(now)["session"], "cycles": cyc, "skip_reasons": sorted(set(skip_reasons)), "died": died, "pending": pend, "stage_errors": stage_errors, "slowest_stages": slow, "queue": q, "queue_oldest": oldest,
+    rep = {"hours": hours, "now": iso(now), "market": market_state(now)["session"], "cycles": cyc, "skip_reasons": sorted(set(skip_reasons)), "died": died, "pending": pend, "stage_errors": stage_errors, "error_cycles_now": recent_err, "error_cycles_history": old_err, "baseline": base, "slowest_stages": slow, "queue": q, "queue_oldest": oldest,
            "last_cycle": one("SELECT MAX(started) FROM cycle_runs"), "last_ok_cycle": one("SELECT MAX(started) FROM cycle_runs WHERE status='OK'"),
            "news": one("SELECT COUNT(*) FROM news WHERE ingested>?", since), "last_news": one("SELECT MAX(ingested) FROM news"),
            "events": one("SELECT COUNT(*) FROM events WHERE created>?", since), "last_event": one("SELECT MAX(created) FROM events"),
@@ -108,9 +113,11 @@ def findings(conn, rep: dict, now) -> List[dict]:
     if waiting and not mk:
         from .timeutil import next_market_open
         out.append({"severity": "INFO", "text": "%d BUY decision(s) are waiting for the US market to open (%s). They are re-evaluated and executed by the first cycle after the open (one is scheduled at 09:35 New York)." % (len(waiting), to_nz(next_market_open(now))), "fix": ""})
-    if rep["cycles"].get("ERROR"):
+    if rep.get("error_cycles_history"):
+        out.append({"severity": "INFO", "text": "%d earlier cycle(s) with errors predate the current build / were acknowledged and are NOT counted (still stored as history)." % rep["error_cycles_history"], "fix": ""})
+    if rep["error_cycles_now"]:
         top = "; ".join("%s (x%d)" % kv for kv in rep["stage_errors"][:3]) or "no message recorded (older build)"
-        out.append({"severity": "MEDIUM", "text": "%d cycle(s) finished with stage errors in the last %dh. Top errors: %s" % (rep["cycles"]["ERROR"], rep["hours"], top), "fix": "send this line to whoever maintains the code; each error names the stage and the exact exception"})
+        out.append({"severity": "MEDIUM", "text": "%d cycle(s) finished with stage errors since the current build started. Top errors: %s" % (rep["error_cycles_now"], top), "fix": "send this line to whoever maintains the code; each error names the stage and the exact exception"})
     ev6 = conn.execute("SELECT COUNT(*) FROM events WHERE created>?", (six_h,)).fetchone()[0]
     if rep["last_event"] and rep["last_event"] < iso(now - dt.timedelta(hours=3)) and rep["last_cycle"] and rep["last_cycle"] >= two_h:
         out.append({"severity": "HIGH", "text": "Cycles are running but NO news item has been turned into an event since %s: the feeds may be failing or everything is being seen as duplicate." % to_nz(rep["last_event"]),
@@ -125,6 +132,8 @@ def findings(conn, rep: dict, now) -> List[dict]:
 
 def text(rep: dict) -> str:
     L = ["=== DECISION FUNNEL, last %gh  (now %s, US market: %s) ===" % (rep["hours"], to_nz(rep["now"]), rep["market"])]
+    if rep.get("error_cycles_history"):
+        L.append("(%d earlier cycle(s) with errors are from before this build / acknowledged: kept as history, not counted)" % rep["error_cycles_history"])
     L.append("cycles: %s | last cycle %s | last OK cycle %s" % (", ".join("%s=%d" % kv for kv in sorted(rep["cycles"].items())) or "none", to_nz(rep["last_cycle"]) if rep["last_cycle"] else "never", to_nz(rep["last_ok_cycle"]) if rep["last_ok_cycle"] else "never"))
     if rep["died"]:
         L.append("!! %d cycle(s) STARTED BUT NEVER FINISHED; died in: %s" % (len(rep["died"]), ", ".join(sorted({d["stage"] for d in rep["died"]}))))

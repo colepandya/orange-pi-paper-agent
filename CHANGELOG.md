@@ -1,3 +1,9 @@
+# Build 19
+* **Old errors no longer raise false flags** (and nothing is deleted): errors from cycles that started before the current build, or that you acknowledge (`acknowledge-errors`), become history. The funnel,
+  doctor and pre-open checklist count only errors since then; a NEW error always shows. History is still mentioned and kept in the database.
+* **Every stage error now records exactly where it happened** (file:line function) and the funnel shows it; new `errors` command prints the stored tracebacks.
+* Fixed the order in which baseline markers are chosen.
+
 # Build 18
 * **Fixed (the real cause of the 64 failed cycles and zero trades): `entries: OperationalError: no such column: backoff_until`.** The database began as an older install whose `provider_health` table lacked
   that column; `CREATE TABLE IF NOT EXISTS` never adds columns, so every real quote lookup failed - but only while the market was open (the only time quotes are fetched). Migration now compares the REAL
