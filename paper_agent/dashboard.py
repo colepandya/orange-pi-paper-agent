@@ -25,7 +25,7 @@ CSS = """:root{--bg:#fff;--fg:#14181f;--mut:#5b6573;--card:#f5f7fa;--line:#dde2e
 *{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
 header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 nav a{margin-right:12px;color:var(--acc);text-decoration:none;font-weight:600}nav a.on{border-bottom:2px solid var(--acc)}
-main{padding:14px 16px;max-width:1300px;margin:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+main{padding:14px 16px;max-width:none;margin:0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px}.card b{display:block;font-size:20px}.card span{color:var(--mut);font-size:12px}
 table{border-collapse:collapse;width:100%;margin:6px 0 16px}th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--mut);font-size:12px}
 .wrap{overflow-x:auto}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.mut{color:var(--mut)}h2{margin:18px 0 4px;font-size:16px}
@@ -255,7 +255,7 @@ def page_decisions(c, cfg, s, q):
             plain = "(could not summarise: %s)" % type(e).__name__
         waiting = "<br><span class=mut style='font-size:12px'>%s</span>" % E(plain[:200])
         det = "<a href='?tab=decisions&id=%d'>Why? &rarr;</a>" % r["id"]
-        body.append([to_nz(r["created"], "%d %b %H:%M"), r["ticker"], Raw(E(r["status"]) + waiting), r["action"], "%.0f" % (r["score"] or 0), pct(r["ev_net"], 2), r["thesis_key"] or "", money(r["amount"]) if r["amount"] else "", Raw(det)])
+        body.append([to_nz(r["created"], "%d %b %H:%M"), r["ticker"], Raw(E(r["status"]) + waiting), r["action"], "%.0f" % (r["score"] or 0), pct(r["ev_net"], 2), r["thesis_key"] or "", money(r["amount"]) if r["amount"] else "-", Raw(det)])
     out.append(table(["Time", "Ticker", "Status", "Action", "Elig.", "EV net", "Thesis", "Amount", "Why"], body))
     return "".join(out)
 

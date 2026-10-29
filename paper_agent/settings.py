@@ -119,7 +119,7 @@ FIELDS: List[Field] = [
     F("runtime.bind_port", "Dashboard port", "int", "System", 1024, 65535, "Takes effect after restarting the dashboard.", restart="dashboard"),
 ]
 BY_NAME = {f.name: f for f in FIELDS}
-GROUP_ORDER = ["Risk limits", "Execution", "Refresh times", "LLM analyst", "System"]
+GROUP_ORDER = ["Risk limits", "Swing strategy", "Execution", "Refresh times", "LLM analyst", "System"]
 TIERS = ("triage", "analyst")
 PROVIDERS = ("anthropic", "github")
 MODEL_RX = re.compile(r"^[A-Za-z0-9._:/-]{3,80}$")

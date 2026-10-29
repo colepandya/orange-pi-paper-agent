@@ -1,3 +1,7 @@
+# Hotfix 24.1
+* Dashboard uses the full window width; an empty Amount shows a dash.
+* Settings page now shows the Swing strategy group (it was defined but missing from the page).
+
 # Build 24
 * **Fixed: BUYs queued by an older build had no overnight-gap protection.** They stored no "previous close", so the gap check silently skipped them (in testing one executed straight into a -9% gap). While the market is
   closed, every waiting BUY that lacks a reference now gets the last close filled in (never during the session, never over an existing reference, never from stale data).
