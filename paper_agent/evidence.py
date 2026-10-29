@@ -279,7 +279,7 @@ GATE_LABELS = {
     "candidate": "became a trade candidate", "candidate_llm": "became a trade candidate (LLM)", "stale": "too old when first seen (older than the stale window)",
     "expired": "evidence already expired", "duplicate_story": "same story already seen (first copy was handled)", "older_than_trade_window": "older than the trade window",
     "market_wide_event": "macro / market-wide event (moves theses and regime, not a single stock)", "no_company_matched": "no listed company recognised in the text",
-    "too_many_companies": "roundup naming more than 3 companies", "direction_too_weak": "direction unclear (no clear good/bad news)", "magnitude_too_small": "event too minor",
+    "too_many_companies": "roundup naming more than 3 companies", "direction_too_weak": "direction unclear (no clear good/bad news)", "retrospective_recap": "after-the-fact article explaining a price move (already priced in, never a reason to buy)", "magnitude_too_small": "event too minor",
     "company_match_uncertain": "company match not certain enough (name ambiguous)", "merger_role_unknown": "merger: could not tell which side the company is on",
     "no_ticker_passed_checks": "no company passed the final checks",
 }
@@ -293,6 +293,8 @@ def candidate_gate(a: dict, tickers: List[str], conf: Dict[str, float], novelty:
         return "older_than_trade_window"
     if a["scope"] not in ("company", "sector"):
         return "market_wide_event"
+    if a.get("event_type") == "price_recap":
+        return "retrospective_recap"
     if not tickers:
         return "no_company_matched"
     if len(tickers) > 3:

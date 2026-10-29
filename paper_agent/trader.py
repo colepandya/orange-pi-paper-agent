@@ -196,6 +196,10 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
             return finish("CAPACITY_DEFERRED", "size after red-team adjustment %.2f%% below minimum" % (sz["pct"] * 100))
     if not market_state(now)["execution"]:
         return finish("AWAITING_MARKET", "market session %s; will retry while the event is fresh" % market_state(now)["session"])
+    if not cfg["risk"].get("allow_add_to_position", False):
+        held = conn.execute("SELECT id,opened FROM positions WHERE ticker=? AND status='OPEN' ORDER BY id LIMIT 1", (t,)).fetchone()
+        if held:
+            return finish("DUPLICATE", "already holding %s (position #%d, opened %s): a second position in the same stock would stack the same bet" % (t, held["id"], held["opened"][:16].replace("T", " ")))
     pt = pretrade.review(conn, cfg, c, reason["decided_at"], now)                    # last look #1: later news / market shock (no price needed)
     if pt["action"] == "veto":
         return finish("VETOED", pt["reason"])
@@ -271,7 +275,7 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
     # 1. retry pending decisions while the underlying event is still fresh (skipped cheaply once the cap is used up)
     market_open = market_state(now)["execution"]
     out["waiting_market"] = 0
-    for row in conn.execute("SELECT * FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') ORDER BY id LIMIT 80").fetchall():
+    for row in conn.execute("SELECT * FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') ORDER BY COALESCE(ev_net,-9) DESC, id LIMIT 80").fetchall():
         c = candidate_from_decision(row)
         age = (now - parse_ts(row["created"])).total_seconds() / 3600 if parse_ts(row["created"]) else 999
         if not c or age > icfg["trade_event_max_age_hours"]:

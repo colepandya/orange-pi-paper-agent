@@ -26,6 +26,7 @@ paper_agent/dashboard.py
 paper_agent/db.py
 paper_agent/doctor.py
 paper_agent/dossier.py
+paper_agent/earnings.py
 paper_agent/entities.py
 paper_agent/envmerge.py
 paper_agent/ev.py
@@ -49,6 +50,7 @@ paper_agent/net.py
 paper_agent/nlp.py
 paper_agent/notify.py
 paper_agent/opportunity.py
+paper_agent/performance.py
 paper_agent/pipeline.py
 paper_agent/portfolio.py
 paper_agent/preflight.py
@@ -101,6 +103,7 @@ tests/helpers.py
 tests/soak_twenty_days.py
 tests/test_deploy_settings.py
 tests/test_durability.py
+tests/test_earnings.py
 tests/test_engines.py
 tests/test_envmerge.py
 tests/test_error_baseline.py
@@ -108,9 +111,11 @@ tests/test_explain.py
 tests/test_fake_internet.py
 tests/test_filings.py
 tests/test_funnel.py
+tests/test_guards.py
 tests/test_installer.py
 tests/test_intel.py
 tests/test_keys.py
+tests/test_performance.py
 tests/test_polish.py
 tests/test_preflight.py
 tests/test_pretrade.py

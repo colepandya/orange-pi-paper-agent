@@ -5,7 +5,9 @@ import hashlib
 import hmac
 import html
 import ipaddress
+import datetime as dt
 import json
+import math
 import os
 import secrets as _secrets
 import urllib.parse
@@ -13,7 +15,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List, Optional
 
-from . import auth as auth_mod, config, control, explain, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
+from . import auth as auth_mod, config, control, explain, performance, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
 from .config import DB_PATH, load_config
 from .timeutil import market_state, parse_ts, to_nz, utcnow, iso, SESSION_LABEL
 
@@ -31,7 +33,7 @@ details summary{cursor:pointer;color:var(--acc)}pre{white-space:pre-wrap;backgro
 CSS += """.why{max-width:860px}.why h2{margin:.2em 0}.why h3{margin:1.2em 0 .3em;font-size:15px;border-bottom:1px solid var(--line);padding-bottom:3px}.why blockquote{margin:.4em 0;padding:.5em .8em;background:var(--card);border-left:3px solid var(--acc)}
 .why ul.checks{list-style:none;padding:0}.why ul.checks li{margin:.35em 0}.why table{border-collapse:collapse}.why td,.why th{padding:3px 12px 3px 0;vertical-align:top;text-align:left}.why-good h2{color:var(--ok)}.why-bad h2{color:var(--bad)}.why-wait h2{color:var(--warn)}"""
 CSS += settings_ui.FORM_CSS
-TABS = ["overview", "reports", "theses", "positions", "dossiers", "decisions", "funnel", "risk", "intelligence", "system", "settings"]
+TABS = ["overview", "reports", "performance", "theses", "positions", "dossiers", "decisions", "funnel", "risk", "intelligence", "system", "settings"]
 
 
 def pct(x, d=1):
@@ -78,6 +80,11 @@ def build_state(c, cfg) -> Dict:
     return {"now": now, "hs": hs, "eq": eq, "reg": reg, "snap": snap, "start": db.start_capital(c)}
 
 
+def _today(c, now):
+    day = to_nz(now, "%Y-%m-%d")
+    return [t for t in performance.closed_trades(c) if to_nz(t["closed"], "%Y-%m-%d") == day]
+
+
 def page_overview(c, cfg, s):
     eq, reg, snap = s["eq"], s["reg"], s["snap"]
     pnl = eq["equity"] - s["start"]
@@ -85,7 +92,7 @@ def page_overview(c, cfg, s):
     paused = os.path.exists(cfg["runtime"]["pause_file"])
     top = sorted(reg.get("probs", {}).items(), key=lambda x: -x[1])[:3]
     out = ['<div class=grid>', card("Equity (mark-to-market)", money(eq["equity"])), card("P&L vs start", "%s (%s)" % (money(pnl), pct(pnl / s["start"] if s["start"] else 0, 2)), cls(pnl)),
-           card("Cash", money(eq["cash"])), card("Invested", pct(eq["gross"])), card("Drawdown", pct(snap["drawdown"] if snap else 0), "bad" if snap and snap["drawdown"] > 0.05 else ""),
+           card("Cash", money(eq["cash"])), card("Realized today", money(sum(t["pnl"] for t in _today(c, s["now"]))), cls(sum(t["pnl"] for t in _today(c, s["now"])))), card("Invested", pct(eq["gross"])), card("Drawdown", pct(snap["drawdown"] if snap else 0), "bad" if snap and snap["drawdown"] > 0.05 else ""),
            card("Regime", reg["regime"].replace("_", " ")), card("Survival probability", pct(snap["survival_probability"]) if snap else "n/a"), card("Worst stress loss", pct(snap["max_stress_loss"]) if snap else "n/a"),
            card("Market", market_state(s["now"])["session"]), card("Trading", "PAUSED" if paused else "active", "warn" if paused else "ok"), '</div>']
     out.append("<p class=mut>Regime mix: %s &middot; Last cycle: %s (%s)</p>" % (E(", ".join("%s %.0f%%" % (k.replace("_", " "), v * 100) for k, v in top)), E(to_nz(last["started"]) if last else "never"), E(last["status"] if last else "-")))
@@ -253,6 +260,59 @@ def page_decisions(c, cfg, s, q):
     return "".join(out)
 
 
+OUTCOME_MEANING = {"EXECUTED": "bought", "AWAITING_MARKET": "queued for the open", "AWAITING_QUOTE": "waiting for a fresh price", "AWAITING_CAPACITY": "waiting for room in the portfolio", "HELD": "held after a market shock",
+                   "VETOED": "cancelled at the last look", "DUPLICATE": "skipped: already holding the stock", "REJECTED": "rejected (not enough edge / quality)", "NO_TRADE": "no trade (bad news / no company)",
+                   "RISK_REJECTED": "blocked by a risk limit", "PAUSED": "paused", "ERROR": "error", "CAPACITY_DEFERRED": "deferred (time budget)"}
+
+
+def page_performance(c, cfg, s, q):
+    days = (q.get("days") or ["30"])[0]
+    now = s["now"]
+    allt = performance.closed_trades(c)
+    cutoff = None if days == "all" else iso(now - dt.timedelta(days=int(days) if days.isdigit() else 30))
+    tr = [t for t in allt if cutoff is None or t["closed"] >= cutoff]
+    sm = performance.summarize(tr)
+    by_exit = performance.group(tr, lambda t: t["exit_reason"])
+    vd = performance.verdict(sm, by_exit)
+    sel = " ".join("<a href='?tab=performance&days=%s'%s>%s</a>" % (v, " style='font-weight:700'" if v == days else "", lab) for v, lab in (("7", "7 days"), ("30", "30 days"), ("all", "all time")))
+    pf = sm["profit_factor"]
+    cards = ['<div class=grid>', card("Realized P&L", money(sm["total_pnl"]), cls(sm["total_pnl"])), card("Closed trades", "%d  (%d won, %d lost)" % (sm["n"], sm["wins"], sm["losses"])),
+             card("Win rate", pct(sm["win_rate"], 0) if sm["win_rate"] is not None else "n/a"), card("Profit factor", ("%.2f" % pf if pf not in (None, math.inf) else ("no losses" if pf else "n/a"))),
+             card("Average trade", "%s (%s)" % (pct(sm["expectancy_pct"], 2) if sm["expectancy_pct"] is not None else "n/a", money(sm["expectancy_usd"]) if sm["expectancy_usd"] is not None else "n/a"), cls(sm["expectancy_pct"] or 0)),
+             card("Average win / loss", "%s / %s" % (pct(sm["avg_win_pct"], 2) if sm["avg_win_pct"] is not None else "n/a", pct(sm["avg_loss_pct"], 2) if sm["avg_loss_pct"] is not None else "n/a")),
+             card("Average hold", ("%.1f h" % sm["avg_hold_hours"]) if sm["avg_hold_hours"] is not None else "n/a"), card("Unrealised (open now)", money(sum(h["value"] - h["cost"] for h in s["hs"])), cls(sum(h["value"] - h["cost"] for h in s["hs"]))), '</div>']
+    vcls = {"good": "ok", "marginal": "warn", "bad": "bad", "early": "mut"}[vd["level"]]
+    out = ["<p>Window: %s</p>" % sel] + cards + ["<h2 class=%s>%s</h2><ul>%s</ul>" % (vcls, E(vd["headline"]), "".join("<li>%s</li>" % E(p) for p in vd["points"]))]
+    out.append("<h2>Cumulative realized P&L (trade by trade)</h2>" + performance.svg_line(performance.cumulative(tr)))
+    dayrows = performance.by_day(tr)
+    out.append("<h2>Daily realized P&L</h2>" + performance.svg_bars([r["pnl"] for r in dayrows]))
+    if dayrows:
+        out.append(table(["Day (NZ)", "Trades", "Won", "P&L"], [[r["day"], r["n"], r["wins"], Raw("<span class=%s>%s</span>" % (cls(r["pnl"]), money(r["pnl"])))] for r in dayrows[-14:][::-1]]))
+
+    def grp(title, rows, label=lambda k: str(k)):
+        return "<h2>%s</h2>%s" % (title, table(["", "Trades", "Win rate", "Avg trade", "Avg hold", "P&L"], [[label(r["key"]), r["n"], pct(r["win_rate"], 0), pct(r["avg_ret"], 2) if r["avg_ret"] is not None else "n/a",
+                                                                                                           ("%.1f h" % r["avg_hold_hours"]) if r["avg_hold_hours"] is not None else "n/a", Raw("<span class=%s>%s</span>" % (cls(r["total_pnl"]), money(r["total_pnl"])))] for r in rows]))
+    out.append(grp("How trades ended", by_exit, lambda k: performance.EXIT_LABEL.get(k, k.replace("_", " ").lower())))
+    out.append(grp("By kind of news", performance.group(tr, lambda t: t["event_type"]), lambda k: explain.EVENT_LABEL.get(k, k.replace("_", " ")).capitalize()))
+    out.append(grp("By how long it was held", performance.group(tr, lambda t: t["hold_bucket"], performance.HOLD_BUCKETS)))
+    out.append(grp("By time of day opened (New York)", performance.group(tr, lambda t: t["open_hour_ny"], list(range(0, 24))), lambda k: "%02d:00-%02d:59" % (k, k) if k is not None else "unknown"))
+    out.append(grp("By stock (best and worst)", (lambda g: g[:8] + [x for x in g[-8:] if x not in g[:8]])(performance.group(tr, lambda t: t["ticker"]))))
+
+    def tline(t):
+        return [t["ticker"], to_nz(t["closed"], "%d %b %H:%M"), Raw("<span class=%s>%s (%s)</span>" % (cls(t["pnl"]), money(t["pnl"]), pct(t["ret"], 2) if t["ret"] is not None else "n/a")),
+                performance.EXIT_LABEL.get(t["exit_reason"], t["exit_reason"]), Raw("<a href='?tab=decisions&id=%d'>Why? &rarr;</a>" % t["decision_id"] if t["decision_id"] else "")]
+    if tr:
+        ranked = sorted(tr, key=lambda t: t["pnl"])
+        out.append("<h2>Biggest wins</h2>" + table(["Stock", "Closed", "P&L", "Ended", "Why"], [tline(t) for t in ranked[::-1][:5] if t["pnl"] > 0]))
+        out.append("<h2>Biggest losses</h2>" + table(["Stock", "Closed", "P&L", "Ended", "Why"], [tline(t) for t in ranked[:5] if t["pnl"] < 0]))
+        out.append("<h2>Latest closed trades</h2>" + table(["Stock", "Closed", "P&L", "Ended", "Why"], [tline(t) for t in tr[::-1][:25]]))
+    since = iso(now - dt.timedelta(days=int(days) if days.isdigit() else 3650))
+    outc = c.execute("SELECT status,COUNT(*) n FROM decisions WHERE created>=? AND action='BUY' GROUP BY status ORDER BY n DESC", (since,)).fetchall()
+    out.append("<h2>What happened to every BUY idea</h2>" + table(["Outcome", "Meaning", "Ideas"], [[r["status"], OUTCOME_MEANING.get(r["status"], ""), r["n"]] for r in outc]))
+    out.append("<p class=mut>Numbers use each trade's original size and total P&amp;L including partial sells. Fewer than ~20 trades is mostly luck: do not tune settings on it.</p>")
+    return "".join(out)
+
+
 def page_reports(c, cfg, s, q):
     name = (q.get("file") or ["latest.txt"])[0]
     text = report_engine.read(name) or report_engine.read("latest.txt")
@@ -352,7 +412,7 @@ def render(c, cfg, tab: str, q: Dict, ctx: Optional[dict] = None) -> str:
             health = {r["source_id"]: dict(r) for r in c.execute("SELECT source_id,last_status,failures,last_success FROM source_health")}
             inner = settings_ui.page_settings(cfg, base, ctx, pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status(), health)
         return layout(inner, tab, cfg, ctx)
-    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q), "reports": lambda: page_reports(c, cfg, s, q),
+    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q), "reports": lambda: page_reports(c, cfg, s, q), "performance": lambda: page_performance(c, cfg, s, q),
           "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s), "system": lambda: page_system(c, cfg, s)}.get(tab, lambda: page_overview(c, cfg, s))
     return layout((settings_ui.flash_html(ctx.get("flash")) if ctx.get("flash") else "") + fn(), tab, cfg, ctx)
 

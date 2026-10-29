@@ -14,9 +14,16 @@ did or did not become a candidate (duplicate story, macro event, no company reco
 `python3 -m paper_agent recall-check` runs 36 realistic headlines through company recognition + qualification on the real watchlist and lists any misses.
 
 ## Installing a release (and proving you installed the right one)
-1. Download the zip; its name contains the build (e.g. `paper-agent-build22.zip`). 2. `scp` that exact file to the Pi. 3. BEFORE installing, check which build is inside:
-   `unzip -p /tmp/paper-agent-build22.zip paper-agent-v5/BUILD`  4. Unpack into a NEW empty folder, then `sudo bash scripts/install.sh`: it prints `Installing Paper Agent BUILD n` and refuses a half-patched folder.
+1. Download the zip; its name contains the build (e.g. `paper-agent-build23.zip`). 2. `scp` that exact file to the Pi. 3. BEFORE installing, check which build is inside:
+   `unzip -p /tmp/paper-agent-build23.zip paper-agent-v5/BUILD`  4. Unpack into a NEW empty folder, then `sudo bash scripts/install.sh`: it prints `Installing Paper Agent BUILD n` and refuses a half-patched folder.
 5. Afterwards `cat /opt/paper-agent/BUILD` must show that number. Do not apply patches onto an older install; always install the full zip.
+
+## Performance tab
+Every closed trade, analysed: results by how it ended, by kind of news, by hold time, by time of day and by stock, with the verdict in plain words. It will not judge fewer than ~20 trades. Click "Why?" on any trade to see the full reasoning.
+
+## Earnings, duplicates, recaps
+Swing trades stay out of earnings reports and are sold before the close if one would land overnight (needs the Finnhub key; the checklist warns if the calendar is empty). A stock already held is not bought twice.
+After-the-fact articles ("Why X stock dropped...") are ignored as catalysts.
 
 ## Swing strategy
 In and out within ~1-3 sessions: tight stops, small repeatable targets, profits protected (break-even lock after +1%, then a trailing stop). Every number is a dashboard setting (Settings -> Swing strategy).

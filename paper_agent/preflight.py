@@ -100,6 +100,11 @@ def run(conn, cfg: dict, universe=None, config_dir: str = "", fetch: Callable = 
     chk("Quote provider keys", PASS if len(keys_ok) >= 3 else (WARN if len(keys_ok) >= 2 else FAIL), "%d configured (+ keyless Yahoo)" % len(keys_ok), "Settings -> API keys" if len(keys_ok) < 3 else "")
     if "example" in str(cfg["runtime"].get("contact_email", "")).lower():
         chk("Contact email", WARN, "still a placeholder (SEC and some news sites expect a real one)", "Settings -> System -> Contact email")
+    from . import earnings as _earn
+    n_er = conn.execute("SELECT COUNT(*) FROM earnings_calendar WHERE date>=?", (str(now.astimezone(_earn.NY).date()),)).fetchone()[0]
+    sw = cfg.get("strategy") or {}
+    chk("Earnings calendar loaded", PASS if n_er else (WARN if sw.get("swing_enabled") and sw.get("avoid_earnings", True) else PASS), "%d upcoming report(s) known" % n_er if n_er else "none loaded: swing trades are NOT protected from earnings gaps (needs the Finnhub key; refreshed every ~11 h)",
+        "" if n_er else "Settings -> API keys -> Finnhub; then wait for the next cycle")
     # ---- 7. company recognition on the REAL watchlist
     if universe is not None and len(getattr(universe, "watch", {})) > 0:
         n = len(universe.watch)

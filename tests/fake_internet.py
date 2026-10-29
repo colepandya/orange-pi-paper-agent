@@ -126,6 +126,9 @@ class Internet:
                     return J({"c": 0, "d": None, "dp": None, "h": 0, "l": 0, "o": 0, "pc": 0, "t": 0})
                 p = self._sym_price(sym)
                 return J({"c": p, "d": 0.5, "dp": 0.4, "h": p * 1.01, "l": p * .98, "o": p * .99, "pc": p * .995, "t": self._stamp(4)})
+            if path.endswith("/calendar/earnings"):
+                day = (self.now + dt.timedelta(days=1)).strftime("%Y-%m-%d")
+                return J({"earningsCalendar": [{"date": day, "hour": "amc", "symbol": list(self.co)[0], "epsEstimate": 1.1}, {"date": day, "hour": "bmo", "symbol": list(self.co)[1]}]})
             if path.endswith("/stock/profile2"):
                 if sym not in self.co:
                     return J({})

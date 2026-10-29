@@ -8,7 +8,7 @@ import json
 import re
 from typing import Dict, List, Optional, Tuple
 
-from . import prices
+from . import earnings, prices
 from .timeutil import to_nz, utcnow, next_market_open
 
 EVENT_LABEL = {
@@ -21,7 +21,7 @@ EVENT_LABEL = {
     "market_infrastructure_outage": "an exchange or payments outage", "geopolitical_conflict": "geopolitical conflict",
 }
 TONE = {"EXECUTED": "good", "AWAITING_MARKET": "wait", "AWAITING_QUOTE": "wait", "AWAITING_CAPACITY": "wait", "HELD": "wait", "VETOED": "bad", "REJECTED": "bad", "RISK_REJECTED": "bad",
-        "NO_TRADE": "info", "PAUSED": "bad", "ERROR": "bad", "CAPACITY_DEFERRED": "wait"}
+        "NO_TRADE": "info", "DUPLICATE": "info", "PAUSED": "bad", "ERROR": "bad", "CAPACITY_DEFERRED": "wait"}
 
 
 def esc(x) -> str:
@@ -69,6 +69,8 @@ _RULES: List[Tuple[re.Pattern, str, Optional[bool]]] = [
     (re.compile(r"^too quiet for a swing: it moves ([\d.]+)% a day, minimum ([\d.]+)%"), r"The stock only moves about \1% a day; a 1-2% swing needs at least \2%.", False),
     (re.compile(r"^market session (\w+); will retry"), r"The US market is closed (\1). The idea stays queued and is re-checked at the open while the news is still fresh.", None),
     (re.compile(r"^market is open but no verified price: (.*)"), r"The market is open but no data provider has given a fresh, trustworthy price yet. Details: \1", None),
+    (re.compile(r"^earnings report due (.*?), inside the (\d+)-session hold.*"), r"A quarterly earnings report is due \1, inside the planned \2-session hold. Earnings can gap a stock 5-10% overnight, straight through a tight stop, so the trade is skipped.", False),
+    (re.compile(r"^already holding (\w+).*"), r"Already holding \1: a second position in the same stock would stack the same bet.", False),
     (re.compile(r"^no verified company mapped", re.I), "No listed company could be identified in this story, so there is nothing to buy.", False),
 ]
 
@@ -129,6 +131,8 @@ def explain(conn, cfg: dict, did: int, now=None) -> Optional[dict]:
         head, summary = "Good idea on %s, but the portfolio had no room this cycle" % t, "It was not rejected: it is retried while the news is fresh."
     elif st == "HELD":
         head, summary = "On hold: a market-wide shock happened after %s was queued" % t, "Buying into a shock is how paper accounts get hurt. It is re-checked every cycle and released when the shock has aged out."
+    elif st == "DUPLICATE":
+        head, summary = "Skipped: %s" % (why_main or "already holding this stock"), "Another position in %s is already open, so a second BUY would stack the same bet. The strongest idea is processed first." % t
     elif st == "VETOED":
         head, summary = "Cancelled at the last look: %s" % (why_main or "something changed after this was decided"), "The BUY was decided earlier, but the situation changed before money moved. Cancelled decisions are final."
     elif st in ("REJECTED", "NO_TRADE", "RISK_REJECTED"):
@@ -207,6 +211,9 @@ def explain(conn, cfg: dict, did: int, now=None) -> Optional[dict]:
             nxt.append("Right now %s is trading %s versus the price it was decided against ($%.2f), %.0f min ago (%s)." % (t, pct(ind["gap"]), r.get("ref_price") or 0, ind["age_minutes"], ind["session"].replace("_", " ").lower()))
         if st == "AWAITING_MARKET":
             nxt.append("Next market open: %s." % to_nz(next_market_open(now)))
+        er = earnings.upcoming(conn, d["ticker"], now) if d["ticker"] else None
+        if er:
+            nxt.append("Next earnings report for %s: %s." % (t, er["label"]))
         if risk.get("veto_adverse_news", True):
             nxt.append("CANCELLED if later news about %s is clearly negative (direction at or below %.2f)." % (t, risk.get("veto_news_direction", -0.35)))
             nxt.append("HELD for %s hours if a market-wide shock (war, crash, emergency policy) happens." % risk.get("shock_hold_hours", 6))
@@ -216,6 +223,9 @@ def explain(conn, cfg: dict, did: int, now=None) -> Optional[dict]:
     elif st in ("REJECTED", "NO_TRADE") and f and f.get("ev_net") is not None and f["ev_net"] < risk.get("min_ev_net", 0.006):
         nxt.append("It would qualify if the expected profit after costs rose from %s to at least %s, for example on stronger or fresher news." % (pct(f["ev_net"], 2), pct(risk.get("min_ev_net", 0.006), 2, False)))
     elif st == "EXECUTED" and pos and pos["status"] == "OPEN":
+        er = earnings.upcoming(conn, d["ticker"], now)
+        if er and cfg.get("strategy", {}).get("avoid_earnings", True):
+            nxt.append("%s reports earnings %s: it will be sold before the close if the report would land while we hold overnight." % (t, er["label"]))
         nxt.append("It will be sold at the target, the stop, the time limit, or earlier if the thesis breaks, risk escalates, or a better opportunity needs the cash.")
 
     # ------------------------------------------------------------------ timeline

@@ -8,7 +8,7 @@ import json
 import math
 from typing import Dict, Optional
 
-from . import db, flows, marketdata as md, thesis as thesis_engine
+from . import earnings as earnings_mod, db, flows, marketdata as md, thesis as thesis_engine
 from .timeutil import iso, utcnow
 
 # mean absolute 1-session..horizon abnormal move priors per event type (before learning scales them)
@@ -124,6 +124,9 @@ def build(conn, cand: dict, cfg: dict, regime: dict, now=None, universe=None) ->
         verdict, why = "WATCH", ["confidence %.0f%% below minimum" % (conf * 100)]
     elif p_pos < 0.45:
         verdict, why = "WATCH", ["P(positive) %.0f%% too low" % (p_pos * 100)]
+    elif swing and sw.get("avoid_earnings", True) and etype not in earnings_mod.EARNINGS_EVENT_TYPES and earnings_mod.inside_hold(conn, t, now, h):
+        er = earnings_mod.inside_hold(conn, t, now, h)
+        verdict, why = "WATCH", ["earnings report due %s, inside the %d-session hold: a gap can blow straight through a 1-3%% stop" % (er["label"], h)]
     elif swing and target and target / stop < float(sw["min_reward_risk"]):
         verdict, why = "WATCH", ["swing reward:risk %.2f below minimum %.2f (target %.1f%% vs stop %.1f%%)" % (target / stop, float(sw["min_reward_risk"]), target * 100, stop * 100)]
     elif swing and vol_d < float(sw["min_daily_vol_pct"]):

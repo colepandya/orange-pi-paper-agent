@@ -148,6 +148,16 @@ EVENT_TYPES += [
         r"(?:cyber ?attack|hack|outage|glitch|ransomware)\s+(?:\w+\s+){0,5}(?:stock exchange|nyse|nasdaq|clearing house|payments? system|trading platform)",
         r"(?:nyse|nasdaq|stock exchange|clearing house|trading platform)\s+(?:\w+\s+){0,4}(?:outage|hacked|cyber ?attack)"], 3),
 ]
+_MOVE = r"(?:up|down|higher|lower|jump\w*|drop\w*|fall\w*|fell|surg\w*|soar\w*|plung\w*|rall\w*|tumbl\w*|slid\w*|slump\w*|sank|sink\w*|crash\w*|climb\w*|gain\w*|pop\w*|spik\w*|rose|ris\w*|tank\w*|skyrocket\w*|moving|slipp\w*|rocket\w*)"
+_DAY = r"(?:today|this week|this morning|yesterday|on (?:monday|tuesday|wednesday|thursday|friday))"
+EVENT_TYPES += [   # AFTER-THE-FACT explainers of a price move ("Why Garmin Stock Dropped After Record Results"): the move already happened, so they are never a reason to BUY
+    _t("price_recap", "company", 0, .10, 2, .20, [
+        r"^why (?:[\w']+\s+){1,6}?(?:stock|shares)\s+(?:(?:is|are|was|were|has|have|just|also)\s+)*" + _MOVE, r"^why (?:[\w']+\s+){1,6}?(?:stock|shares)\s+(?:[\w']+\s+){0,3}" + _DAY,
+        r"^why (?:[\w']+\s+){1,5}?" + _MOVE + r"\b.*" + _DAY, r"^why is (?:[\w']+\s+){1,5}?(?:stock|shares) " + _MOVE, r"^here'?s why (?:[\w']+\s+){0,6}?(?:stock|shares)",
+        r"^what'?s (?:going on|happening) with (?:[\w']+\s+){1,5}?(?:stock|shares)", r"^(?:[\w']+\s+){1,5}?(?:stock|shares) (?:is|are) " + _MOVE + r" " + _DAY,
+        r"^(?:[\w']+\s+){1,5}?(?:stock|shares) " + _MOVE + r" " + _DAY, r"^is (?:[\w']+\s+){1,4}(?:stock|shares) a (?:buy|sell|hold)", r"^should you (?:buy|sell) (?:[\w']+\s+){1,4}(?:stock|shares)"], 1),
+]
+RECAP_TYPES = {"price_recap"}
 SHOCK_TYPES = {"market_crash", "war_escalation", "emergency_policy", "financial_stress_event", "market_infrastructure_outage"}
 _RECOVERY = re.compile(r"(?<![a-z0-9])(?:years? after|anniversary|lessons?|looks? back|retrospective|rebound\w*|recover\w*|rall(?:y|ies|ied)|bounc\w+|steadi\w+|calm\w*|eas(?:e|es|ed)|recoup\w*|claw\w* back|ceasefire|truce|averted|de ?escalat\w*)")
 
@@ -283,6 +293,8 @@ def analyze(title: str, summary: str = "") -> Dict:
     best, best_s, best_info = GENERAL, 0.0, (None, "")
     for et in EVENT_TYPES:
         s, st, hit = _score_type(et, title_n, body_n)
+        if s > 0 and et.name in RECAP_TYPES:
+            s += 4.0                                                    # a recap outranks the catalyst words it quotes ("record results", "raises outlook")
         if s > 0 and et.name in SHOCK_TYPES:
             s = 0.0 if _RECOVERY.search(title_n) else s + 4.0          # a market shock outranks any company-level wording; "rebounds"/"ceasefire" headlines are not shocks
         if s > 0:
@@ -315,6 +327,8 @@ def analyze(title: str, summary: str = "") -> Dict:
         direction = lex
         if neg:
             direction = -direction * 0.7
+    if best.name in RECAP_TYPES and best_s > 0:
+        direction = 0.0
     if best.name in SHOCK_TYPES and best_s > 0:
         direction = 0.0 if neg else -0.85                              # a shock is risk-off, whatever the surrounding vocabulary ("jumps", "surges"...) says
     if hed and mp is None and best.name not in SHOCK_TYPES:

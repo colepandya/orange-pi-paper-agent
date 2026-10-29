@@ -64,8 +64,9 @@ def build(conn, cfg: dict, universe, srcs: List[dict], now, live: bool = True, f
         failed.append("%d BUYs are waiting but NOTHING has executed %d minutes after the open" % (by_status.get("AWAITING_MARKET", 0) + stuck, mins_open))
     verdict = "FAILED" if failed else ("ATTENTION" if problems else "OK")
     head = "VERDICT: %s  |  %s report  |  %s" % (verdict, label, to_nz(now))
-    summary = "%d position(s) opened this session, %d closed, %d held now; %d BUY decision(s) waiting; equity $%s, cash $%s" % (
-        len(opened), len(exits), holdings, len(waiting), format(round(eq["equity"]), ","), format(round(eq["cash"]), ","))
+    realized = sum((r["pnl"] or 0.0) for r in exits)
+    summary = "%d position(s) opened this session, %d closed (%s%s realized), %d held now; %d BUY decision(s) waiting; equity $%s, cash $%s" % (
+        len(opened), len(exits), "+" if realized >= 0 else "-", "$" + format(round(abs(realized)), ","), holdings, len(waiting), format(round(eq["equity"]), ","), format(round(eq["cash"]), ","))
     L = [head, summary, ""]
     if failed:
         L += ["WHAT FAILED:"] + ["  - " + x for x in failed] + [""]

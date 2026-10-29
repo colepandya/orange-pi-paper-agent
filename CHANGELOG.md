@@ -1,3 +1,14 @@
+# Build 23
+* **Performance tab (new):** insights on every trade: realized P&L, win rate, profit factor, average win/loss, average hold, cumulative and daily P&L charts, and breakdowns by how trades ended, kind of news, hold time,
+  time of day and stock; biggest wins/losses and every closed trade with a "Why?" link; what happened to every BUY idea. A plain-English verdict that refuses to judge fewer than ~20 trades and points at specific
+  problems (too many stop-outs, trades going nowhere). Window: 7 days / 30 days / all. The Overview now shows "Realized today".
+* **Never stack a position:** a second BUY in a stock already held is skipped (DUPLICATE), strongest idea first; Settings -> Risk limits to allow adding.
+* **After-the-fact articles are not catalysts:** "Why Garmin Stock Dropped After Record Results", "Is X Stock a Buy?", "Here's why X jumped this week" are recognised as recaps and ignored (that Garmin article had become a +0.77 BUY candidate).
+* **Earnings awareness:** a swing trade is not opened when an earnings report falls inside its holding window (unless the news IS the release), and a position is sold before the close when a report would land overnight.
+  Data: Finnhub earnings calendar (refreshed ~every 11 h, fails soft). The pre-open checklist warns loudly if no calendar is loaded.
+* The after-close report now states the day's realized P&L.
+* Verification note: mutation checks are now run with bytecode caching disabled (a stale compiled file had been able to hide a result).
+
 # Build 22
 * **Swing profile (default ON, all editable in Settings -> Swing strategy):** holds capped at 3 sessions (a runner may run 1 more), stops 1.2-3% (1x the stock's daily move), targets 1.2-4%, reward:risk >= 1.2, stocks that move < 0.8%/day skipped,
   60% sold at the target and the rest runs behind a protected stop, **break-even lock after +1% and a 1% trailing stop** (the stop only ever moves up), optional "sell before the close" day-trade mode. Swing mode counts only the part of a

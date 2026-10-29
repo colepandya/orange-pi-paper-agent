@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, List, Optional
 
-from . import (candqueue, config, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, marketdata as md, monitor, narrative, net, portfolio as pf,
+from . import (candqueue, config, earnings, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, marketdata as md, monitor, narrative, net, portfolio as pf,
                quotes, regime as regime_engine, sources, thesis, trader)
 from .config import load_json, CONFIG_DIR
 from .entities import Universe
@@ -176,6 +176,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         report["common_words"] = _stage(report, "common_words", refresh_common_words, conn)
         db.mark_run(conn, "common_words", "", now)
 
+    report["earnings"] = _stage(report, "earnings", earnings.refresh, conn, cfg, now, deps.fetch_json)                # who reports in the next 10 days
     report["prices"] = _stage(report, "prices", prices.run, conn, cfg, now, deps.series_fetch)       # pre-market / after-hours prices (your schedule, Settings -> Refresh times)
 
     # ---- world state

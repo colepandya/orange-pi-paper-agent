@@ -8,7 +8,7 @@ import hashlib
 import json
 from typing import Callable, Dict, Optional
 
-from . import db, learning, quotes, revisions
+from . import db, earnings, learning, quotes, revisions
 from .timeutil import add_trading_days, iso, market_state, parse_ts, trading_days_between, utcnow, minutes_to_close
 
 VERSION = "5.0.0"
@@ -57,6 +57,10 @@ def choose_trigger(conn, p, plan, q: dict, held: int, phase: str, cfg: Optional[
         stop = ratchet_stop(conn, p, plan, price, cfg, now or utcnow())
         sw = cfg.get("strategy") or {}
         mtc = minutes_to_close(now or utcnow())
+        if sw.get("swing_enabled") and sw.get("avoid_earnings", True) and mtc is not None and mtc <= float(sw.get("earnings_exit_minutes_before_close", 45)):
+            er = earnings.lands_overnight(conn, p["ticker"], now or utcnow())
+            if er:
+                return "EARNINGS_AHEAD", "earnings report %s would hit while holding overnight; a swing stop cannot protect against that gap" % er["label"], None
         if sw.get("swing_enabled") and sw.get("flatten_at_close") and mtc is not None and mtc <= float(sw["flatten_minutes_before_close"]):
             return "EOD_FLATTEN", "day-trade mode: %.0f minutes to the close, not holding overnight" % mtc, None
     if price <= stop:
