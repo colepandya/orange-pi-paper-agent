@@ -8,12 +8,14 @@ config/market-data.env
 config/market-data.env.example
 config/sources.json
 docs/BUGS_FIXED.md
+docs/DATABASE.md
 docs/INTELLIGENCE.md
 docs/LIMITS.md
 docs/OMEGA_MAPPING.md
 docs/OPERATIONS.md
 docs/REVIEW_FINDINGS.md
 docs/SETTINGS.md
+none
 paper_agent/__init__.py
 paper_agent/__main__.py
 paper_agent/auth.py
@@ -44,6 +46,7 @@ paper_agent/keys.py
 paper_agent/learning.py
 paper_agent/llm.py
 paper_agent/llm_client.py
+paper_agent/maintain.py
 paper_agent/marketdata.py
 paper_agent/monitor.py
 paper_agent/narrative.py
@@ -91,6 +94,8 @@ systemd/paper-agent-cycle.timer
 systemd/paper-agent-dashboard.service
 systemd/paper-agent-guard.service
 systemd/paper-agent-guard.timer
+systemd/paper-agent-maintain.service
+systemd/paper-agent-maintain.timer
 systemd/paper-agent-open.timer
 systemd/paper-agent-report.service
 systemd/paper-agent-report.timer
@@ -117,6 +122,7 @@ tests/test_installer.py
 tests/test_intel.py
 tests/test_keys.py
 tests/test_live_findings.py
+tests/test_maintain.py
 tests/test_performance.py
 tests/test_polish.py
 tests/test_preflight.py

@@ -32,6 +32,14 @@ def main(argv=None) -> int:
     pp2.add_argument("--offline", action="store_true")
     rp = sub.add_parser("recover", help="re-evaluate recent events whose candidates were lost when a cycle died")
     rp.add_argument("--hours", type=float, default=24)
+    mp = sub.add_parser("db-maintain", help="database clean-up: `plan` shows what would happen (default), `apply` archives legacy data and expires old news")
+    mp.add_argument("action", nargs="?", choices=("plan", "apply"), default="plan")
+    mp.add_argument("--retention-only", action="store_true", help="only expire old news/logs (what the weekly timer does); leave legacy data alone")
+    mp.add_argument("--no-vacuum", action="store_true")
+    mp.add_argument("--force", action="store_true", help="allow it while the US market is open")
+    mp.add_argument("--news-days", type=int)
+    mp.add_argument("--log-days", type=int)
+    mp.add_argument("--quiet", action="store_true")
     sub.add_parser("common-words", help="learn which words are ordinary English from the stored news")
     rp2 = sub.add_parser("report", help="write the open/midday/close report (also pushed to your phone if a ntfy topic is set)")
     rp2.add_argument("--no-push", action="store_true")
@@ -80,6 +88,43 @@ def main(argv=None) -> int:
         conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
         res = evidence.recover(conn, pipeline.load_universe(), cfg, utcnow(), args.hours)
         print("recover: examined %(examined)d unrecorded events from the last %(h)gh -> queued %(queued)d trade candidate(s) for the next cycle; reasons: %(by_gate)s" % {**res, "h": args.hours})
+        return 0
+    if args.cmd == "db-maintain":
+        from . import maintain
+        m_cfg = cfg.get("maintenance") or {}
+        if args.action == "plan":
+            conn = db.connect(DB_PATH, readonly=True)
+            print(maintain.format_plan(maintain.plan(conn, cfg, utcnow(), DB_PATH)))
+            print("\nTo do it:  sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent db-maintain apply")
+            return 0
+        if args.retention_only and not m_cfg.get("weekly_cleanup", True):
+            print("weekly clean-up is switched off in Settings -> Database")
+            return 0
+        import time as _time
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        locks, deadline = [], _time.time() + 180
+        try:
+            for suffix in ("", ".guard"):                                   # wait for the cycle and the exit guard to finish; they will not start a new write while we hold the locks
+                while True:
+                    try:
+                        lk = pipeline.Lock(cfg["runtime"]["lock_file"] + suffix)
+                        lk.__enter__()
+                        locks.append(lk)
+                        break
+                    except BlockingIOError:
+                        if _time.time() > deadline:
+                            print("a cycle is still running after 3 minutes; try again shortly")
+                            return 1
+                        _time.sleep(3)
+            rep = maintain.apply(conn, cfg, DB_PATH, utcnow(), backup_dir=getattr(backup_mod, "BACKUP_DIR", "/var/backups/paper-agent"),
+                                 do_archive=not args.retention_only, vacuum=not args.no_vacuum, force=args.force, news_days=args.news_days, log_days=args.log_days, log=(lambda s: None) if args.quiet else print)
+        except maintain.MaintenanceError as e:
+            print("NOT DONE: %s" % e)
+            return 1
+        finally:
+            for lk in reversed(locks):
+                lk.__exit__()
+        print(maintain.format_report(rep))
         return 0
     if args.cmd == "common-words":
         conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])

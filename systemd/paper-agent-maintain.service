@@ -1,0 +1,13 @@
+[Unit]
+Description=Weekly database clean-up (expires old news and run logs; never touches trading records)
+
+[Service]
+Type=oneshot
+User=paperagent
+WorkingDirectory=/opt/paper-agent
+Environment=PYTHONPATH=/opt/paper-agent PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/paper-agent/market-data.env
+ExecStart=/usr/bin/python3 -m paper_agent db-maintain apply --retention-only --quiet
+TimeoutStartSec=900
+Nice=15
+MemoryMax=300M

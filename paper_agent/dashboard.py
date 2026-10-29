@@ -15,7 +15,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List, Optional
 
-from . import auth as auth_mod, config, control, explain, performance, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
+from . import auth as auth_mod, config, control, explain, maintain, performance, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
 from .config import DB_PATH, load_config
 from .timeutil import market_state, parse_ts, to_nz, utcnow, iso, SESSION_LABEL
 
@@ -388,6 +388,25 @@ def _ago(ts, now) -> str:
     return "%s (%s)" % (to_nz(ts, "%d %b %H:%M"), "just now" if m < 2 else ("%d min ago" % m if m < 120 else ("%.0f h ago" % (m / 60) if m < 48 * 60 else "%d days ago" % (m / 1440))))
 
 
+def database_section(c, cfg, now) -> str:
+    """Size, what is left over from the old app, and when the last clean-up ran."""
+    try:
+        path = c.execute("PRAGMA database_list").fetchone()[2]
+    except Exception:  # noqa: BLE001
+        path = None
+    sm = maintain.summary(c, path)
+    m = cfg.get("maintenance") or {}
+    rows = [["Database size", "%.1f MB" % sm["file_mb"] if sm["file_mb"] is not None else "unknown"],
+            ["Left over from the old v4 app", "%d tables and %d old decisions%s" % (sm["legacy_tables"], sm["legacy_decisions"], " (nothing to clean)" if not (sm["legacy_tables"] or sm["legacy_decisions"]) else "")],
+            ["Last clean-up", _ago(sm["last"], now) if sm["last"] else "never"],
+            ["Weekly clean-up", ("on: keeps news/events %s days, logs %s days (Settings -> Database)" % (m.get("news_days", 30), m.get("log_days", 30))) if m.get("weekly_cleanup", True) else "switched off (Settings -> Database)"]]
+    hint = ""
+    if sm["legacy_tables"] or sm["legacy_decisions"]:
+        hint = ("<p class=mut>See exactly what would be archived and removed (changes nothing): <code>sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent db-maintain plan</code>. "
+                "Apply it with <code>... db-maintain apply</code> (takes a verified backup first and archives everything it removes).</p>")
+    return "<h2>Database</h2>" + table(["", ""], rows) + hint
+
+
 def provider_section(c, cfg, now) -> str:
     """Only providers this version has actually checked are shown; leftovers from the old app (and providers with no key) are listed quietly underneath, not as failures."""
     rows = c.execute("SELECT * FROM provider_health ORDER BY provider").fetchall()
@@ -408,6 +427,7 @@ def page_system(c, cfg, s):
     u = llm_client.LLMClient(c, cfg).usage_summary()
     out = ["<div class=grid>" + card("LLM spend today", "$%.3f / $%.2f" % (u["today_usd"], u["daily_budget"])) + card("LLM spend this month", "$%.2f / $%.0f" % (u["month_usd"], u["monthly_budget"])) + card("LLM calls today", "%d (cache hits %d, failed %d)" % (u["calls_today"], u["cache_hits_today"], u["failures_today"])) + "</div>", "<h2>Sources</h2>" + table(["Source", "Last success", "Status", "Failures", "Items", "Error"], [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", r["last_status"], r["failures"], r["items_total"], (r["last_error"] or "")[:60]] for r in c.execute("SELECT * FROM source_health ORDER BY failures DESC,name")])]
     out.append(provider_section(c, cfg, s["now"]))
+    out.append(database_section(c, cfg, s["now"]))
     out.append("<h2>Recent cycles</h2>" + table(["Started", "Mode", "Status", "Errors"], [[to_nz(r["started"], "%d %b %H:%M"), r["mode"], r["status"], ", ".join(json.loads(r["report_json"] or "{}").get("errors", []))] for r in c.execute("SELECT * FROM cycle_runs ORDER BY id DESC LIMIT 15")]))
     out.append("<h2>Executor runs</h2>" + table(["Time", "Status", "Checked", "Committed", "Blocked", "Errors"], [[to_nz(r["created"], "%d %b %H:%M"), r["status"], r["positions_checked"], r["actions_committed"], r["blocked_stale"], r["errors"]] for r in c.execute("SELECT * FROM executor_runs ORDER BY id DESC LIMIT 10")]))
     out.append("<h2>Audit log</h2>" + table(["Time", "Actor", "Action", "Subject"], [[to_nz(r["ts"], "%d %b %H:%M"), r["actor"], r["action"], r["subject"]] for r in c.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT 15")]))

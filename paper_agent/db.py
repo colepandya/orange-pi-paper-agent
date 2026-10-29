@@ -56,17 +56,8 @@ CREATE TABLE IF NOT EXISTS target_reforecasts(
 CREATE TABLE IF NOT EXISTS executor_runs(
  id INTEGER PRIMARY KEY AUTOINCREMENT,created TEXT NOT NULL,status TEXT NOT NULL,positions_checked INTEGER NOT NULL,
  actions_committed INTEGER NOT NULL,holds_extended INTEGER NOT NULL,blocked_stale INTEGER NOT NULL,errors INTEGER NOT NULL,detail_json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS position_event_links(position_id INTEGER NOT NULL,news_uid TEXT NOT NULL,linked_at TEXT NOT NULL,relevance REAL NOT NULL,direction REAL NOT NULL,scope TEXT NOT NULL,reason TEXT NOT NULL,PRIMARY KEY(position_id,news_uid));
 CREATE TABLE IF NOT EXISTS position_monitor_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,created TEXT NOT NULL,status TEXT NOT NULL,open_positions INTEGER NOT NULL,events_reviewed INTEGER NOT NULL,plans_changed INTEGER NOT NULL,detail_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS position_plan_changes(id INTEGER PRIMARY KEY AUTOINCREMENT,position_id INTEGER NOT NULL,created TEXT NOT NULL,prior_plan_id INTEGER,new_plan_id INTEGER,change_type TEXT NOT NULL,reason TEXT NOT NULL,event_uids_json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS event_impact_forecasts(
- decision_id INTEGER PRIMARY KEY,created TEXT NOT NULL,forecast_version TEXT NOT NULL,event_type TEXT NOT NULL,
- eligibility REAL NOT NULL,impact_score REAL NOT NULL,confidence REAL NOT NULL,data_completeness REAL NOT NULL,
- economic_impact REAL NOT NULL,priced_in REAL NOT NULL,residual_return REAL NOT NULL,bear_return REAL NOT NULL,
- base_return REAL NOT NULL,bull_return REAL NOT NULL,expected_return REAL NOT NULL,target_return REAL NOT NULL,
- stop_return REAL NOT NULL,max_hold_days INTEGER NOT NULL,target_probability REAL NOT NULL,allocation_pct REAL NOT NULL,
- partial_exit_pct REAL NOT NULL,runner_target REAL NOT NULL,runner_stop REAL NOT NULL,decision TEXT NOT NULL,
- invalidation_json TEXT NOT NULL,inputs_json TEXT NOT NULL,derivation_json TEXT NOT NULL,forecast_hash TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS company_fundamentals(ticker TEXT PRIMARY KEY,cik TEXT,revenue REAL,operating_income REAL,cash REAL,debt REAL,shares REAL,market_cap REAL,backlog REAL,as_of TEXT,source_url TEXT);
 """
 
@@ -144,6 +135,8 @@ CREATE TABLE IF NOT EXISTS model_params(key TEXT PRIMARY KEY,value_json TEXT NOT
 CREATE TABLE IF NOT EXISTS source_stats(source TEXT NOT NULL,event_type TEXT NOT NULL,hits REAL NOT NULL DEFAULT 0,misses REAL NOT NULL DEFAULT 0,updated TEXT,PRIMARY KEY(source,event_type));
 CREATE TABLE IF NOT EXISTS provider_calls(provider TEXT NOT NULL,ts REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_pcalls ON provider_calls(provider,ts);
+CREATE INDEX IF NOT EXISTS ix_pcalls_ts ON provider_calls(ts);
+CREATE INDEX IF NOT EXISTS ix_forecasts_decision ON forecasts(decision_id);
 CREATE TABLE IF NOT EXISTS provider_health(provider TEXT PRIMARY KEY,requests INTEGER DEFAULT 0,successes INTEGER DEFAULT 0,failures INTEGER DEFAULT 0,auth_failures INTEGER DEFAULT 0,rate_limits INTEGER DEFAULT 0,last_success TEXT,last_error TEXT,state TEXT NOT NULL DEFAULT 'HEALTHY',backoff_until REAL DEFAULT 0,last_checked TEXT,last_fresh TEXT);
 CREATE TABLE IF NOT EXISTS quote_consensus(id INTEGER PRIMARY KEY,ticker TEXT,created TEXT,session TEXT,status TEXT,consensus_price REAL,provider_count INTEGER,max_deviation REAL,execution_eligible INTEGER,providers_json TEXT,observations_json TEXT);
 CREATE INDEX IF NOT EXISTS ix_quote_consensus ON quote_consensus(ticker,id DESC);

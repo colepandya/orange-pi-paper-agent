@@ -13,7 +13,7 @@ from typing import Callable, Dict, List, Optional
 from . import VERSION, db, llm_client, marketdata, net, portfolio as pf, quotes, regime, sources
 from .timeutil import age_seconds, market_state, to_nz, utcnow
 
-UNITS = ["paper-agent-cycle.timer", "paper-agent-guard.timer", "paper-agent-dashboard.service", "paper-agent-backup.timer", "paper-agent-universe.timer", "paper-agent-update.timer", "paper-agent-open.timer", "paper-agent-report.timer", "paper-agent-control.path"]
+UNITS = ["paper-agent-cycle.timer", "paper-agent-guard.timer", "paper-agent-dashboard.service", "paper-agent-backup.timer", "paper-agent-universe.timer", "paper-agent-update.timer", "paper-agent-open.timer", "paper-agent-report.timer", "paper-agent-maintain.timer", "paper-agent-control.path"]
 KEYS = ["TWELVE_DATA_API_KEY", "FINNHUB_API_KEY", "ALPACA_API_KEY", "ALPACA_API_SECRET", "MASSIVE_API_KEY", "ALPHA_VANTAGE_API_KEY", "TIINGO_API_KEY", "EODHD_API_KEY"]
 
 
@@ -76,6 +76,14 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
                   "sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent migrate   (adds them, keeps all data; the installer does this automatically)")
     except Exception as e:  # noqa: BLE001
         out("[schema] check failed: %s" % e)
+    try:
+        from . import maintain as _mt
+        path = conn.execute("PRAGMA database_list").fetchone()[2]
+        sm = _mt.summary(conn, path)
+        out("[database] %s | %d legacy table(s), %d old v4 decision(s)%s | last clean-up: %s" % ("%.1f MB" % sm["file_mb"] if sm["file_mb"] is not None else "size n/a", sm["legacy_tables"], sm["legacy_decisions"],
+                                                                                             " -> run: python3 -m paper_agent db-maintain plan" if (sm["legacy_tables"] or sm["legacy_decisions"]) else "", sm["last"] or "never"))
+    except Exception as e:  # noqa: BLE001
+        out("[database] check failed: %s" % e)
     # ---- dashboard-managed settings
     from . import config as _cfg
     try:

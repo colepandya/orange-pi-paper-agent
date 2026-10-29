@@ -1,3 +1,12 @@
+# Build 28
+* **Database clean-up** (from analysing the owner's real database: 30 MB, 103 tables, only 58 used by this version; 95% of `decisions` written by the retired v4 app; news and events growing ~130 MB a month with nothing ever deleted).
+  `python3 -m paper_agent db-maintain plan` shows exactly what would happen (changes nothing); `... apply` takes a verified backup, archives the legacy tables and the 4,962 v4 decisions to a separate file (row-counted on disk BEFORE
+  anything is dropped), expires old news/events/run logs that nothing live points at, then VACUUMs. On a copy of the real database: 30.3 MB -> 19.4 MB, 103 -> 60 tables, the 250 current decisions and every table the app uses byte-for-byte identical.
+  Refuses to run during the US session. Undo instructions: docs/DATABASE.md.
+* **Weekly automatic retention** (Saturdays, US market closed; Settings -> Database: on/off, days to keep news and logs). It only ever expires old data; it never archives or drops legacy tables.
+* **System tab "Database" card** and a `[database]` line in the doctor: size, what is left over from the old app, when it was last cleaned.
+* Schema: removed two tables nothing ever used (`event_impact_forecasts`, `position_event_links`); added the two indexes the query plans asked for (`forecasts.decision_id`, `provider_calls.ts`).
+
 # Build 27
 * **A queued BUY must still be about that company.** BUYs queued by older builds could rest on a looser company match (a company named only in the body of someone else's story) and would still have executed at the open.
   The last look now re-checks the stored headline: if it names companies and this ticker is not one of them, the BUY is cancelled ("the headline is about STX, not AVGO"). Supply-chain / thesis candidates (which carry a reason) are left alone.

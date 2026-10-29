@@ -113,6 +113,9 @@ FIELDS: List[Field] = [
     # ---------------------------------------------------------------- runtime
     F("runtime.require_password", "Require a password to use Settings", "bool", "System", help="Off (default): anyone on your network can open Settings. Turn on to be asked to create a password on your next visit."),
     F("runtime.allowed_hosts", "Allowed hostnames (only if you use a custom name or proxy)", "hostlist", "System", help="Comma-separated. Private IPs, localhost and names like orangepizero3 or pi.local are always allowed."),
+    F("maintenance.weekly_cleanup", "Weekly database clean-up (Saturdays, US market closed)", "bool", "Database", help="Expires news, events and run logs that nothing still points at. Never touches positions, the ledger, forecasts, evidence or portfolio history."),
+    F("maintenance.news_days", "Keep news and events for (days)", "int", "Database", 7, 365, "Anything a decision, forecast or piece of evidence refers to is kept regardless."),
+    F("maintenance.log_days", "Keep run logs and narrative history for (days)", "int", "Database", 7, 365, "The newest state of every thesis is always kept."),
     F("notifications.ntfy_topic", "Phone push: ntfy.sh topic", "topic", "System", help="Optional. Install the free ntfy app, subscribe to a long, hard-to-guess topic name, and enter it here to get each open/close report on your phone. Empty = off."),
     F("runtime.contact_email", "Contact email (sent to SEC in the User-Agent)", "email", "System", help="SEC asks for a real contact."),
     F("runtime.cycle_budget_seconds", "Cycle time budget (seconds)", "int", "System", 120, 500, "Slow company/filing refreshes stop early after ~40-50% of this so decisions are never starved."),
@@ -121,7 +124,7 @@ FIELDS: List[Field] = [
     F("runtime.bind_port", "Dashboard port", "int", "System", 1024, 65535, "Takes effect after restarting the dashboard.", restart="dashboard"),
 ]
 BY_NAME = {f.name: f for f in FIELDS}
-GROUP_ORDER = ["Risk limits", "Swing strategy", "Execution", "Refresh times", "LLM analyst", "System"]
+GROUP_ORDER = ["Risk limits", "Swing strategy", "Execution", "Refresh times", "LLM analyst", "Database", "System"]
 TIERS = ("triage", "analyst")
 PROVIDERS = ("anthropic", "github")
 MODEL_RX = re.compile(r"^[A-Za-z0-9._:/-]{3,80}$")

@@ -36,6 +36,7 @@ DEFAULTS: Dict[str, Any] = {
         "swing_enabled": True, "max_hold_days": 3, "stop_vol_mult": 1.0, "stop_min_pct": 0.012, "stop_max_pct": 0.03, "target_min_pct": 0.012, "target_max_pct": 0.04,
         "min_reward_risk": 1.2, "partial_exit_pct": 0.6, "min_daily_vol_pct": 0.008, "runner_cap_pct": 0.06, "breakeven_trigger_pct": 0.01, "breakeven_lock_pct": 0.0015, "trail_pct": 0.01,
         "avoid_earnings": True, "earnings_exit_minutes_before_close": 45, "flatten_at_close": False, "flatten_minutes_before_close": 10},
+    "maintenance": {"weekly_cleanup": True, "news_days": 30, "log_days": 30},
     "notifications": {"ntfy_topic": ""},
     "prices": {"refresh_closed_minutes": 10, "refresh_open_minutes": 5, "max_symbols": 25, "extended_hours": True},
     "schedule": {"cycle_minutes": 10, "guard_minutes": 2, "update_hours": 3},      # applied to systemd timers by the control worker
