@@ -162,6 +162,14 @@ class Internet:
             s = urllib.parse.unquote(path.split("/chart/")[1])
             base = {"SPY": 450.0, "^VIX": 15.0, "^TNX": 4.2, "^IRX": 4.0, "HYG": 77.0, "LQD": 108.0, "DX-Y.NYB": 100.0, "CL=F": 70.0, "GC=F": 2000.0, "IWM": 200.0}.get(s)
             rng = qs.get("range", ["1y"])[0]
+            if rng == "1d" and qs.get("interval", [""])[0] == "1m":                       # extended-hours request: 1-minute bars ending seconds ago, with nulls for quiet minutes
+                px = self.co[s]["price"] if s in self.co else self.ETFS.get(s, {"^VIX": 15.0}.get(s))
+                if px is None:
+                    raise urllib.error.HTTPError(url, 404, "No data found", {}, io.BytesIO(b""))
+                ts = [int(self.now.timestamp()) - 60 * (4 - i) - 20 for i in range(5)]
+                cl = [px * (1 + .001 * i) for i in range(5)]
+                cl[-1] = None
+                return J({"chart": {"result": [{"meta": {"symbol": s, "chartPreviousClose": px * .99}, "timestamp": ts, "indicators": {"quote": [{"close": cl}]}}], "error": None}})
             n = 1 if rng == "1d" else (5 if rng == "5d" else 252)
             px = (self.co[s]["price"] if s in self.co else base)
             if px is None:

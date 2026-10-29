@@ -78,7 +78,7 @@ def build(conn, cfg: dict, universe, srcs: List[dict], now, live: bool = True, f
     if exits:
         L += ["CLOSED THIS SESSION:"] + ["  %-6s %-22s P&L %+10.2f" % (r["ticker"], r["review_code"] or "?", r["pnl"] or 0) for r in exits[:30]] + [""]
     if waiting:
-        L += ["BUY DECISIONS STILL WAITING (%s):" % ", ".join("%s %d" % kv for kv in by_status.items())] + ["  %-6s %-16s %s" % (p["ticker"], p["status"], p["waiting_for"][:110]) for p in waiting[:8]] + [""]
+        L += ["BUY DECISIONS STILL WAITING (%s):" % ", ".join("%s %d" % kv for kv in by_status.items())] + ["  %-6s %-16s %s%s" % (p["ticker"], p["status"], p["waiting_for"][:110], ("  [trading %+.1f%% vs previous close, %s]" % (p["indication"]["gap"] * 100, funnel.indication_age(p["indication"]))) if p.get("indication") else "") for p in waiting[:8]] + [""]
     if not st["execution"]:
         L += ["Next market open: %s" % to_nz(next_market_open(now)), ""]
     L += ["----- full checklist -----"] + pre_lines + ["", "----- funnel (last 6h) -----", funnel.text(fr)]

@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS position_forecast_plans(
 CREATE INDEX IF NOT EXISTS idx_position_plan_active ON position_forecast_plans(position_id,active,created DESC);
 CREATE TABLE IF NOT EXISTS position_lifecycle(
  position_id INTEGER PRIMARY KEY,phase TEXT NOT NULL DEFAULT 'OPEN',remaining_shares REAL NOT NULL,remaining_cost REAL NOT NULL,
- realized_pnl REAL NOT NULL DEFAULT 0,last_action_at TEXT,last_action_id TEXT,runner_plan_id INTEGER,updated TEXT NOT NULL);
+ realized_pnl REAL NOT NULL DEFAULT 0,last_action_at TEXT,last_action_id TEXT,runner_plan_id INTEGER,updated TEXT NOT NULL,high_water REAL);
 CREATE TABLE IF NOT EXISTS virtual_exit_actions(
  action_id TEXT PRIMARY KEY,position_id INTEGER NOT NULL,decision_id INTEGER NOT NULL,plan_id INTEGER NOT NULL,created TEXT NOT NULL,
  status TEXT NOT NULL,trigger TEXT NOT NULL,phase_before TEXT NOT NULL,phase_after TEXT,shares_requested REAL NOT NULL,

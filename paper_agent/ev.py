@@ -70,7 +70,11 @@ def build(conn, cand: dict, cfg: dict, regime: dict, now=None, universe=None) ->
     closes = md.closes(conn, t, 260)
     comp = conn.execute("SELECT * FROM companies WHERE ticker=?", (t,)).fetchone()
     vol_d = md.daily_vol(conn, t, 60, default=(comp["vol_daily"] if comp and comp["vol_daily"] else 0.025))
-    h = int(max(2, min(15, round(cand.get("horizon", 8) or 8))))
+    sw = cfg.get("strategy") or {}
+    swing = bool(sw.get("swing_enabled"))
+    h0 = int(max(2, min(15, round(cand.get("horizon", 8) or 8))))                       # how long the NEWS is expected to keep working
+    h = int(max(1, min(h0, int(sw.get("max_hold_days", 3))))) if swing else h0          # swing: we only stay for the first part of it
+    capture = min(1.0, math.sqrt(h / float(h0))) if swing else 1.0                     # share of the expected move that plays out inside our shorter window
     sigma_h = vol_d * math.sqrt(h)
     prior = MOVE_PRIOR.get(etype, 0.02) * move_scale(conn, etype)
     mag = max(0.05, min(1.0, cand.get("magnitude", 0.4)))
@@ -79,6 +83,7 @@ def build(conn, cand: dict, cfg: dict, regime: dict, now=None, universe=None) ->
     if ratio is not None:
         econ = 0.5 * econ + 0.5 * max(0.012, min(0.18, 0.012 + ratio * 0.35))
     econ *= abs(direction) ** 0.5
+    econ *= capture
     tt = thesis_engine.ticker_thesis_score(conn, t, regime.get("regime", "unknown"))
     align = tt["score"] * sign
     fl = flows.flow_score(conn, t, comp["sector"] if comp else None, now)
@@ -98,8 +103,12 @@ def build(conn, cand: dict, cfg: dict, regime: dict, now=None, universe=None) ->
     ev_net = ev_gross - cost
     p_pos = sum(v["p"] for v in scen.values() if v["ret"] > cost)
     adv = comp["adv_usd"] if comp and comp["adv_usd"] else md.adv_usd(conn, t)
-    stop = max(0.02, min(0.10, 1.25 * vol_d * math.sqrt(min(h, 5))))
-    target = max(0.012, min(0.20, e - cost)) if e > cost else 0.0
+    if swing:
+        stop = max(float(sw["stop_min_pct"]), min(float(sw["stop_max_pct"]), float(sw["stop_vol_mult"]) * vol_d))
+        target = max(float(sw["target_min_pct"]), min(float(sw["target_max_pct"]), e - cost)) if e > cost else 0.0
+    else:
+        stop = max(0.02, min(0.10, 1.25 * vol_d * math.sqrt(min(h, 5))))
+        target = max(0.012, min(0.20, e - cost)) if e > cost else 0.0
     p_hit = max(0.05, min(0.90, stop / (target + stop) + max(-0.15, min(0.15, ev_net / max(sigma_h, 1e-3) * 0.15)))) if target else 0.0
     p_tail = scen["tail"]["p"] + scen["black_swan"]["p"]
     liq_risk = 0.0 if (adv or 0) >= cfg["risk"]["min_adv_usd"] * 5 else (0.5 if adv and adv >= cfg["risk"]["min_adv_usd"] else 1.0)
@@ -115,14 +124,18 @@ def build(conn, cand: dict, cfg: dict, regime: dict, now=None, universe=None) ->
         verdict, why = "WATCH", ["confidence %.0f%% below minimum" % (conf * 100)]
     elif p_pos < 0.45:
         verdict, why = "WATCH", ["P(positive) %.0f%% too low" % (p_pos * 100)]
+    elif swing and target and target / stop < float(sw["min_reward_risk"]):
+        verdict, why = "WATCH", ["swing reward:risk %.2f below minimum %.2f (target %.1f%% vs stop %.1f%%)" % (target / stop, float(sw["min_reward_risk"]), target * 100, stop * 100)]
+    elif swing and vol_d < float(sw["min_daily_vol_pct"]):
+        verdict, why = "WATCH", ["too quiet for a swing: it moves %.2f%% a day, minimum %.2f%%" % (vol_d * 100, float(sw["min_daily_vol_pct"]) * 100)]
     elif adv is not None and adv < cfg["risk"]["min_adv_usd"]:
         verdict, why = "REJECT_ILLIQUID", ["ADV $%.1fM below minimum" % (adv / 1e6)]
     runner = max(target * 1.6, scen["bull"]["ret"]) if target else 0.0
-    inputs = {"event_type": etype, "direction": direction, "magnitude": mag, "amount_usd": cand.get("amount_usd"), "materiality_ratio": ratio, "vol_daily": vol_d, "horizon_days": h,
+    inputs = {"event_type": etype, "direction": direction, "magnitude": mag, "amount_usd": cand.get("amount_usd"), "materiality_ratio": ratio, "vol_daily": vol_d, "horizon_days": h, "swing": swing, "partial_exit_pct": float(sw.get("partial_exit_pct", 0.6)) if swing else None, "event_horizon_days": h0, "capture": capture, "stop": stop,
               "move_prior": prior, "priced_in": priced_in, "thesis_score": tt["score"], "thesis_primary": tt["primary"], "flow": fl, "edge_mult": edge_mult, "confidence": conf,
               "p_dir": p_dir, "cost": cost, "adv_usd": adv, "regime": regime.get("regime"), "risk_mult": regime.get("risk_mult")}
     out = {"ticker": t, "direction": "LONG" if sign > 0 else "SHORT", "horizon_days": h, "p_up": p_dir, "p_positive": p_pos, "ev_gross": ev_gross, "ev_net": ev_net, "risk_score": risk_score,
-           "confidence": conf, "target_return": target, "stop_return": -stop, "target_probability": p_hit, "runner_target": min(0.35, runner), "scenarios": scen, "verdict": verdict, "why": why,
+           "confidence": conf, "target_return": target, "stop_return": -stop, "target_probability": p_hit, "runner_target": min(float(sw.get("runner_cap_pct", 0.35)) if swing else 0.35, runner), "scenarios": scen, "verdict": verdict, "why": why,
            "inputs": inputs, "thesis_key": tt["primary"], "sigma_h": sigma_h, "edge": e, "regime": regime.get("regime"), "completeness": completeness}
     out["hash"] = hashlib.sha256(json.dumps({"i": inputs, "s": scen}, sort_keys=True, default=str).encode()).hexdigest()
     return out

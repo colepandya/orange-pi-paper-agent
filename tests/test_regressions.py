@@ -100,9 +100,14 @@ class TestQuotes(unittest.TestCase):
 
     def test_untimestamped_quote_can_value_never_execute(self):
         a, nots = self.prov("A", 100, H.NOW.timestamp() - 3), self.prov("ALPHA_VANTAGE", 100.1, None)
-        r = quotes.consensus(self.c, "MSFT", self.cfg, H.NOW, [a, nots])
+        r = quotes.consensus(self.c, "MSFT", self.cfg, H.NOW, [nots])                       # an untimestamped price ALONE can value, never execute
         self.assertEqual(r["status"], "VALUATION_ONLY")
         self.assertFalse(r["execution_eligible"])
+        r = quotes.consensus(self.c, "MSFT", self.cfg, H.NOW, [a, nots])                    # next to a FRESH one, a single source is enough: the untimestamped one does not count
+        self.assertEqual((r["status"], r["providers_used"]), ("PASS", ["A"]))
+        self.cfg["quotes"]["min_providers"], self.cfg["quotes"]["allow_single_source"] = 2, False
+        r = quotes.consensus(self.c, "MSFT", self.cfg, H.NOW, [a, nots])                    # with two required, it must NOT stand in for the second
+        self.assertEqual(r["status"], "VALUATION_ONLY")
 
     def test_disagreeing_providers_fail_closed(self):
         a, b = self.prov("A", 100, H.NOW.timestamp() - 3), self.prov("B", 108, H.NOW.timestamp() - 3)

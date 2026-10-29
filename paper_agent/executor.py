@@ -8,8 +8,8 @@ import hashlib
 import json
 from typing import Callable, Dict, Optional
 
-from . import db, learning, quotes
-from .timeutil import add_trading_days, iso, market_state, parse_ts, trading_days_between, utcnow
+from . import db, learning, quotes, revisions
+from .timeutil import add_trading_days, iso, market_state, parse_ts, trading_days_between, utcnow, minutes_to_close
 
 VERSION = "5.0.0"
 SIGNAL_TRIGGERS = ("THESIS_BROKEN", "RISK_ESCALATION", "SUPERIOR_OPPORTUNITY")
@@ -19,12 +19,46 @@ def action_id(position: int, plan: int, trigger: str, phase: str, shares: float)
     return hashlib.sha256(("%s:%s:%s:%s:%.8f" % (position, plan, trigger, phase, float(shares))).encode()).hexdigest()
 
 
-def choose_trigger(conn, p, plan, q: dict, held: int, phase: str) -> tuple:
+def swing_cap(cfg: Optional[dict], days: int) -> int:
+    """Swing mode: no plan (runner, extension) may keep a position longer than the maximum hold plus ONE session."""
+    sw = (cfg or {}).get("strategy") or {}
+    return min(days, int(sw["max_hold_days"]) + 1) if sw.get("swing_enabled") else days
+
+
+def ratchet_stop(conn, p, plan, price: float, cfg: dict, now) -> float:
+    """Swing profit protection. Once the position has been up by ``breakeven_trigger_pct`` the stop moves to break-even (+ a little to cover costs) and then trails the HIGHEST price reached.
+    The stop only ever moves UP. Returns the stop to use now."""
+    stop = float(plan["stop_price"])
+    sw = cfg.get("strategy") or {}
+    if not sw.get("swing_enabled"):
+        return stop
+    entry = float(p["entry_price"])
+    row = conn.execute("SELECT high_water FROM position_lifecycle WHERE position_id=?", (p["id"],)).fetchone()
+    hw = max(float(row[0]) if row and row[0] else entry, price)
+    if row and (row[0] is None or hw > float(row[0])):
+        conn.execute("UPDATE position_lifecycle SET high_water=? WHERE position_id=?", (hw, p["id"]))
+    if hw / entry - 1.0 < float(sw["breakeven_trigger_pct"]):
+        return stop
+    new = max(stop, entry * (1.0 + float(sw["breakeven_lock_pct"])), hw * (1.0 - float(sw["trail_pct"])))
+    if new > stop + 1e-9:
+        conn.execute("UPDATE position_forecast_plans SET stop_price=?,stop_return=? WHERE id=?", (new, new / entry - 1.0, plan["id"]))
+        revisions.record(conn, now, "position", str(p["id"]), p["ticker"], "stop_price", stop, new,
+                         "Swing protection: the price reached %.2f (+%.2f%% from entry %.2f), so the stop moved up to %.2f (locks in %+.2f%%)." % (hw, (hw / entry - 1) * 100, entry, new, (new / entry - 1) * 100))
+    return max(stop, new)
+
+
+def choose_trigger(conn, p, plan, q: dict, held: int, phase: str, cfg: Optional[dict] = None, now=None) -> tuple:
     price = q["price"]
     sig = conn.execute("SELECT * FROM exit_signals WHERE position_id=? AND status='OPEN' ORDER BY severity DESC LIMIT 1", (p["id"],)).fetchone()
     if sig:
         return {"THESIS_BROKEN": "THESIS_INVALIDATED", "RISK_ESCALATION": "RISK_ESCALATION", "SUPERIOR_OPPORTUNITY": "SUPERIOR_OPPORTUNITY"}[sig["trigger"]], sig["reason"], sig["id"]
     stop, target = float(plan["stop_price"]), float(plan["target_price"])
+    if cfg is not None:
+        stop = ratchet_stop(conn, p, plan, price, cfg, now or utcnow())
+        sw = cfg.get("strategy") or {}
+        mtc = minutes_to_close(now or utcnow())
+        if sw.get("swing_enabled") and sw.get("flatten_at_close") and mtc is not None and mtc <= float(sw["flatten_minutes_before_close"]):
+            return "EOD_FLATTEN", "day-trade mode: %.0f minutes to the close, not holding overnight" % mtc, None
     if price <= stop:
         return ("RUNNER_STOP" if phase == "RUNNER_OPEN" else "STOP_REACHED"), "price %.4f <= stop %.4f" % (price, stop), None
     if price >= target:
@@ -34,7 +68,7 @@ def choose_trigger(conn, p, plan, q: dict, held: int, phase: str) -> tuple:
     return None, "no trigger", None
 
 
-def rapid_reforecast(conn, p, plan, q: dict, held: int, now) -> Optional[dict]:
+def rapid_reforecast(conn, p, plan, q: dict, held: int, now, cfg: Optional[dict] = None) -> Optional[dict]:
     if held >= max(1, int(plan["max_hold_days"]) // 2 + 1):
         return None
     if conn.execute("SELECT 1 FROM target_reforecasts WHERE position_id=? AND prior_plan_id=?", (p["id"], plan["id"])).fetchone():
@@ -48,7 +82,7 @@ def rapid_reforecast(conn, p, plan, q: dict, held: int, now) -> Optional[dict]:
     newid = None
     if hold:
         ext = min(0.20, max(observed + 0.01, float(plan["runner_target_return"]), float(plan["bull_return"]) * 0.9))
-        days = min(15, max(held + 1, int(plan["max_hold_days"]) + 1))
+        days = swing_cap(cfg, min(15, max(held + 1, int(plan["max_hold_days"]) + 1)))
         entry = float(p["entry_price"])
         cols = [c[1] for c in conn.execute("PRAGMA table_info(position_forecast_plans)")]
         vals = dict(plan)
@@ -61,10 +95,10 @@ def rapid_reforecast(conn, p, plan, q: dict, held: int, now) -> Optional[dict]:
     return {"hold": hold, "reason": reason}
 
 
-def _create_runner_plan(conn, p, plan, now) -> int:
+def _create_runner_plan(conn, p, plan, now, cfg: Optional[dict] = None) -> int:
     entry = float(p["entry_price"])
     t, s = float(plan["runner_target_return"]), float(plan["runner_stop_return"])
-    days = min(15, max(1, int(plan["max_hold_days"]) + 2))
+    days = swing_cap(cfg, min(15, max(1, int(plan["max_hold_days"]) + 2)))
     cols = [c[1] for c in conn.execute("PRAGMA table_info(position_forecast_plans)")]
     vals = dict(plan)
     vals.update(created=iso(now), plan_version=VERSION, active=1, target_return=t, stop_return=s, target_price=entry * (1 + t), stop_price=entry * (1 + s), max_hold_days=days,
@@ -99,7 +133,7 @@ def commit_action(conn, cfg: dict, p, life, plan, trigger: str, reason: str, q: 
         conn.execute("INSERT INTO ledger(created,kind,amount,ref,balance) VALUES(?,?,?,?,?)", (iso(now), "VIRTUAL_PARTIAL_SELL" if partial else "VIRTUAL_SELL_V5", proceeds, "%s:%d:%s" % (p["ticker"], p["id"], aid[:16]), new_cash))
         total_real = round(float(life["realized_pnl"]) + pnl, 2)
         if partial:
-            rid = _create_runner_plan(conn, p, plan, now)
+            rid = _create_runner_plan(conn, p, plan, now, cfg)
             conn.execute("UPDATE positions SET shares=?,cost=?,review_code='RUNNER_OPEN' WHERE id=?", (left_sh, left_cost, p["id"]))
             conn.execute("UPDATE position_lifecycle SET phase='RUNNER_OPEN',remaining_shares=?,remaining_cost=?,realized_pnl=?,last_action_at=?,last_action_id=?,runner_plan_id=?,updated=? WHERE position_id=?",
                          (left_sh, left_cost, total_real, iso(now), aid, rid, iso(now), p["id"]))
@@ -144,13 +178,14 @@ def run(conn, cfg: dict, now=None, quote_fn: Optional[Callable] = None) -> dict:
                 continue
             held = trading_days_between(p["opened"], now)
             life = {"phase": p["lphase"], "remaining_shares": p["remaining_shares"], "remaining_cost": p["remaining_cost"], "realized_pnl": p["realized_pnl"]}
-            trigger, reason, sig_id = choose_trigger(conn, p, plan, q, held, p["lphase"])
+            with db.tx(conn):                                                          # the ratchet may move the stop and record the revision
+                trigger, reason, sig_id = choose_trigger(conn, p, plan, q, held, p["lphase"], cfg, now)
             if not trigger:
                 details.append({"ticker": p["ticker"], "result": "HOLD"})
                 continue
             if trigger == "TARGET_REACHED" and p["lphase"] == "OPEN":
                 with db.tx(conn):
-                    rf = rapid_reforecast(conn, p, plan, q, held, now)
+                    rf = rapid_reforecast(conn, p, plan, q, held, now, cfg)
                 if rf and rf["hold"]:
                     extended += 1
                     details.append({"ticker": p["ticker"], "result": "HOLD_EXTENDED", "reason": rf["reason"]})

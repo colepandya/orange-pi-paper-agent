@@ -8,6 +8,7 @@ import math
 from typing import Dict, List, Optional
 
 from . import db, ev, evidence as evidence_engine, marketdata as md, redteam, revisions, thesis as thesis_engine, trader
+from .executor import swing_cap
 from .timeutil import add_trading_days, iso, parse_ts, utcnow
 
 VERSION = "5.0.0"
@@ -117,7 +118,7 @@ def monitor(conn, cfg: dict, regime: dict, now=None, stress: Optional[dict] = No
             pt, ps, pdays = float(plan["target_return"]), float(plan["stop_return"]), int(plan["max_hold_days"])
             nt = max(0.005, min(0.20, pt * (1 + max(-0.35, min(0.35, w * 0.35)))))
             ns = tighten_stop(ps, w)
-            nd = max(1, min(15, pdays + (1 if w > 0.35 else -2 if w < -0.35 else -1 if w < -0.10 else 0)))
+            nd = swing_cap(cfg, max(1, min(15, pdays + (1 if w > 0.35 else -2 if w < -0.35 else -1 if w < -0.10 else 0))))      # swing: never longer than max hold + 1 session
             if abs(nt - pt) >= 0.0025 or abs(ns - ps) >= 0.0025 or nd != pdays:
                 change = "EXPANDED" if w > 0.10 else "TIGHTENED" if w < -0.10 else "REVISED"
                 entry = float(p["entry_price"])

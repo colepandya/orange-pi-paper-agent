@@ -8,7 +8,13 @@ from typing import Dict, List, Optional
 
 from . import candqueue
 from .evidence import GATE_LABELS
-from .timeutil import iso, market_state, parse_ts, to_nz, utcnow
+from .timeutil import iso, market_state, parse_ts, to_nz, utcnow, SESSION_LABEL
+
+
+def indication_age(ind: dict) -> str:
+    m = ind["age_minutes"]
+    return "%s, %s" % (SESSION_LABEL.get(ind["session"], ind["session"].lower() or "quote"),
+                       "just now" if m < 2 else ("%d min ago" % m if m < 120 else "%.0fh ago" % (m / 60)))
 
 
 def report(conn, hours: float = 24, now=None, samples: int = 3) -> dict:
@@ -50,12 +56,16 @@ def report(conn, hours: float = 24, now=None, samples: int = 3) -> dict:
         except ValueError:
             pass
     pend = []
-    for r in conn.execute("SELECT ticker,status,created,ev_net,reason FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY') ORDER BY id DESC LIMIT 30"):
+    for r in conn.execute("SELECT ticker,status,created,ev_net,reason FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') ORDER BY id DESC LIMIT 30"):
         try:
-            pgates = json.loads(r["reason"] or "{}").get("gates") or []
+            rj = json.loads(r["reason"] or "{}")
+            pgates = rj.get("gates") or []
+            ref = rj.get("ref_price")
         except ValueError:
-            pgates = []
-        pend.append({"ticker": r["ticker"], "status": r["status"], "since": r["created"], "ev_net": r["ev_net"], "waiting_for": pgates[-1] if pgates else ""})
+            pgates, ref = [], None
+        from . import prices as _prices
+        ind = _prices.indication(conn, r["ticker"], ref, now)                   # where it is trading right now (pre-market / after-hours) versus the price it was decided against
+        pend.append({"ticker": r["ticker"], "status": r["status"], "since": r["created"], "ev_net": r["ev_net"], "waiting_for": pgates[-1] if pgates else "", "indication": ind})
     from . import db as _db
     base = _db.error_baseline(conn, now)
     err_since = max(since, base) if base else since
@@ -147,7 +157,7 @@ def text(rep: dict) -> str:
     if rep["pending"]:
         L.append("BUY decisions waiting (%d):" % len(rep["pending"]))
         for p in rep["pending"][:8]:
-            L.append("   %-6s %-17s EV %s  %s" % (p["ticker"], p["status"], ("%+.2f%%" % (p["ev_net"] * 100)) if p["ev_net"] is not None else "n/a", p["waiting_for"][:150]))
+            L.append("   %-6s %-17s EV %s  %s%s" % (p["ticker"], p["status"], ("%+.2f%%" % (p["ev_net"] * 100)) if p["ev_net"] is not None else "n/a", p["waiting_for"][:150], ("  [trading %+.1f%% vs previous close, %s]" % (p["indication"]["gap"] * 100, indication_age(p["indication"]))) if p.get("indication") else ""))
     L.append("news items ingested: %d (last %s)" % (rep["news"], to_nz(rep["last_news"]) if rep["last_news"] else "never"))
     L.append("events created:     %d (last %s)" % (rep["events"], to_nz(rep["last_event"]) if rep["last_event"] else "never"))
     L.append("  -> trade candidates: %d" % rep["candidates"])

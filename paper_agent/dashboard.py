@@ -13,9 +13,9 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List, Optional
 
-from . import auth as auth_mod, config, control, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
+from . import auth as auth_mod, config, control, explain, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
 from .config import DB_PATH, load_config
-from .timeutil import market_state, parse_ts, to_nz, utcnow, iso
+from .timeutil import market_state, parse_ts, to_nz, utcnow, iso, SESSION_LABEL
 
 E = lambda x: html.escape("" if x is None else str(x))  # noqa: E731
 CSS = """:root{--bg:#fff;--fg:#14181f;--mut:#5b6573;--card:#f5f7fa;--line:#dde2ea;--ok:#0a7d3b;--bad:#b3261e;--warn:#9a6700;--acc:#1f5fbf}
@@ -28,6 +28,8 @@ main{padding:14px 16px;max-width:1300px;margin:auto}.grid{display:grid;grid-temp
 table{border-collapse:collapse;width:100%;margin:6px 0 16px}th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--mut);font-size:12px}
 .wrap{overflow-x:auto}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.mut{color:var(--mut)}h2{margin:18px 0 4px;font-size:16px}
 details summary{cursor:pointer;color:var(--acc)}pre{white-space:pre-wrap;background:var(--card);padding:8px;border-radius:6px;font-size:12px}button{padding:5px 10px}"""
+CSS += """.why{max-width:860px}.why h2{margin:.2em 0}.why h3{margin:1.2em 0 .3em;font-size:15px;border-bottom:1px solid var(--line);padding-bottom:3px}.why blockquote{margin:.4em 0;padding:.5em .8em;background:var(--card);border-left:3px solid var(--acc)}
+.why ul.checks{list-style:none;padding:0}.why ul.checks li{margin:.35em 0}.why table{border-collapse:collapse}.why td,.why th{padding:3px 12px 3px 0;vertical-align:top;text-align:left}.why-good h2{color:var(--ok)}.why-bad h2{color:var(--bad)}.why-wait h2{color:var(--warn)}"""
 CSS += settings_ui.FORM_CSS
 TABS = ["overview", "reports", "theses", "positions", "dossiers", "decisions", "funnel", "risk", "intelligence", "system", "settings"]
 
@@ -118,6 +120,25 @@ def page_theses(c, cfg, s, q):
     return "".join(out)
 
 
+def price_label(source: str, age_seconds) -> str:
+    """'YAHOO_EXT:AFTER_HOURS' + 240s -> 'after-hours, 4 min ago' (the Positions table used to show 'CONSENSUS:TWEL')."""
+    src = source or ""
+    if src.startswith("YAHOO_EXT:"):
+        what = SESSION_LABEL.get(src.split(":", 1)[1], "extended hours")
+    elif src.startswith("CONSENSUS:"):
+        what = "verified " + src.split(":", 1)[1].replace("+", "/")[:22]
+    elif src == "DAILY_CLOSE":
+        what = "last close"
+    elif src == "COST":
+        what = "cost (no price yet)"
+    else:
+        what = src[:16].lower()
+    if age_seconds is None:
+        return what
+    m = age_seconds / 60.0
+    return "%s, %s" % (what, "just now" if m < 2 else ("%d min ago" % m if m < 120 else "%.0fh ago" % (m / 60)))
+
+
 def page_positions(c, cfg, s):
     rows = []
     for h in s["hs"]:
@@ -126,7 +147,7 @@ def page_positions(c, cfg, s):
         ph = c.execute("SELECT * FROM position_health WHERE position_id=? ORDER BY id DESC LIMIT 1", (h["position_id"],)).fetchone()
         sig = [r[0] for r in c.execute("SELECT trigger FROM exit_signals WHERE position_id=? AND status='OPEN'", (h["position_id"],))]
         unreal = h["value"] - h["cost"]
-        rows.append([h["ticker"], h["phase"], "%.0f" % h["shares"], "%.2f" % p["entry_price"], "%.2f (%s)" % (h["price"], h["price_source"][:14]), Raw('<span class=%s>%s (%s)</span>' % (cls(unreal), money(unreal), pct(unreal / h["cost"] if h["cost"] else 0))),
+        rows.append([h["ticker"], h["phase"], "%.0f" % h["shares"], "%.2f" % p["entry_price"], "%.2f (%s)" % (h["price"], price_label(h["price_source"], h.get("price_age"))), Raw('<span class=%s>%s (%s)</span>' % (cls(unreal), money(unreal), pct(unreal / h["cost"] if h["cost"] else 0))),
                      h["thesis_key"] or "", "%.0f" % ph["health"] if ph else "n/a", ("%+.1f%% / %+.1f%% / %dd" % (plan["target_return"] * 100, plan["stop_return"] * 100, plan["max_hold_days"])) if plan else "no plan", ", ".join(sig) or "-", to_nz(p["opened"], "%d %b")])
     out = [table(["Ticker", "Phase", "Shares", "Entry", "Price", "Unrealised", "Thesis", "Health", "Target/Stop/Hold", "Signals", "Opened"], rows)]
     cl = c.execute("SELECT ticker,opened,closed,entry_price,exit_price,pnl,review_code FROM positions WHERE status='CLOSED' ORDER BY id DESC LIMIT 25").fetchall()
@@ -195,7 +216,15 @@ def page_dossiers(c, cfg, s, q):
     return "".join(out)
 
 
+def page_decision_detail(c, cfg, did):
+    ex = explain.explain(c, cfg, did)
+    back = "<p><a href='?tab=decisions'>&larr; all decisions</a></p>"
+    return back + (explain.render_html(ex) if ex else "<p class=bad>No such decision.</p>")
+
+
 def page_decisions(c, cfg, s, q):
+    if (q.get("id") or [""])[0].isdigit():
+        return page_decision_detail(c, cfg, int((q.get("id") or ["0"])[0]))
     st = (q.get("status") or [""])[0]
     tk = (q.get("ticker") or [""])[0].upper()
     sql, args = "SELECT * FROM decisions WHERE 1=1", []
@@ -213,16 +242,14 @@ def page_decisions(c, cfg, s, q):
         except ValueError:
             rs = {}
         f = c.execute("SELECT scenarios_json,inputs_json,verdict,horizon_days FROM forecasts WHERE id=?", (r["forecast_id"],)).fetchone() if r["forecast_id"] else None
-        det = ""
-        if f:
-            sc = json.loads(f["scenarios_json"])
-            det = "<details><summary>why</summary><pre>%s</pre></details>" % E(json.dumps({"gates": rs.get("gates"), "forecast": rs.get("forecast"), "sizing": rs.get("sizing"), "opportunity": rs.get("opportunity"),
-                                                                                         "scenarios": {k: "p=%.3f ret=%+.2f%%" % (v["p"], v["ret"] * 100) for k, v in sc.items()}, "headline": (rs.get("candidate") or {}).get("headline")}, indent=1, default=str))
-        waiting = ""
-        if r["status"] in ("AWAITING_MARKET", "AWAITING_QUOTE", "AWAITING_CAPACITY") and (rs.get("gates") or []):
-            waiting = "<br><span class=mut style='font-size:12px'>%s</span>" % E(str(rs["gates"][-1])[:160])        # WHAT it is waiting for, right in the table
+        try:
+            plain = explain.explain(c, cfg, r["id"])["headline"]
+        except Exception as e:  # noqa: BLE001 - a bad old record must never break the whole page
+            plain = "(could not summarise: %s)" % type(e).__name__
+        waiting = "<br><span class=mut style='font-size:12px'>%s</span>" % E(plain[:200])
+        det = "<a href='?tab=decisions&id=%d'>Why? &rarr;</a>" % r["id"]
         body.append([to_nz(r["created"], "%d %b %H:%M"), r["ticker"], Raw(E(r["status"]) + waiting), r["action"], "%.0f" % (r["score"] or 0), pct(r["ev_net"], 2), r["thesis_key"] or "", money(r["amount"]) if r["amount"] else "", Raw(det)])
-    out.append(table(["Time", "Ticker", "Status", "Action", "Elig.", "EV net", "Thesis", "Amount", "Audit"], body))
+    out.append(table(["Time", "Ticker", "Status", "Action", "Elig.", "EV net", "Thesis", "Amount", "Why"], body))
     return "".join(out)
 
 

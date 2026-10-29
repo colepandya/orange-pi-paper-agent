@@ -168,12 +168,26 @@ def consensus(conn, ticker: str, cfg: dict, now=None, providers: Optional[List[C
         if conn is not None and providers is None:
             conn.execute("INSERT INTO provider_calls(provider,ts) VALUES(?,?)", (r["provider"], now_s))
     good = [x for x in raw if x["accepted"]]
-    prices = sorted(x["price"] for x in good)
-    med = (prices[len(prices) // 2] if len(prices) % 2 else (prices[len(prices) // 2 - 1] + prices[len(prices) // 2]) / 2) if prices else None
-    agreed = [x for x in good if med and abs(x["price"] / med - 1) <= float(q["max_deviation"])]
-    timed = [x for x in agreed if x["timestamp_known"] and x["age_seconds"] <= max_age]
+
+    def _median(xs):
+        xs = sorted(xs)
+        return (xs[len(xs) // 2] if len(xs) % 2 else (xs[len(xs) // 2 - 1] + xs[len(xs) // 2]) / 2) if xs else None
+    fresh = [x for x in good if x["timestamp_known"] and x["age_seconds"] <= max_age]
+    med_fresh = _median([x["price"] for x in fresh])
+    # agreement is judged among FRESH quotes only: an hours-old price from a slow provider must not veto a fresh one
+    timed = [x for x in fresh if med_fresh and abs(x["price"] / med_fresh - 1) <= float(q["max_deviation"])]
+    med = med_fresh if fresh else _median([x["price"] for x in good])
+    agreed = timed or [x for x in good if med and abs(x["price"] / med - 1) <= float(q["max_deviation"])]
     need = 1 if q.get("allow_single_source") else int(q["min_providers"])
     status = "PASS" if len(timed) >= need else ("VALUATION_ONLY" if agreed else "FAILED")
+    note = ""
+    lim = float(q.get("single_source_max_move_pct", 0.20) or 0)
+    if status == "PASS" and len(timed) == 1 and need == 1 and lim and conn is not None:      # one source has no cross-check: it must at least be plausible against the last close
+        from . import marketdata as md
+        cl = md.closes(conn, ticker, 1)
+        last = cl[-1] if cl else None
+        if last and abs(timed[0]["price"] / last - 1) > lim:
+            status, note = "VALUATION_ONLY", "single source %s says %.2f, %.0f%% away from the last close %.2f: needs a second source to confirm" % (timed[0]["provider"], timed[0]["price"], abs(timed[0]["price"] / last - 1) * 100, last)
     clk = market_state(now)
     price = None
     if agreed:
@@ -184,7 +198,7 @@ def consensus(conn, ticker: str, cfg: dict, now=None, providers: Optional[List[C
     return {"ticker": ticker, "session": clk["session"], "status": status, "price": price, "providers_used": [x["provider"] for x in (timed or agreed)],
             "provider_count": len(timed or agreed), "quoted_at": iso(newest) if newest else None, "age_seconds": (now - newest).total_seconds() if newest else None,
             "max_deviation": max((abs(x["price"] / med - 1) for x in agreed), default=None) if med else None,
-            "execution_eligible": bool(status == "PASS" and clk["execution"]), "observations": raw}
+            "execution_eligible": bool(status == "PASS" and clk["execution"]), "observations": raw, "note": note}
 
 
 def store(conn, c: dict, now=None) -> None:

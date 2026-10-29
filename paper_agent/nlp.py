@@ -125,6 +125,32 @@ EVENT_TYPES: List[EventType] = [
     _t("disaster_pandemic", "macro", -1, .55, 30, .45, ["hurricane", "earthquake", "pandemic", "outbreak", "wildfire", "typhoon", "flooding", "heatwave", "drought"], 5),
     _t("technology_shift", "sector", +1, .45, 365, .45, ["breakthrough", "new ai model", "foundation model", "next-generation chip", "quantum computing", "fusion", "small modular reactor", "smr", "humanoid robot", "autonomous driving approval"], 20),
 ]
+# ---- MARKET SHOCKS: crashes, war, emergency policy, bank failures, exchange outages. High-precision patterns that OUTRANK company-level wording
+# (a war headline containing the word "launches" used to be classified as a bullish product launch). Subjects are market-level only, so "Tesla shares plunge" is NOT a market shock.
+_VERB = r"(?:plunge[sd]?|plummet\w*|tumble[sd]?|crash(?:es|ed)?|tank(?:s|ed)?|nosedive[sd]?|rout(?:ed)?|collaps\w+|reel\w*|rattle[sd]?|swoon\w*|sell ?off)"
+_MKT = r"(?:global |world |us |u s |asian |european )?(?:stocks|equities|futures|markets?|wall street)"
+EVENT_TYPES += [
+    _t("market_crash", "macro", -1, .85, 5, .85, [
+        r"(?:^|\bas |\band |\bwhile )" + _MKT + r"\s+(?:\w+\s+){0,2}" + _VERB,
+        r"(?:wall street|stock market|dow|dow jones|nasdaq|s p ?500|s p)\s+(?:\w+\s+){0,3}" + _VERB,
+        r"(?:s p ?500|dow|nasdaq|wall street|stock market|stocks|markets?)\s+(?:\w+\s+){0,6}worst (?:day|week|month|session|selloff|sell off) since",
+        "circuit breaker", "circuit breakers", "trading halted", "flash crash", "black monday", "black tuesday", "black thursday", "market turmoil", "market meltdown",
+        "market panic", "market rout", "global rout", r"(?:stock|equity|global|market|wall street) sell ?off (?:deepens|worsens|intensifies|accelerates|spreads)", "vix spikes", "vix surges", "vix jumps", "fear gauge spikes"], 5),
+    _t("war_escalation", "macro", -1, .85, 14, .85, [
+        r"(?:missile|drone|military|rocket) (?:strikes?|attacks?|assault)", r"airstrikes?", r"invad(?:es|ed|ing)\s+(?:ukraine|taiwan|poland|israel|iran|lithuania|latvia|estonia|[a-z]+ country|neighbou?ring \w+)", "invasion of", "declares war", "declared war",
+        r"war (?:breaks|broke) out", r"(?:attack|strike|strikes|assault) on (?:a |the )?(?:naval|military|air|army) base", r"nuclear (?:test|strike|weapon|missile|threat|attack|explosion)",
+        "military offensive", "terror attack", "terrorist attack", r"attacks? on (?:\w+ ){0,2}(?:oil|energy|gulf|shipping|tanker)", r"rattles? (?:\w+ )?markets?"], 10),
+    _t("emergency_policy", "macro", -1, .75, 5, .80, [r"emergency (?:rate (?:cut|hike|move|decision)|fed (?:meeting|action|move)|central bank (?:meeting|action|move)|liquidity|lending|stimulus|policy (?:meeting|move))", "unscheduled rate"], 5),
+    _t("financial_stress_event", "macro", -1, .85, 14, .85, [
+        r"(?:bank|lender|brokerage)\s+(?:collapses?|collapsed|implodes?|imploded|(?:fails?|failed)(?!\s+(?:to|the|a|an|its)\b|(?:\s+\w+){0,2}\s+(?:stress|tests?|audits?|inspections?|exams?)\b))", r"(?:hedge fund|fund)\s+(?:collapses?|collapsed|implodes?|imploded)",
+        "bank run", "run on the bank", "bank failure", "bank collapse", "halts withdrawals", "deposit flight"], 10),
+    _t("market_infrastructure_outage", "macro", -1, .75, 3, .75, [
+        r"(?:cyber ?attack|hack|outage|glitch|ransomware)\s+(?:\w+\s+){0,5}(?:stock exchange|nyse|nasdaq|clearing house|payments? system|trading platform)",
+        r"(?:nyse|nasdaq|stock exchange|clearing house|trading platform)\s+(?:\w+\s+){0,4}(?:outage|hacked|cyber ?attack)"], 3),
+]
+SHOCK_TYPES = {"market_crash", "war_escalation", "emergency_policy", "financial_stress_event", "market_infrastructure_outage"}
+_RECOVERY = re.compile(r"(?<![a-z0-9])(?:years? after|anniversary|lessons?|looks? back|retrospective|rebound\w*|recover\w*|rall(?:y|ies|ied)|bounc\w+|steadi\w+|calm\w*|eas(?:e|es|ed)|recoup\w*|claw\w* back|ceasefire|truce|averted|de ?escalat\w*)")
+
 GENERAL = EventType("general_news", "company", 0, .15, 14, .30, [], 3)
 BY_NAME = {e.name: e for e in EVENT_TYPES}
 BY_NAME["general_news"] = GENERAL
@@ -257,6 +283,8 @@ def analyze(title: str, summary: str = "") -> Dict:
     best, best_s, best_info = GENERAL, 0.0, (None, "")
     for et in EVENT_TYPES:
         s, st, hit = _score_type(et, title_n, body_n)
+        if s > 0 and et.name in SHOCK_TYPES:
+            s = 0.0 if _RECOVERY.search(title_n) else s + 4.0          # a market shock outranks any company-level wording; "rebounds"/"ceasefire" headlines are not shocks
         if s > 0:
             s += 0.15 * et.magnitude + (0.3 if et.scope == "company" else 0)  # specific beats generic on ties
             if s > best_s:
@@ -287,7 +315,9 @@ def analyze(title: str, summary: str = "") -> Dict:
         direction = lex
         if neg:
             direction = -direction * 0.7
-    if hed and mp is None:
+    if best.name in SHOCK_TYPES and best_s > 0:
+        direction = 0.0 if neg else -0.85                              # a shock is risk-off, whatever the surrounding vocabulary ("jumps", "surges"...) says
+    if hed and mp is None and best.name not in SHOCK_TYPES:
         direction *= 0.6
     amount = extract_amount(title + " " + (summary or ""))
     mag = best.magnitude

@@ -1,3 +1,14 @@
+# Build 22
+* **Swing profile (default ON, all editable in Settings -> Swing strategy):** holds capped at 3 sessions (a runner may run 1 more), stops 1.2-3% (1x the stock's daily move), targets 1.2-4%, reward:risk >= 1.2, stocks that move < 0.8%/day skipped,
+  60% sold at the target and the rest runs behind a protected stop, **break-even lock after +1% and a 1% trailing stop** (the stop only ever moves up), optional "sell before the close" day-trade mode. Swing mode counts only the part of a
+  story's expected move that fits the shorter window, so EVs are lower and fewer BUYs pass. Turn it off to restore the old multi-week behaviour.
+* **Last look before money moves:** a BUY queued before the open is re-checked against everything since it was decided. Bad news about that company cancels it; a market-wide shock holds it (default 6 h); a gap beyond -3% / +5% cancels it.
+* **World events are no longer invisible:** crashes, war, emergency central-bank action, bank failures and exchange outages are now recognised as risk-off market shocks (before: "China launches missile strikes on Taiwan" was a BULLISH product launch).
+* **Quotes:** one fresh source is enough by default; agreement is judged among fresh quotes only; a lone price must be within 20% of the last close.
+* **Prices refresh while the market is closed** (pre-market / after-hours; Settings -> Refresh times). Positions show "after-hours, 4 min ago"; waiting BUYs show where they trade versus the price they were decided against.
+* **Decisions -> Why is now plain English:** what happened, the trigger, the checks in words (tick / cross), the numbers, the plan, what would change it, and a timeline. The table shows a one-line headline.
+* Unlimited BUYs per cycle by default (funds and risk limits are the real limits).
+
 # Build 21
 * **Unattended reports** (nobody has to be awake): at 08:45, 09:45, 12:30 and 16:10 New York time on trading days (about 01:45, 02:45, 05:30 and 09:10 NZ time; daylight-saving automatic) the system runs the full
   pre-open checklist (live) + decision funnel and writes a plain-English report with a VERDICT (OK / ATTENTION / FAILED): what opened, what closed, what is still waiting and why, and any errors with their location.

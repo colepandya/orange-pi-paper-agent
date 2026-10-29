@@ -8,10 +8,10 @@ import math
 import os
 from typing import Callable, Dict, List, Optional
 
-from . import candqueue, company, db, ev, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
+from . import pretrade, candqueue, company, db, ev, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
 from .timeutil import add_trading_days, iso, market_state, parse_ts, utcnow
 
-PENDING = ("AWAITING_MARKET", "AWAITING_QUOTE", "AWAITING_CAPACITY")
+PENDING = ("AWAITING_MARKET", "AWAITING_QUOTE", "AWAITING_CAPACITY", "HELD")
 
 
 def quote_diagnosis(q: Optional[dict], cfg: dict) -> str:
@@ -32,7 +32,8 @@ def quote_diagnosis(q: Optional[dict], cfg: dict) -> str:
             bits.append("%s stale (%ds old, limit %ds)" % (o["provider"], o["age_seconds"], max_age))
         else:
             bits.append("%s ok (%ds)" % (o["provider"], max(0, o["age_seconds"])))
-    return "%s%s; need %d fresh agreeing provider(s), have %d" % ("; ".join(bits), "" if bits else (q.get("status") or "none"), need, int(q.get("provider_count") or 0) if q.get("status") == "PASS" else sum(1 for o in q.get("observations") or [] if o.get("accepted") and o.get("age_seconds") is not None and o["age_seconds"] <= max_age))
+    msg = "%s%s; need %d fresh agreeing provider(s), have %d" % ("; ".join(bits), "" if bits else (q.get("status") or "none"), need, int(q.get("provider_count") or 0) if q.get("status") == "PASS" else sum(1 for o in q.get("observations") or [] if o.get("accepted") and o.get("age_seconds") is not None and o["age_seconds"] <= max_age))
+    return ("%s; " % q["note"] if q.get("note") else "") + msg
 
 
 def eligibility_score(c: dict) -> float:
@@ -61,7 +62,8 @@ def _set_decision(conn, did: int, status: str, reason: dict, **kw) -> None:
 
 def insert_plan(conn, position_id: int, decision_id: int, f: dict, entry: float, opened_iso: str, version: str = "5.0.0") -> int:
     t, s = f["target_return"], abs(f["stop_return"])
-    partial = 0.7 if t >= 0.025 else 1.0
+    pp = f["inputs"].get("partial_exit_pct")
+    partial = (pp if pp is not None and pp < 0.999 else 1.0) if f["inputs"].get("swing") else (0.7 if t >= 0.025 else 1.0)       # swing: bank part at the target, let the rest run behind the protected stop
     runner = max(f["runner_target"], t * 1.5) if partial < 1 else t
     rstop = 0.005 if partial < 1 else -s
     sc = f["scenarios"]
@@ -71,7 +73,8 @@ def insert_plan(conn, position_id: int, decision_id: int, f: dict, entry: float,
         "VALUES(?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (position_id, decision_id, opened_iso, version, f["inputs"].get("event_type", "thesis_signal"), f["verdict"], t, -s, entry * (1 + t), entry * (1 - s), f["horizon_days"], iso(add_trading_days(opened_iso, f["horizon_days"])),
          f["target_probability"], f["confidence"] * 100, f["completeness"] * 100, partial, runner, entry * (1 + runner), rstop, entry * (1 + rstop), sc["bear"]["ret"], sc["base"]["ret"], sc["bull"]["ret"], f["ev_net"], f["edge"], f["inputs"]["priced_in"],
-         "EV-derived plan: base case %+.2f%%, stop %.2f%% (1.25 daily-vol x sqrt(min(h,5))), horizon %d sessions. Thesis %s." % (f["edge"] * 100, s * 100, f["horizon_days"], f["thesis_key"] or "n/a"),
+         ("Swing plan: expected %+.2f%% inside %d session(s) (news works for ~%d), stop %.2f%% (%.1fx the stock's daily move), break-even lock and trailing stop active. Thesis %s." % (f["edge"] * 100, f["horizon_days"], f["inputs"].get("event_horizon_days", f["horizon_days"]), s * 100, s / max(f["inputs"].get("vol_daily") or s, 1e-6), f["thesis_key"] or "n/a")
+          if f["inputs"].get("swing") else "EV-derived plan: base case %+.2f%%, stop %.2f%% (1.25 daily-vol x sqrt(min(h,5))), horizon %d sessions. Thesis %s." % (f["edge"] * 100, s * 100, f["horizon_days"], f["thesis_key"] or "n/a")),
          json.dumps(["event facts contradicted or corrected", "entity mapping invalidated", "thesis broken", "fresh quote unavailable", "adverse high-credibility evidence"]), f["hash"]))
     return cur.lastrowid
 
@@ -118,6 +121,13 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
         company.refresh_company(conn, t, meta, cfg, use_network=(md_fetch is None))
     md.refresh_symbol(conn, t, 12, "1y", md_fetch if callable(md_fetch) else None, now)
     md.refresh_symbol(conn, "SPY", 12, "1y", md_fetch if callable(md_fetch) else None, now)
+    reason["decided_at"] = c.get("decided_at") or iso(now)
+    ref = c.get("ref_price")
+    if ref is None and not existing_decision and not market_state(now)["execution"]:
+        cl = md.closes(conn, t, 1)
+        ref = cl[-1] if cl else None                                              # decided while the market is closed: the previous close is what the open will be compared with
+    reason["ref_price"] = ref
+    c["ref_price"] = ref
     f = ev.build(conn, c, cfg, regime, now, universe)
     with db.tx(conn):
         fid = ev.persist(conn, f, None, c.get("event_id"), now)
@@ -186,9 +196,17 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
             return finish("CAPACITY_DEFERRED", "size after red-team adjustment %.2f%% below minimum" % (sz["pct"] * 100))
     if not market_state(now)["execution"]:
         return finish("AWAITING_MARKET", "market session %s; will retry while the event is fresh" % market_state(now)["session"])
+    pt = pretrade.review(conn, cfg, c, reason["decided_at"], now)                    # last look #1: later news / market shock (no price needed)
+    if pt["action"] == "veto":
+        return finish("VETOED", pt["reason"])
+    if pt["action"] == "hold":
+        return finish("HELD", pt["reason"])
     q = quote_fn(conn, t, "entry")
     if not q or q.get("status") != "PASS" or not q.get("execution_eligible") or q.get("price") is None:
         return finish("AWAITING_QUOTE", "market is open but no verified price: " + quote_diagnosis(q, cfg))      # distinct from "market closed"; retried every cycle
+    pt = pretrade.review(conn, cfg, c, reason["decided_at"], now, q["price"])      # last look #2: the overnight gap, now that the price is verified
+    if pt["action"] == "veto":
+        return finish("VETOED", pt["reason"])
     reason["gates"].append("all gates passed")
     out = execute_buy(conn, cfg, c, f, sz, q, did, fid, now, theme, comp.get("sector") or "Unclassified", reason)
     out["decision_id"] = did
@@ -205,6 +223,8 @@ def candidate_from_decision(row) -> Optional[dict]:
     except (ValueError, KeyError, TypeError):
         return None
     c["ticker"] = row["ticker"]
+    c["ref_price"] = r.get("ref_price")                                           # previous close when the BUY was decided (overnight gap test)
+    c["decided_at"] = r.get("decided_at") or row["created"]                      # "since when" the last-look news / shock checks apply
     c.setdefault("origin", row["origin"] or "event")
     c["horizon"] = c.get("horizon") or 8
     return c
@@ -251,14 +271,14 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
     # 1. retry pending decisions while the underlying event is still fresh (skipped cheaply once the cap is used up)
     market_open = market_state(now)["execution"]
     out["waiting_market"] = 0
-    for row in conn.execute("SELECT * FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY') ORDER BY id LIMIT 80").fetchall():
+    for row in conn.execute("SELECT * FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') ORDER BY id LIMIT 80").fetchall():
         c = candidate_from_decision(row)
         age = (now - parse_ts(row["created"])).total_seconds() / 3600 if parse_ts(row["created"]) else 999
         if not c or age > icfg["trade_event_max_age_hours"]:
             with db.tx(conn):
                 conn.execute("UPDATE decisions SET status='EXPIRED' WHERE id=?", (row["id"],))
             continue
-        if row["status"] in ("AWAITING_MARKET", "AWAITING_QUOTE") and not market_open:
+        if row["status"] in ("AWAITING_MARKET", "AWAITING_QUOTE", "HELD") and not market_open:
             out["waiting_market"] += 1              # nothing can change until the open: do NOT redo the evaluation and market-data calls every 10 minutes all night
             continue
         if (cap > 0 and new_exec >= cap):

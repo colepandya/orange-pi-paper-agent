@@ -78,7 +78,7 @@ def run(conn, cfg: dict, universe=None, config_dir: str = "", fetch: Callable = 
             "%d open position(s); last exit check %s" % (opens, "%.0f min ago" % gage if gage is not None else "never"), "systemctl status paper-agent-guard.timer" if need and (gage is None or gage > 6) else "")
         noplan = conn.execute("SELECT COUNT(*) FROM positions p LEFT JOIN position_forecast_plans f ON f.position_id=p.id AND f.active=1 WHERE p.status='OPEN' AND f.id IS NULL").fetchone()[0]
         chk("Open positions have exit plans", PASS if not noplan else WARN, "all have stop/target" if not noplan else "%d without a plan (the next cycle creates one)" % noplan)
-    waiting = conn.execute("SELECT status,COUNT(*) n FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY') GROUP BY status").fetchall()
+    waiting = conn.execute("SELECT status,COUNT(*) n FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') GROUP BY status").fetchall()
     if waiting:
         wd = {r["status"]: r["n"] for r in waiting}
         stuck_q = wd.get("AWAITING_QUOTE", 0)

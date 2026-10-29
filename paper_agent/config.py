@@ -22,17 +22,22 @@ DEFAULTS: Dict[str, Any] = {
         "max_position_pct": 0.10, "max_issuer_pct": 0.15, "max_theme_pct": 0.30, "max_gross_pct": 0.80,
         "min_cash_pct": 0.20, "risk_per_trade_pct": 0.010, "min_position_pct": 0.01,
         "drawdown_pause_pct": 0.12, "daily_loss_pause_pct": 0.03, "survival_floor": 0.80,
-        "ruin_loss_pct": 0.20, "max_stress_loss_pct": 0.20, "min_ev_net": 0.006, "min_confidence": 0.45, "max_new_per_cycle": 0,
+        "ruin_loss_pct": 0.20, "max_stress_loss_pct": 0.20, "min_ev_net": 0.006, "min_confidence": 0.45, "max_new_per_cycle": 0, "veto_adverse_news": True, "veto_news_direction": -0.35, "veto_news_magnitude": 0.30, "shock_direction": -0.6, "shock_hold_hours": 6, "max_gap_down_pct": 0.03, "max_gap_up_pct": 0.05,
         "max_spread_pct": 0.02, "min_adv_usd": 2_000_000,
     },
     "runtime": {"min_available_memory_mb": 120, "max_load_per_core": 1.5, "pihole_health_required": False,
                 "bind_host": "0.0.0.0", "bind_port": 8088, "contact_email": "paper-agent@example.invalid",
                 "cycle_budget_seconds": 300, "require_password": False, "allowed_hosts": [], "pause_file": os.path.join(STATE_DIR, "PAUSE_TRADES"), "lock_file": os.path.join(STATE_DIR, "cycle.lock")},
-    "quotes": {"min_providers": 2, "max_deviation": 0.005, "max_age_seconds": 180, "entry_max_age_seconds": 90,
-               "allow_single_source": False,
+    "quotes": {"min_providers": 1, "max_deviation": 0.005, "max_age_seconds": 180, "entry_max_age_seconds": 90,
+               "allow_single_source": True, "single_source_max_move_pct": 0.20,
                "limits": {"TWELVE_DATA": [7, 60], "FINNHUB": [50, 60], "ALPACA": [100, 60], "MASSIVE": [4, 60],
                           "ALPHA_VANTAGE": [20, 86400], "TIINGO": [40, 3600], "EODHD": [18, 86400], "YAHOO": [30, 60]}},
+    "strategy": {   # SWING profile: in and out within ~1-3 sessions, small repeatable gains, tight risk. swing_enabled=False restores the older multi-week behaviour.
+        "swing_enabled": True, "max_hold_days": 3, "stop_vol_mult": 1.0, "stop_min_pct": 0.012, "stop_max_pct": 0.03, "target_min_pct": 0.012, "target_max_pct": 0.04,
+        "min_reward_risk": 1.2, "partial_exit_pct": 0.6, "min_daily_vol_pct": 0.008, "runner_cap_pct": 0.06, "breakeven_trigger_pct": 0.01, "breakeven_lock_pct": 0.0015, "trail_pct": 0.01,
+        "flatten_at_close": False, "flatten_minutes_before_close": 10},
     "notifications": {"ntfy_topic": ""},
+    "prices": {"refresh_closed_minutes": 10, "refresh_open_minutes": 5, "max_symbols": 25, "extended_hours": True},
     "schedule": {"cycle_minutes": 10, "guard_minutes": 2, "update_hours": 3},      # applied to systemd timers by the control worker
     "source_overrides": {},                                                       # {"<source id>": {"enabled": bool, "interval": seconds}}
     "intelligence": {

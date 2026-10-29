@@ -13,6 +13,28 @@ from .timeutil import UTC, iso, parse_ts, utcnow
 CHART = "https://query1.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=1d&includePrePost=false"
 
 
+CHART_EXT = "https://query1.finance.yahoo.com/v8/finance/chart/%s?range=1d&interval=1m&includePrePost=%s"
+
+
+def parse_last_bar(payload: dict) -> Optional[dict]:
+    """The most recent 1-minute bar WITH a price (pre-market and after-hours bars included). Yahoo pads missing minutes with nulls."""
+    res = ((((payload or {}).get("chart") or {}).get("result")) or [None])[0]
+    if not isinstance(res, dict):
+        return None
+    ts = res.get("timestamp") or []
+    q = ((res.get("indicators") or {}).get("quote") or [{}])[0] or {}
+    closes = q.get("close") or []
+    meta = res.get("meta") or {}
+    for i in range(min(len(ts), len(closes)) - 1, -1, -1):
+        try:
+            c = float(closes[i])
+        except (TypeError, ValueError):
+            continue
+        if c > 0 and c == c:
+            return {"price": c, "time": int(ts[i]), "symbol": meta.get("symbol"), "prev_close": meta.get("chartPreviousClose") or meta.get("previousClose")}
+    return None
+
+
 def parse_chart(payload: dict) -> List[dict]:
     chart = (payload or {}).get("chart") or {}
     res = (chart.get("result") or [None])[0]

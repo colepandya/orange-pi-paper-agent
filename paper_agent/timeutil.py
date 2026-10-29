@@ -174,6 +174,18 @@ def early_close(d: dt.date) -> bool:
     return False
 
 
+SESSION_LABEL = {"PRE_MARKET": "pre-market", "PRE": "pre-market", "REGULAR": "live", "OPEN": "live", "AFTER_HOURS": "after-hours", "CLOSED": "last trade"}
+
+
+def minutes_to_close(now: Optional[dt.datetime] = None) -> Optional[float]:
+    """Minutes until the regular session closes (None when it is not open)."""
+    n = (now or utcnow()).astimezone(NY)
+    if not market_state(n)["execution"]:
+        return None
+    close = 13 * 60 if early_close(n.date()) else 16 * 60
+    return close - (n.hour * 60 + n.minute + n.second / 60.0)
+
+
 def market_state(now: Optional[dt.datetime] = None) -> dict:
     """Return the US equity session and whether virtual execution is allowed."""
     n = (now or utcnow()).astimezone(NY)

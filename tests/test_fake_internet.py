@@ -39,9 +39,10 @@ class Env(unittest.TestCase):
         for k, v in self._env.items():
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
-    def morning(self, seed=1, degrade=0.0, degrade_quotes=False, weird=False, cycles=10, c=None):
+    def morning(self, seed=1, degrade=0.0, degrade_quotes=False, weird=False, cycles=10, c=None, swing=False):
         c = c or H.fresh_db()
         cfg = H.cfg()
+        cfg["strategy"]["swing_enabled"] = swing
         cfg["runtime"]["min_available_memory_mb"] = 0
         errors, bad = [], 0
         net = FI.Internet(T0, self.co, self.heads, seed, degrade, degrade_quotes, weird)

@@ -32,6 +32,7 @@ paper_agent/ev.py
 paper_agent/event_intel.py
 paper_agent/evidence.py
 paper_agent/executor.py
+paper_agent/explain.py
 paper_agent/filings.py
 paper_agent/flows.py
 paper_agent/funnel.py
@@ -51,6 +52,8 @@ paper_agent/opportunity.py
 paper_agent/pipeline.py
 paper_agent/portfolio.py
 paper_agent/preflight.py
+paper_agent/pretrade.py
+paper_agent/prices.py
 paper_agent/quotes.py
 paper_agent/recall.py
 paper_agent/redteam.py
@@ -101,6 +104,7 @@ tests/test_durability.py
 tests/test_engines.py
 tests/test_envmerge.py
 tests/test_error_baseline.py
+tests/test_explain.py
 tests/test_fake_internet.py
 tests/test_filings.py
 tests/test_funnel.py
@@ -109,10 +113,14 @@ tests/test_intel.py
 tests/test_keys.py
 tests/test_polish.py
 tests/test_preflight.py
+tests/test_pretrade.py
+tests/test_prices.py
 tests/test_recall.py
 tests/test_regressions.py
 tests/test_report.py
 tests/test_schema_drift.py
 tests/test_settings_ui.py
+tests/test_swing.py
 tests/test_systemd.py
 tests/test_trade_lifecycle.py
+tests/test_world_events.py

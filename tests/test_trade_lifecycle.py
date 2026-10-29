@@ -90,15 +90,25 @@ class Base(unittest.TestCase):
         for k in OTHER:
             os.environ.pop(k, None)
         self.c, self.cfg, self.mkt = H.fresh_db(), H.cfg(), FakeMarket()
+        self.cfg["risk"]["max_gap_down_pct"], self.cfg["risk"]["max_gap_up_pct"] = 0.03, 0.05          # the SHIPPED values: lifecycle tests run with the last-look guard on
         self.mkt.price["NVDA"] = 120.0
         self.mkt.price["SPY"] = 450.0
+        self.prev_close = {"NVDA": 120.0}                                                              # yesterday's close = today's quote unless a test says otherwise
 
     def tearDown(self):
         for k, v in self._env.items():
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
+    def series(self, url, headers=None, **kw):
+        """Price history whose LAST CLOSE is the (previous-close) price the market is quoting, so overnight gaps are measured against something real."""
+        sym = url.split("/chart/")[1].split("?")[0].replace("%5E", "^").replace("%3D", "=")
+        if sym in self.prev_close:
+            nat = H.chart_payload(sym, start=100.0)["chart"]["result"][0]["indicators"]["quote"][0]["close"][-1]
+            return H.chart_payload(sym, start=100.0 * self.prev_close[sym] / nat), 200      # the SAME history scaled to end at the quoted price: every return is unchanged
+        return H.series_fetch(url, headers, **kw)
+
     def deps(self, items=()):
-        return pipeline.Deps(fetch=H.make_fetch(list(items)), fetch_json=self.mkt, quote_fn=None, sleep=lambda s: None, series_fetch=H.series_fetch)
+        return pipeline.Deps(fetch=H.make_fetch(list(items)), fetch_json=self.mkt, quote_fn=None, sleep=lambda s: None, series_fetch=self.series)
 
     def cycle(self, now, news=False):
         self.mkt.now = now
@@ -164,7 +174,7 @@ class TestBuy(Base):
         self.cycle(T_OPEN)
         d = self.one("SELECT status,reason FROM decisions WHERE ticker='NVDA'")
         self.assertEqual(d["status"], "AWAITING_QUOTE")                                            # a DISTINCT status from "market closed"
-        for needle in ("market is open but no verified price", "stale", "need 2 fresh agreeing provider"):
+        for needle in ("market is open but no verified price", "stale", "fresh agreeing provider(s), have 0"):
             self.assertIn(needle, d["reason"])
         self.assertEqual(self.one("SELECT COUNT(*) FROM positions")[0], 0)
         for p in self.mkt.age:
@@ -173,7 +183,15 @@ class TestBuy(Base):
         self.assertEqual(self.one("SELECT status FROM decisions WHERE ticker='NVDA'")[0], "EXECUTED")
         books_balance(self, self.c)
 
-    def test_one_fresh_provider_is_not_enough_two_are(self):
+    def test_one_fresh_provider_is_enough_by_default(self):
+        """The owner's rule: a price from ONE source is sufficient to trade (as long as it is fresh and plausible)."""
+        self.cycle(T_PRE, news=True)
+        self.mkt.down = {"twelve", "finnhub", "yahoo"}                                             # only Alpaca answers
+        self.cycle(T_OPEN)
+        self.assertEqual(self.one("SELECT status FROM decisions")[0], "EXECUTED")
+
+    def test_requiring_two_providers_is_still_available_from_settings(self):
+        self.cfg["quotes"]["min_providers"], self.cfg["quotes"]["allow_single_source"] = 2, False
         self.cycle(T_PRE, news=True)
         self.mkt.down = {"twelve", "finnhub", "yahoo"}                                             # only Alpaca answers
         self.cycle(T_OPEN)
@@ -181,6 +199,17 @@ class TestBuy(Base):
         self.mkt.down = {"finnhub", "yahoo"}                                                       # Twelve Data + Alpaca
         self.cycle(T_OPEN + dt.timedelta(minutes=10))
         self.assertEqual(self.one("SELECT status FROM decisions")[0], "EXECUTED")
+
+    def test_a_single_implausible_price_is_not_accepted_without_a_second_source(self):
+        """One source has no cross-check, so it must at least be plausible against the last close (default +-20%)."""
+        self.cycle(T_PRE, news=True)
+        self.mkt.down = {"twelve", "finnhub", "yahoo"}
+        self.mkt.price["NVDA"] = 120.0 * 1.3                                                       # +30% vs the 120 previous close, from a lone source
+        self.cfg["risk"]["max_gap_up_pct"] = 1.0                                                   # (isolate this rule from the gap guard)
+        self.cycle(T_OPEN)
+        d = self.one("SELECT status,reason FROM decisions")
+        self.assertEqual(d[0], "AWAITING_QUOTE")
+        self.assertIn("needs a second source", d[1])
 
     def test_providers_that_disagree_do_not_trade(self):
         self.cycle(T_PRE, news=True)
@@ -197,7 +226,8 @@ class TestBuy(Base):
         self.cycle(T_OPEN)
         html = dashboard.render(self.c, self.cfg, "decisions", {})
         self.assertIn("AWAITING_QUOTE", html)
-        self.assertIn("market is open but no verified price", html)                                # visible in the table itself, not hidden behind a click
+        self.assertIn("Ready to buy NVDA, but no fresh price is available yet", html)              # plain English, in the table itself, not hidden behind a click
+        self.assertIn("Why? &rarr;", html)                                                          # the provider-by-provider detail is one click away (see test_explain)
 
 
 class TestSell(Base):
