@@ -116,6 +116,7 @@ tests/test_guards.py
 tests/test_installer.py
 tests/test_intel.py
 tests/test_keys.py
+tests/test_live_findings.py
 tests/test_performance.py
 tests/test_polish.py
 tests/test_preflight.py

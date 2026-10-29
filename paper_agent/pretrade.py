@@ -38,9 +38,23 @@ def gap(price: float, ref: Optional[float], cfg: dict) -> Optional[float]:
     return price / ref - 1.0
 
 
-def review(conn, cfg: dict, c: dict, decided_at: str, now, price: Optional[float] = None) -> dict:
+def still_about(c: dict, universe) -> Optional[str]:
+    """A BUY queued by an OLDER build may rest on a looser company match (a company named only in the body of someone else's story). Re-check against the HEADLINE: if the headline names companies and
+    this ticker is not one of them, the BUY is about the wrong company. Thesis / supply-chain candidates (which carry a mechanism) and headlines naming nobody are left alone."""
+    if universe is None or not c.get("headline") or c.get("mechanism") or c.get("chain_order") or c.get("origin") not in (None, "event"):
+        return None
+    named = {t for t, conf, _h in universe.match(c["headline"]) if conf >= 0.6}
+    if named and c["ticker"] not in named:
+        return "VETO: the headline is about %s, not %s: this BUY came from an older, looser company match" % (", ".join(sorted(named)), c["ticker"])
+    return None
+
+
+def review(conn, cfg: dict, c: dict, decided_at: str, now, price: Optional[float] = None, universe=None) -> dict:
     """-> {'action': 'go' | 'veto' | 'hold', 'reason': str}. ``price`` is the verified entry price (None = skip the gap test)."""
     r = cfg["risk"]
+    wrong = still_about(c, universe)
+    if wrong:
+        return {"action": "veto", "reason": wrong}
     if r.get("veto_adverse_news", True):
         n = adverse_company_news(conn, c["ticker"], decided_at, cfg, c.get("event_id"))
         if n:

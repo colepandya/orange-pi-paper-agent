@@ -200,7 +200,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
         held = conn.execute("SELECT id,opened FROM positions WHERE ticker=? AND status='OPEN' ORDER BY id LIMIT 1", (t,)).fetchone()
         if held:
             return finish("DUPLICATE", "already holding %s (position #%d, opened %s): a second position in the same stock would stack the same bet" % (t, held["id"], held["opened"][:16].replace("T", " ")))
-    pt = pretrade.review(conn, cfg, c, reason["decided_at"], now)                    # last look #1: later news / market shock (no price needed)
+    pt = pretrade.review(conn, cfg, c, reason["decided_at"], now, universe=universe)      # last look #1: later news / market shock (no price needed)
     if pt["action"] == "veto":
         return finish("VETOED", pt["reason"])
     if pt["action"] == "hold":
@@ -208,7 +208,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     q = quote_fn(conn, t, "entry")
     if not q or q.get("status") != "PASS" or not q.get("execution_eligible") or q.get("price") is None:
         return finish("AWAITING_QUOTE", "market is open but no verified price: " + quote_diagnosis(q, cfg))      # distinct from "market closed"; retried every cycle
-    pt = pretrade.review(conn, cfg, c, reason["decided_at"], now, q["price"])      # last look #2: the overnight gap, now that the price is verified
+    pt = pretrade.review(conn, cfg, c, reason["decided_at"], now, q["price"], universe=universe)      # last look #2: the overnight gap, now that the price is verified
     if pt["action"] == "veto":
         return finish("VETOED", pt["reason"])
     reason["gates"].append("all gates passed")

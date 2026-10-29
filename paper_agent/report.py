@@ -33,7 +33,7 @@ def build(conn, cfg: dict, universe, srcs: List[dict], now, live: bool = True, f
     label = label or label_for(now)
     pre_lines: List[str] = []
     pre = preflight.run(conn, cfg, universe, srcs=srcs, live=live, check_units=check_units, now=now, fetch=fetch, fetch_json=fetch_json, out=pre_lines.append)
-    fr = funnel.report(conn, 6, now, samples=1)
+    fr = funnel.report(conn, 6, now, samples=1, cfg=cfg)
     since = iso(last_market_open(now))
     opened = conn.execute("SELECT ticker,shares,entry_price,cost FROM positions WHERE opened>=? ORDER BY opened", (since,)).fetchall()
     exits = conn.execute("SELECT ticker,review_code,pnl FROM positions WHERE closed>=? AND status='CLOSED' ORDER BY closed", (since,)).fetchall()
@@ -79,7 +79,7 @@ def build(conn, cfg: dict, universe, srcs: List[dict], now, live: bool = True, f
     if exits:
         L += ["CLOSED THIS SESSION:"] + ["  %-6s %-22s P&L %+10.2f" % (r["ticker"], r["review_code"] or "?", r["pnl"] or 0) for r in exits[:30]] + [""]
     if waiting:
-        L += ["BUY DECISIONS STILL WAITING (%s):" % ", ".join("%s %d" % kv for kv in by_status.items())] + ["  %-6s %-16s %s%s" % (p["ticker"], p["status"], p["waiting_for"][:110], ("  [trading %+.1f%% vs previous close, %s]" % (p["indication"]["gap"] * 100, funnel.indication_age(p["indication"]))) if p.get("indication") else "") for p in waiting[:8]] + [""]
+        L += ["BUY DECISIONS STILL WAITING (%s):" % ", ".join("%s %d" % kv for kv in by_status.items())] + ["  %-6s %-16s %s%s" % (p["ticker"], p["status"], p["waiting_for"][:110], ("  " + funnel.indication_text(p["indication"])) if p.get("indication") else "") for p in waiting[:8]] + [""]
     if not st["execution"]:
         L += ["Next market open: %s" % to_nz(next_market_open(now)), ""]
     L += ["----- full checklist -----"] + pre_lines + ["", "----- funnel (last 6h) -----", funnel.text(fr)]

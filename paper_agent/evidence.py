@@ -279,7 +279,7 @@ GATE_LABELS = {
     "candidate": "became a trade candidate", "candidate_llm": "became a trade candidate (LLM)", "stale": "too old when first seen (older than the stale window)",
     "expired": "evidence already expired", "duplicate_story": "same story already seen (first copy was handled)", "older_than_trade_window": "older than the trade window",
     "market_wide_event": "macro / market-wide event (moves theses and regime, not a single stock)", "no_company_matched": "no listed company recognised in the text",
-    "too_many_companies": "roundup naming more than 3 companies", "direction_too_weak": "direction unclear (no clear good/bad news)", "already_moved": "the headline says the stock already moved 10%+ on this news: that edge is gone", "contradictory_signals": "the headline contradicts itself (good news but the stock fell, or the reverse): needs research, not a trade", "retrospective_recap": "after-the-fact article explaining a price move (already priced in, never a reason to buy)", "magnitude_too_small": "event too minor",
+    "too_many_companies": "roundup naming more than 3 companies", "direction_too_weak": "direction unclear (no clear good/bad news)", "commentary_not_news": "opinion / analysis / list article (a question, \"stocks to buy\", \"I'd buy\"...): not new information", "already_moved": "the headline says the stock already moved 10%+ on this news: that edge is gone", "contradictory_signals": "the headline contradicts itself (good news but the stock fell, or the reverse): needs research, not a trade", "retrospective_recap": "after-the-fact article explaining a price move (already priced in, never a reason to buy)", "magnitude_too_small": "event too minor",
     "company_match_uncertain": "company match not certain enough (name ambiguous)", "merger_role_unknown": "merger: could not tell which side the company is on",
     "no_ticker_passed_checks": "no company passed the final checks",
 }
@@ -295,6 +295,8 @@ def candidate_gate(a: dict, tickers: List[str], conf: Dict[str, float], novelty:
         return "market_wide_event"
     if a.get("event_type") == "price_recap":
         return "retrospective_recap"
+    if a.get("event_type") == "opinion_piece":
+        return "commentary_not_news"
     if a.get("contradictory"):
         return "contradictory_signals"
     if a.get("priced_in"):

@@ -1,3 +1,10 @@
+# Build 27
+* **A queued BUY must still be about that company.** BUYs queued by older builds could rest on a looser company match (a company named only in the body of someone else's story) and would still have executed at the open.
+  The last look now re-checks the stored headline: if it names companies and this ticker is not one of them, the BUY is cancelled ("the headline is about STX, not AVGO"). Supply-chain / thesis candidates (which carry a reason) are left alone.
+* **Commentary is not news.** Questions, listicles, "I'd buy", "stocks to buy", earnings-call recaps and fund-holdings posts are neutral (new reason: `commentary_not_news`). Found in the live funnel:
+  "Is Earnings Beat Altering The Investment Case For Equinix (EQIX)?" had scored +0.78 and "2 Reasons I'd Buy Marvell Stock" +0.33; "Best AI Stock to Buy in November" had been classified as a merger.
+* **Pre-market gaps now say what will happen:** "[trading -18.4% vs previous close, pre-market, 8 min ago -> WILL BE CANCELLED at the open if it holds (gap down)]" in the funnel and the morning report, using YOUR gap thresholds.
+
 # Build 26
 * **Wrong-company attribution fixed at the source** (an outside review found it; all eight examples reproduced): the headline now decides what a story is about (a company named only in the body, or after "with / from / on", counts 60%);
   "NASDAQ" / "listed on the Nasdaq" no longer means Nasdaq, Inc.; first names, common surnames, AI product names and generic legal names ("Bancorp, Inc.") can no longer BE a company; "Fed Chair Powell" is a person.

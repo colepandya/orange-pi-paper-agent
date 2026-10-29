@@ -85,7 +85,7 @@ def run(conn, cfg: dict, universe=None, config_dir: str = "", fetch: Callable = 
         chk("BUY decisions waiting", WARN if (stuck_q and st["execution"]) else PASS, ", ".join("%s: %d" % kv for kv in wd.items()) + (" -> market is open but no verified price" if stuck_q and st["execution"] else ""),
             "see `funnel` for the per-provider reason (stale timestamps / missing keys)" if stuck_q and st["execution"] else "")
     # ---- 5. news + decisions pipeline
-    fr = funnel.report(conn, 6, now, samples=1)
+    fr = funnel.report(conn, 6, now, samples=1, cfg=cfg)
     ev3 = conn.execute("SELECT COUNT(*) FROM events WHERE created>?", (iso(now - dt.timedelta(hours=3)),)).fetchone()[0]
     chk("News flowing", PASS if ev3 > 0 else FAIL, "%d events in the last 3h" % ev3, "Settings -> News & data feeds; run the health check" if ev3 == 0 else "")
     highs = [f for f in fr["findings"] if f["severity"] == "HIGH"]

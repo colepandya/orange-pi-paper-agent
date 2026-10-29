@@ -28,7 +28,8 @@ class TestRecaps(unittest.TestCase):
     def test_recaps_are_recognised_neutral_and_never_a_reason_to_buy(self):
         for h in RECAPS:
             a = nlp.analyze(h, "")
-            self.assertEqual((a["event_type"], a["direction"]), ("price_recap", 0.0), h)
+            self.assertIn(a["event_type"], nlp.RECAP_TYPES, h)                                    # after-the-fact recap OR commentary: both are neutral and never a reason to buy
+            self.assertEqual(a["direction"], 0.0, h)
 
     def test_real_news_is_never_mistaken_for_a_recap(self):
         self.assertEqual([h for h in REAL if nlp.analyze(h, "")["event_type"] == "price_recap"], [])

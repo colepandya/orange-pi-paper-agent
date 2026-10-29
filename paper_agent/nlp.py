@@ -157,7 +157,16 @@ EVENT_TYPES += [   # AFTER-THE-FACT explainers of a price move ("Why Garmin Stoc
         r"^what'?s (?:going on|happening) with (?:[\w']+\s+){1,5}?(?:stock|shares)", r"^(?:[\w']+\s+){1,5}?(?:stock|shares) (?:is|are) " + _MOVE + r" " + _DAY,
         r"^(?:[\w']+\s+){1,5}?(?:stock|shares) " + _MOVE + r" " + _DAY, r"^is (?:[\w']+\s+){1,4}(?:stock|shares) a (?:buy|sell|hold)", r"^should you (?:buy|sell) (?:[\w']+\s+){1,4}(?:stock|shares)"], 1),
 ]
-RECAP_TYPES = {"price_recap"}
+EVENT_TYPES += [   # COMMENTARY, not news: questions, listicles, "I'd buy", "stocks to buy", earnings-call recaps, fund holdings. ("Is Earnings Beat Altering The Investment Case For Equinix?" scored +0.78.)
+    _t("opinion_piece", "company", 0, .10, 2, .20, [
+        "qmarkend", r"^(?:is|are|should|will|can|could|does|did|would)", r"^how (?:[\w']+\s+){0,8}?(?:can|could|should|might|to)", r"^what(?:'s| is| are| to| does| happened| happens)",
+        r"^(?:\d+|two|three|four|five|six|seven|eight|nine|ten)\s+(?:reasons?|key takeaways?|things|ways|stocks?|top|best|must|great|red flags|big)",
+        r"\b(?:i'd|i would|i'm|i am|i was|i just|my)\s+(?:buy|buying|sell|selling|bought|sold|top|favorite|portfolio|picks?|wait)", r"buy,? sell,? (?:or|and) hold",
+        r"(?:best|top|better|great|safest|cheapest|hottest)\s+(?:[\w']+\s+){0,4}?(?:stocks?|etfs?|funds?)\s+to\s+(?:buy|own|watch|invest)", r"\bstocks? to (?:buy|watch|own|avoid|sell)",
+        r"(?:key )?takeaways? for (?:long[- ]term )?investors", r"earnings call (?:highlights|transcript|takeaways|recap)", "portfolio activity", r"\b13f", "investment case",
+        r"is it (?:time|too late) to (?:buy|sell)", r"worth (?:buying|owning|a look)"], 1),
+]
+RECAP_TYPES = {"price_recap", "opinion_piece"}
 SHOCK_TYPES = {"market_crash", "war_escalation", "emergency_policy", "financial_stress_event", "market_infrastructure_outage"}
 _RECOVERY = re.compile(r"(?<![a-z0-9])(?:years? after|anniversary|lessons?|looks? back|retrospective|rebound\w*|recover\w*|rall(?:y|ies|ied)|bounc\w+|steadi\w+|calm\w*|eas(?:e|es|ed)|recoup\w*|claw\w* back|ceasefire|truce|averted|de ?escalat\w*)")
 
@@ -288,7 +297,7 @@ def _score_type(et: EventType, title_n: str, body_n: str):
 def analyze(title: str, summary: str = "") -> Dict:
     """Classify an item. Returns dict(event_type, scope, direction[-1..1], magnitude[0..1], amount_usd, regions, matched, negated, hedged,
     decay_days, power, horizon)."""
-    title_n, body_n = norm(title), norm(summary)[:1500]
+    title_n, body_n = norm(title) + (" qmarkend" if (title or "").rstrip().endswith("?") else ""), norm(summary)[:1500]
     full = (title_n + " . " + body_n).strip()
     best, best_s, best_info = GENERAL, 0.0, (None, "")
     for et in EVENT_TYPES:

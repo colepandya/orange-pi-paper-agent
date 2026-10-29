@@ -125,7 +125,7 @@ def main(argv=None) -> int:
     if args.cmd == "funnel":
         from . import funnel
         conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
-        print(funnel.text(funnel.report(conn, args.hours)))
+        print(funnel.text(funnel.report(conn, args.hours, cfg=cfg)))
         return 0
     if args.cmd == "apply-deploy":
         from . import settings as _S
