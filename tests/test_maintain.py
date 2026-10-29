@@ -280,6 +280,103 @@ class TestSurfaces(Base):
         self.assertIn("maintain", read("scripts", "install.sh"))
 
 
+class TestTheCodeScanIsCheap(Base):
+    """The System tab got slow in build 28: its Database card re-read ~70 source files and ran one text search per legacy table (44 tables = ~3,000 scans) on EVERY view: ~1.1 s cold here, several seconds on the Pi."""
+
+    def test_one_pass_finds_exactly_what_one_search_per_name_found(self):
+        import re
+        src = maintain._code_sources()
+        names = sorted(set(all_tables(self.c)) | {"ledger", "ledger_archive", "decisions", "meta", "news", "v34_meta", "shadow_plans", "x", "positions_old", "events", "cycle"})
+        naive = {n: sorted(f for f, t in src.items() if re.search(r"\b%s\b" % re.escape(n), t)) for n in names}
+        maintain._REFS["sig"] = None
+        self.assertEqual(maintain._mentions(names, src), naive)                       # incl. whole-word traps: 'ledger' is not 'ledger_archive'
+
+    def test_the_code_is_read_once_and_a_repeated_question_costs_no_new_search(self):
+        self.assertIs(maintain._code_sources(), maintain._code_sources())
+        maintain._REFS["sig"] = None
+        first = maintain.legacy_tables(self.c)                                          # what the System page and the doctor call: the first question does the one pass
+        with mock.patch.object(maintain.re, "compile", side_effect=AssertionError("searched again")):
+            self.assertEqual(maintain.legacy_tables(self.c), first)                     # remembered: no new search
+            self.assertEqual(maintain._mentions(["shadow_plans", "v34_meta"], maintain._code_sources()), {"shadow_plans": [], "v34_meta": []})
+
+    def test_different_code_is_never_answered_from_the_old_code_s_memory(self):
+        a, b = {"a.py": "SELECT * FROM v34_meta"}, {"b.py": "nothing here"}
+        self.assertEqual(maintain._mentions(["v34_meta"], a), {"v34_meta": ["a.py"]})
+        self.assertEqual(maintain._mentions(["v34_meta"], b), {"v34_meta": []})
+        self.assertEqual(maintain._mentions(["v34_meta"], a), {"v34_meta": ["a.py"]})
+
+    def test_hundreds_of_tables_stay_fast(self):
+        import time
+        names = ["legacy_table_%d" % i for i in range(200)]
+        maintain._REFS["sig"] = None
+        t0 = time.time()
+        maintain._mentions(names, maintain._code_sources())
+        self.assertLess(time.time() - t0, 1.5)                                         # ~0.08 s here; the per-name method needed ~1.6 s
+
+    def test_the_system_page_does_not_search_the_code_on_every_view(self):
+        dashboard.render(self.c, self.cfg, "system", {})
+        with mock.patch.object(maintain.re, "compile", side_effect=AssertionError("searched again")):
+            for _ in range(3):
+                self.assertIn("Left over from the old v4 app", dashboard.render(self.c, self.cfg, "system", {}))
+
+
+class TestTheDatabaseCardIsRemembered(Base):
+    """The card shows slow-changing facts, so it is gathered at most every 3 hours, after a clean-up, or on request ("Refresh now"), not on every System-tab view."""
+
+    def setUp(self):
+        super().setUp()
+        dashboard._DB_CARD.clear()
+
+    def test_it_is_gathered_once_then_remembered_for_three_hours(self):
+        with mock.patch.object(maintain, "summary", wraps=maintain.summary) as m:
+            for _ in range(4):
+                self.assertIn("Left over from the old v4 app", dashboard.database_section(self.c, self.cfg, NOW))
+            self.assertEqual(m.call_count, 1)
+            dashboard.database_section(self.c, self.cfg, NOW + dt.timedelta(hours=2, minutes=59))
+            self.assertEqual(m.call_count, 1)                                        # still within 3 hours
+            dashboard.database_section(self.c, self.cfg, NOW + dt.timedelta(hours=3, seconds=1))
+            self.assertEqual(m.call_count, 2)                                        # older than 3 hours: looked at again
+
+    def test_refresh_now_forces_a_fresh_look_and_the_card_says_how_to(self):
+        with mock.patch.object(maintain, "summary", wraps=maintain.summary) as m:
+            html = dashboard.database_section(self.c, self.cfg, NOW)
+            self.assertIn("href='/?tab=system&amp;refresh=db'>Refresh now</a>", html)
+            self.assertIn("re-checked every 3 hours", html)
+            self.assertIn("Checked", html)
+            dashboard.database_section(self.c, self.cfg, NOW, refresh=False)
+            self.assertEqual(m.call_count, 1)
+            dashboard.database_section(self.c, self.cfg, NOW, refresh=True)
+            self.assertEqual(m.call_count, 2)
+
+    def test_the_link_is_wired_through_the_page_so_pressing_it_really_refreshes(self):
+        with mock.patch.object(maintain, "summary", wraps=maintain.summary) as m:
+            dashboard.render(self.c, self.cfg, "system", {})
+            dashboard.render(self.c, self.cfg, "system", {})
+            self.assertEqual(m.call_count, 1)
+            dashboard.render(self.c, self.cfg, "system", {"tab": ["system"], "refresh": ["db"]})            # what /?tab=system&refresh=db sends
+            self.assertEqual(m.call_count, 2)
+            dashboard.render(self.c, self.cfg, "system", {"tab": ["system"], "refresh": ["something-else"]})
+            self.assertEqual(m.call_count, 2)
+
+    def test_a_clean_up_is_noticed_at_once_not_after_three_hours(self):
+        self.assertIn("4 tables and 40 old decisions", dashboard.render(self.c, self.cfg, "system", {}))
+        self.go()                                                                    # stamps the database
+        html = dashboard.render(self.c, self.cfg, "system", {})
+        self.assertIn("(nothing to clean)", html)
+        self.assertNotIn("4 tables and 40 old decisions", html)
+
+    def test_each_database_has_its_own_memory_and_a_memory_only_database_is_never_remembered(self):
+        c2, p2, _ev = build()
+        self.assertIn("4 tables and 40 old decisions", dashboard.database_section(self.c, self.cfg, NOW))
+        c2.execute("DROP TABLE shadow_plans")
+        self.assertIn("3 tables and 40 old decisions", dashboard.database_section(c2, self.cfg, NOW))                # a different file: not answered from the first one's memory
+        mem = db.open_db(":memory:")
+        with mock.patch.object(maintain, "summary", wraps=maintain.summary) as m:
+            dashboard.database_section(mem, self.cfg, NOW)
+            dashboard.database_section(mem, self.cfg, NOW)
+            self.assertEqual(m.call_count, 2)
+
+
 class TestCommand(Base):
     def run_cli(self, *argv, at=NOW, cfg_override=None):
         from paper_agent import __main__ as cli

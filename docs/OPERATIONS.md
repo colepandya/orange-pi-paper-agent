@@ -14,8 +14,8 @@ did or did not become a candidate (duplicate story, macro event, no company reco
 `python3 -m paper_agent recall-check` runs 36 realistic headlines through company recognition + qualification on the real watchlist and lists any misses.
 
 ## Installing a release (and proving you installed the right one)
-1. Download the zip; its name contains the build (e.g. `paper-agent-build30.zip`). 2. `scp` that exact file to the Pi. 3. BEFORE installing, check which build is inside:
-   `unzip -p /tmp/paper-agent-build30.zip paper-agent-v5/BUILD`  4. Unpack into a NEW empty folder, then `sudo bash scripts/install.sh`: it prints `Installing Paper Agent BUILD n` and refuses a half-patched folder.
+1. Download the zip; its name contains the build (e.g. `paper-agent-build31.zip`). 2. `scp` that exact file to the Pi. 3. BEFORE installing, check which build is inside:
+   `unzip -p /tmp/paper-agent-build31.zip paper-agent-v5/BUILD`  4. Unpack into a NEW empty folder, then `sudo bash scripts/install.sh`: it prints `Installing Paper Agent BUILD n` and refuses a half-patched folder.
 5. Afterwards `cat /opt/paper-agent/BUILD` must show that number. Do not apply patches onto an older install; always install the full zip.
 
 ## Re-opening BUYs rejected by a corrected rule

@@ -10,6 +10,7 @@ import json
 import math
 import os
 import secrets as _secrets
+import threading
 import urllib.parse
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -389,18 +390,41 @@ def _ago(ts, now) -> str:
     return "%s (%s)" % (to_nz(ts, "%d %b %H:%M"), "just now" if m < 2 else ("%d min ago" % m if m < 120 else ("%.0f h ago" % (m / 60) if m < 48 * 60 else "%d days ago" % (m / 1440))))
 
 
-def database_section(c, cfg, now) -> str:
-    """Size, what is left over from the old app, and when the last clean-up ran."""
+DB_CARD_TTL_S = 3 * 3600                          # the Database card's facts (file size, leftovers from the old app, last clean-up) change slowly
+_DB_CARD: Dict[str, dict] = {}
+_DB_LOCK = threading.Lock()
+
+
+def _database_facts(c, now, refresh: bool):
+    """-> (facts, when they were gathered). Remembered for 3 hours, forgotten early when a clean-up has just run (it stamps the database) or when you press "Refresh now"; never recomputed on every page view."""
     try:
-        path = c.execute("PRAGMA database_list").fetchone()[2]
+        path = c.execute("PRAGMA database_list").fetchone()[2] or None
     except Exception:  # noqa: BLE001
         path = None
-    sm = maintain.summary(c, path)
+    try:
+        row = c.execute("SELECT value FROM meta WHERE key='last_maintenance'").fetchone()
+        stamp = row[0] if row else None
+    except Exception:  # noqa: BLE001
+        stamp = None
+    with _DB_LOCK:
+        hit = _DB_CARD.get(path) if path else None
+        if hit and not refresh and hit["stamp"] == stamp and (now - hit["at"]).total_seconds() < DB_CARD_TTL_S:
+            return hit["sm"], hit["at"]
+        sm = maintain.summary(c, path)
+        if path:
+            _DB_CARD[path] = {"sm": sm, "at": now, "stamp": stamp}
+        return sm, now
+
+
+def database_section(c, cfg, now, refresh: bool = False) -> str:
+    """Size, what is left over from the old app, and when the last clean-up ran."""
+    sm, at = _database_facts(c, now, refresh)
     m = cfg.get("maintenance") or {}
     rows = [["Database size", "%.1f MB" % sm["file_mb"] if sm["file_mb"] is not None else "unknown"],
             ["Left over from the old v4 app", "%d tables and %d old decisions%s" % (sm["legacy_tables"], sm["legacy_decisions"], " (nothing to clean)" if not (sm["legacy_tables"] or sm["legacy_decisions"]) else "")],
             ["Last clean-up", _ago(sm["last"], now) if sm["last"] else "never"],
-            ["Weekly clean-up", ("on: keeps news/events %s days, logs %s days (Settings -> Database)" % (m.get("news_days", 30), m.get("log_days", 30))) if m.get("weekly_cleanup", True) else "switched off (Settings -> Database)"]]
+            ["Weekly clean-up", ("on: keeps news/events %s days, logs %s days (Settings -> Database)" % (m.get("news_days", 30), m.get("log_days", 30))) if m.get("weekly_cleanup", True) else "switched off (Settings -> Database)"],
+            ["Checked", Raw("%s &middot; re-checked every 3 hours &middot; <a href='/?tab=system&amp;refresh=db'>Refresh now</a>" % E(to_nz(iso(at), "%d %b %H:%M")))]]
     hint = ""
     if sm["legacy_tables"] or sm["legacy_decisions"]:
         hint = ("<p class=mut>See exactly what would be archived and removed (changes nothing): <code>sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent db-maintain plan</code>. "
@@ -424,11 +448,11 @@ def provider_section(c, cfg, now) -> str:
     return "<h2>Quote providers</h2>" + table(["Provider", "Status", "Answered", "Failed", "Rate-limited", "Key rejected", "Last checked", "Last fresh price"], body) + note
 
 
-def page_system(c, cfg, s):
+def page_system(c, cfg, s, q=None):
     u = llm_client.LLMClient(c, cfg).usage_summary()
     out = ["<div class=grid>" + card("LLM spend today", "$%.3f / $%.2f" % (u["today_usd"], u["daily_budget"])) + card("LLM spend this month", "$%.2f / $%.0f" % (u["month_usd"], u["monthly_budget"])) + card("LLM calls today", "%d (cache hits %d, failed %d)" % (u["calls_today"], u["cache_hits_today"], u["failures_today"])) + "</div>", "<h2>Sources</h2>" + table(["Source", "Last success", "Status", "Failures", "Items", "Error"], [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", r["last_status"], r["failures"], r["items_total"], (r["last_error"] or "")[:60]] for r in c.execute("SELECT * FROM source_health ORDER BY failures DESC,name")])]
     out.append(provider_section(c, cfg, s["now"]))
-    out.append(database_section(c, cfg, s["now"]))
+    out.append(database_section(c, cfg, s["now"], "db" in ((q or {}).get("refresh") or [])))
     out.append("<h2>Recent cycles</h2>" + table(["Started", "Mode", "Status", "Errors"], [[to_nz(r["started"], "%d %b %H:%M"), r["mode"], r["status"], ", ".join(json.loads(r["report_json"] or "{}").get("errors", []))] for r in c.execute("SELECT * FROM cycle_runs ORDER BY id DESC LIMIT 15")]))
     out.append("<h2>Executor runs</h2>" + table(["Time", "Status", "Checked", "Committed", "Blocked", "Errors"], [[to_nz(r["created"], "%d %b %H:%M"), r["status"], r["positions_checked"], r["actions_committed"], r["blocked_stale"], r["errors"]] for r in c.execute("SELECT * FROM executor_runs ORDER BY id DESC LIMIT 10")]))
     out.append("<h2>Audit log</h2>" + table(["Time", "Actor", "Action", "Subject"], [[to_nz(r["ts"], "%d %b %H:%M"), r["actor"], r["action"], r["subject"]] for r in c.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT 15")]))
@@ -462,7 +486,7 @@ def render(c, cfg, tab: str, q: Dict, ctx: Optional[dict] = None) -> str:
             inner = settings_ui.page_settings(cfg, base, ctx, pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status(), health)
         return layout(inner, tab, cfg, ctx)
     fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q), "reports": lambda: page_reports(c, cfg, s, q), "performance": lambda: page_performance(c, cfg, s, q),
-          "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s), "system": lambda: page_system(c, cfg, s)}.get(tab, lambda: page_overview(c, cfg, s))
+          "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s), "system": lambda: page_system(c, cfg, s, q)}.get(tab, lambda: page_overview(c, cfg, s))
     return layout((settings_ui.flash_html(ctx.get("flash")) if ctx.get("flash") else "") + fn(), tab, cfg, ctx)
 
 

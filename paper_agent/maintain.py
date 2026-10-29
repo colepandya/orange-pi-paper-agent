@@ -35,15 +35,41 @@ def _cols(conn, t: str) -> List[str]:
     return [r[1] for r in conn.execute('PRAGMA table_info("%s")' % t)]
 
 
+_SOURCES: Optional[Dict[str, str]] = None
+_REFS: Dict[str, object] = {"sig": None, "by_name": {}}
+
+
 def _code_sources() -> Dict[str, str]:
-    root = os.path.dirname(os.path.abspath(__file__))
-    out = {}
-    for f in glob.glob(os.path.join(root, "*.py")):
-        if os.path.basename(f) in ("db.py", "maintain.py"):
-            continue
-        with open(f, encoding="utf-8", errors="replace") as fh:
-            out[os.path.basename(f)] = fh.read()
-    return out
+    """The app's own source files, read ONCE per process (a running process cannot see its code change: an install restarts it). Reading ~70 files on every System-tab view was slow on the Pi."""
+    global _SOURCES
+    if _SOURCES is None:
+        root = os.path.dirname(os.path.abspath(__file__))
+        out = {}
+        for f in glob.glob(os.path.join(root, "*.py")):
+            if os.path.basename(f) in ("db.py", "maintain.py"):
+                continue
+            with open(f, encoding="utf-8", errors="replace") as fh:
+                out[os.path.basename(f)] = fh.read()
+        _SOURCES = out
+    return _SOURCES
+
+
+def _mentions(names: List[str], src: Dict[str, str]) -> Dict[str, List[str]]:
+    """Which source files mention each name as a whole word. ONE pass over the code for all names (it used to be one pass per name: ~3,000 scans for 44 legacy tables), and the answer is remembered."""
+    sig = tuple(sorted((k, len(v)) for k, v in src.items()))
+    if _REFS["sig"] != sig:                                          # different code (e.g. a test substituting its own): start again
+        _REFS["sig"], _REFS["by_name"] = sig, {}
+    cache: Dict[str, List[str]] = _REFS["by_name"]                  # type: ignore[assignment]
+    todo = [n for n in names if n not in cache]
+    if todo:
+        rx = re.compile(r"\b(%s)\b" % "|".join(re.escape(n) for n in sorted(todo, key=len, reverse=True)))
+        found: Dict[str, set] = {n: set() for n in todo}
+        for fname, text in src.items():
+            for m in rx.finditer(text):
+                found[m.group(1)].add(fname)
+        for n in todo:
+            cache[n] = sorted(found[n])
+    return {n: cache[n] for n in names}
 
 
 def _bytes(conn, t: str) -> Optional[int]:
@@ -55,11 +81,12 @@ def _bytes(conn, t: str) -> Optional[int]:
 
 def legacy_tables(conn) -> Tuple[List[str], List[Tuple[str, List[str]]]]:
     """-> (tables safe to archive and drop, [(table, code files that still mention it)] left alone)."""
-    exp, src = set(db.expected_schema()), _code_sources()
+    exp = set(db.expected_schema())
+    names = sorted(_tables(conn) - exp)
+    refs = _mentions(names, _code_sources()) if names else {}
     safe, kept = [], []
-    for t in sorted(_tables(conn) - exp):
-        refs = sorted(f for f, s in src.items() if re.search(r"\b%s\b" % re.escape(t), s))
-        (kept if refs else safe).append((t, refs) if refs else t)
+    for t in names:
+        (kept if refs[t] else safe).append((t, refs[t]) if refs[t] else t)
     return safe, kept
 
 

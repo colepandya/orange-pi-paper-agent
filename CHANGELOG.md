@@ -1,5 +1,9 @@
-# Hotfix 30.1
-* Banded (zebra) table rows on every dashboard table (System and Settings included), in light and dark mode.
+# Build 31
+* **The System tab is fast again.** Since build 28 its Database card re-read ~70 source files and ran one text search per legacy table (44 tables = ~3,000 scans) on EVERY view: ~1.1 s cold on a fast machine, several seconds on the Pi.
+  The code is now read once per process and all table names are looked up in a single pass whose answer is remembered: 1,135 ms -> 30 ms the first time, 99 ms -> 2 ms after (checked to give identical answers to the old method).
+  The same lookup is used by the doctor and `db-maintain plan`, which are faster too.
+* **The System tab's Database card no longer recomputes on every view.** Its facts (size, leftovers from the old app, last clean-up) are remembered for 3 hours, forgotten at once when a clean-up runs, and refreshed on demand with a **Refresh now** link; the card shows when it was last checked.
+* **Banded (zebra) table rows** on every dashboard table, System and Settings included, in light and dark mode. The shade is chosen so no text colour drops below the readability standard (checked by a test).
 
 # Build 30
 * **A "shock" must move the market.** After build 29 a war story ("At least 14 people killed in attack on Ukraine train station": war_escalation, many outlets) still froze every BUY for 6 hours. A headline of a dangerous kind reported by 2+ outlets now only freezes new BUYs
