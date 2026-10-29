@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS model_params(key TEXT PRIMARY KEY,value_json TEXT NOT
 CREATE TABLE IF NOT EXISTS source_stats(source TEXT NOT NULL,event_type TEXT NOT NULL,hits REAL NOT NULL DEFAULT 0,misses REAL NOT NULL DEFAULT 0,updated TEXT,PRIMARY KEY(source,event_type));
 CREATE TABLE IF NOT EXISTS provider_calls(provider TEXT NOT NULL,ts REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_pcalls ON provider_calls(provider,ts);
-CREATE TABLE IF NOT EXISTS provider_health(provider TEXT PRIMARY KEY,requests INTEGER DEFAULT 0,successes INTEGER DEFAULT 0,failures INTEGER DEFAULT 0,auth_failures INTEGER DEFAULT 0,rate_limits INTEGER DEFAULT 0,last_success TEXT,last_error TEXT,state TEXT NOT NULL DEFAULT 'HEALTHY',backoff_until REAL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS provider_health(provider TEXT PRIMARY KEY,requests INTEGER DEFAULT 0,successes INTEGER DEFAULT 0,failures INTEGER DEFAULT 0,auth_failures INTEGER DEFAULT 0,rate_limits INTEGER DEFAULT 0,last_success TEXT,last_error TEXT,state TEXT NOT NULL DEFAULT 'HEALTHY',backoff_until REAL DEFAULT 0,last_checked TEXT,last_fresh TEXT);
 CREATE TABLE IF NOT EXISTS quote_consensus(id INTEGER PRIMARY KEY,ticker TEXT,created TEXT,session TEXT,status TEXT,consensus_price REAL,provider_count INTEGER,max_deviation REAL,execution_eligible INTEGER,providers_json TEXT,observations_json TEXT);
 CREATE INDEX IF NOT EXISTS ix_quote_consensus ON quote_consensus(ticker,id DESC);
 CREATE TABLE IF NOT EXISTS source_state(source_id TEXT PRIMARY KEY,etag TEXT,last_modified TEXT,updated TEXT);

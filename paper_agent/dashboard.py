@@ -376,10 +376,38 @@ def page_intel(c, cfg, s):
     return "".join(out)
 
 
+PROVIDER_STATE = {"HEALTHY": ("working: fresh prices", "ok"), "STALE": ("answering; prices are old (normal when the market is closed)", "warn"), "DOWN": ("not answering", "bad"),
+                  "AUTH_FAILED": ("key rejected (paused 1 hour)", "bad"), "RATE_LIMITED": ("rate limited (paused 15 min)", "warn"), "DEGRADED": ("returning unusable data", "bad")}
+
+
+def _ago(ts, now) -> str:
+    t = parse_ts(ts) if ts else None
+    if not t:
+        return "never"
+    m = (now - t).total_seconds() / 60.0
+    return "%s (%s)" % (to_nz(ts, "%d %b %H:%M"), "just now" if m < 2 else ("%d min ago" % m if m < 120 else ("%.0f h ago" % (m / 60) if m < 48 * 60 else "%d days ago" % (m / 1440))))
+
+
+def provider_section(c, cfg, now) -> str:
+    """Only providers this version has actually checked are shown; leftovers from the old app (and providers with no key) are listed quietly underneath, not as failures."""
+    rows = c.execute("SELECT * FROM provider_health ORDER BY provider").fetchall()
+    live = [r for r in rows if r["last_checked"]]
+    idle = [r["provider"] for r in rows if not r["last_checked"]]
+    body = []
+    for r in live:
+        word, klass = PROVIDER_STATE.get(r["state"], (r["state"].lower(), ""))
+        body.append([r["provider"], Raw("<span class=%s>%s</span>" % (klass, E(word))), r["successes"], r["failures"], r["rate_limits"], r["auth_failures"], _ago(r["last_checked"], now), _ago(r["last_fresh"], now)])
+    mins = (cfg.get("quotes") or {}).get("probe_minutes", 10)
+    note = "<p class=mut>Every provider is checked with a quick SPY lookup %s (Settings -> Execution). &lsquo;Answering; prices are old&rsquo; is normal outside US trading hours. %s</p>" % (
+        ("every %s minutes, market open or closed" % mins) if mins else "only when a trade needs a price (the scheduled check is switched off)",
+        ("Not in use (no key, or only seen by the old app): %s." % E(", ".join(idle))) if idle else "")
+    return "<h2>Quote providers</h2>" + table(["Provider", "Status", "Answered", "Failed", "Rate-limited", "Key rejected", "Last checked", "Last fresh price"], body) + note
+
+
 def page_system(c, cfg, s):
     u = llm_client.LLMClient(c, cfg).usage_summary()
     out = ["<div class=grid>" + card("LLM spend today", "$%.3f / $%.2f" % (u["today_usd"], u["daily_budget"])) + card("LLM spend this month", "$%.2f / $%.0f" % (u["month_usd"], u["monthly_budget"])) + card("LLM calls today", "%d (cache hits %d, failed %d)" % (u["calls_today"], u["cache_hits_today"], u["failures_today"])) + "</div>", "<h2>Sources</h2>" + table(["Source", "Last success", "Status", "Failures", "Items", "Error"], [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", r["last_status"], r["failures"], r["items_total"], (r["last_error"] or "")[:60]] for r in c.execute("SELECT * FROM source_health ORDER BY failures DESC,name")])]
-    out.append("<h2>Quote providers</h2>" + table(["Provider", "State", "OK", "Fail", "Rate-limited", "Auth fail", "Last success"], [[r["provider"], r["state"], r["successes"], r["failures"], r["rate_limits"], r["auth_failures"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never"] for r in c.execute("SELECT * FROM provider_health")]))
+    out.append(provider_section(c, cfg, s["now"]))
     out.append("<h2>Recent cycles</h2>" + table(["Started", "Mode", "Status", "Errors"], [[to_nz(r["started"], "%d %b %H:%M"), r["mode"], r["status"], ", ".join(json.loads(r["report_json"] or "{}").get("errors", []))] for r in c.execute("SELECT * FROM cycle_runs ORDER BY id DESC LIMIT 15")]))
     out.append("<h2>Executor runs</h2>" + table(["Time", "Status", "Checked", "Committed", "Blocked", "Errors"], [[to_nz(r["created"], "%d %b %H:%M"), r["status"], r["positions_checked"], r["actions_committed"], r["blocked_stale"], r["errors"]] for r in c.execute("SELECT * FROM executor_runs ORDER BY id DESC LIMIT 10")]))
     out.append("<h2>Audit log</h2>" + table(["Time", "Actor", "Action", "Subject"], [[to_nz(r["ts"], "%d %b %H:%M"), r["actor"], r["action"], r["subject"]] for r in c.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT 15")]))

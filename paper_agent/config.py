@@ -29,7 +29,7 @@ DEFAULTS: Dict[str, Any] = {
                 "bind_host": "0.0.0.0", "bind_port": 8088, "contact_email": "paper-agent@example.invalid",
                 "cycle_budget_seconds": 300, "require_password": False, "allowed_hosts": [], "pause_file": os.path.join(STATE_DIR, "PAUSE_TRADES"), "lock_file": os.path.join(STATE_DIR, "cycle.lock")},
     "quotes": {"min_providers": 1, "max_deviation": 0.005, "max_age_seconds": 180, "entry_max_age_seconds": 90,
-               "allow_single_source": True, "single_source_max_move_pct": 0.20,
+               "allow_single_source": True, "single_source_max_move_pct": 0.20, "probe_minutes": 10,
                "limits": {"TWELVE_DATA": [7, 60], "FINNHUB": [50, 60], "ALPACA": [100, 60], "MASSIVE": [4, 60],
                           "ALPHA_VANTAGE": [20, 86400], "TIINGO": [40, 3600], "EODHD": [18, 86400], "YAHOO": [30, 60]}},
     "strategy": {   # SWING profile: in and out within ~1-3 sessions, small repeatable gains, tight risk. swing_enabled=False restores the older multi-week behaviour.

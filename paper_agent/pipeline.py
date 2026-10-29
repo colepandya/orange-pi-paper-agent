@@ -177,6 +177,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         db.mark_run(conn, "common_words", "", now)
 
     report["earnings"] = _stage(report, "earnings", earnings.refresh, conn, cfg, now, deps.fetch_json)                # who reports in the next 10 days
+    report["quote_health"] = _stage(report, "quote_health", quotes.probe, conn, cfg, now, deps.fetch_json)           # keeps the System tab's provider table true
     report["prices"] = _stage(report, "prices", prices.run, conn, cfg, now, deps.series_fetch)       # pre-market / after-hours prices (your schedule, Settings -> Refresh times)
 
     # ---- world state

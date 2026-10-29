@@ -75,6 +75,7 @@ FIELDS: List[Field] = [
     F("quotes.max_age_seconds", "Max quote age for exits (seconds)", "int", "Execution", 30, 900, ""),
     F("quotes.entry_max_age_seconds", "Max quote age for entries (seconds)", "int", "Execution", 30, 600, ""),
     F("quotes.allow_single_source", "Allow trading on a single quote source", "bool", "Execution", help="On = one fresh source is enough regardless of the setting above."),
+    F("quotes.probe_minutes", "Check quote providers every (minutes, 0 = off)", "int", "Execution", 0, 120, "A cheap SPY check of each provider, market open or closed, so the Quote providers table on the System tab is always current."),
     F("quotes.single_source_max_move_pct", "A single source must be within this of the last close", "pct", "Execution", 0.02, 1.0, "Sanity check for a lone price: further away than this needs a second source to confirm. 0.20 = 20%."),
     # ---------------------------------------------------------------- refresh times / intelligence
     F("schedule.cycle_minutes", "Intelligence cycle every (minutes)", "int", "Refresh times", 5, 240, "News, evidence, theses, entries, monitoring. Applied to the systemd timer.", restart="schedule"),

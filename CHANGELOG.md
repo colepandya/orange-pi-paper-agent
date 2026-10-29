@@ -1,6 +1,11 @@
-# Hotfix 24.1
-* Dashboard uses the full window width; an empty Amount shows a dash.
-* Settings page now shows the Swing strategy group (it was defined but missing from the page).
+# Build 25
+* **Quote providers table is now true.** It used to change only when a trade needed a price, counted a provider that answered with an OLD price (market closed) as a failure, kept alarming leftovers from the old app
+  (UNKNOWN, TIINGO, EODHD "DEGRADED, never"), and showed no "last checked" time. Now a quick SPY probe checks every configured provider every 10 minutes (Settings -> Execution; 0 = off), market open or closed.
+  Plain-English statuses (working / answering but prices old / not answering / key rejected / rate limited), "Last checked" and "Last fresh price" columns, and old-app rows listed quietly as "not in use".
+  The probe only observes: it never pauses a provider, never overwrites a newer after-hours price, and protects scarce daily quotas (Alpha Vantage ~20/day is checked at most every 3 hours).
+* **Fixed: a rate-limited Twelve Data (and Alpha Vantage) was never paused.** Errors were stored under the wrong name ("TWELVE"), so the pause lookup never found it. Pauses also used the real clock instead of the cycle clock.
+* **Fixed: the Swing Strategy settings were not shown on the Settings page** (18 settings existed and were validated, but the page lists its groups explicitly and the new group was missing). New test: every setting must be on the page and the page must round-trip.
+* Dashboard pages use the full window width (they were capped at 1300px and centred); an empty Amount shows "-" (amounts exist only once a BUY executes).
 
 # Build 24
 * **Fixed: BUYs queued by an older build had no overnight-gap protection.** They stored no "previous close", so the gap check silently skipped them (in testing one executed straight into a -9% gap). While the market is

@@ -120,6 +120,7 @@ def validate(x: dict, now=None, max_age: float = 900) -> dict:
     fresh_or_unknown = age is None or -300 <= age <= max_age
     x["accepted"] = bool(not x.get("error") and x["identity_verified"] and valid and spread_ok and fresh_or_unknown)
     x["timestamp_known"] = age is not None
+    x["stale_only"] = bool(not x.get("error") and x["identity_verified"] and valid and spread_ok and not fresh_or_unknown)      # a usable price, merely OLD (normal when the market is closed)
     x["reject_reason"] = x.get("error") or (None if x["accepted"] else "VALIDATION_FAILED")
     return x
 
@@ -138,15 +139,16 @@ def _budget_ok(conn, name: str, cfg: dict, now_s: float) -> bool:
 
 
 def _run_provider(fn, ticker, fetch):
+    name = _NAMES.get(fn.__name__, fn.__name__.upper())
     try:
         return fn(ticker, fetch)
     except net.FetchError as e:
-        return obs(fn.__name__.upper(), ticker, error=str(e), http=e.code)
+        return obs(name, ticker, error=str(e), http=e.code)
     except Exception as e:  # noqa: BLE001
-        return obs(fn.__name__.upper(), ticker, error=type(e).__name__)
+        return obs(name, ticker, error=type(e).__name__)
 
 
-def consensus(conn, ticker: str, cfg: dict, now=None, providers: Optional[List[Callable]] = None, fetch: Callable = net.get_json, purpose: str = "exit") -> dict:
+def consensus(conn, ticker: str, cfg: dict, now=None, providers: Optional[List[Callable]] = None, fetch: Callable = net.get_json, purpose: str = "exit", only: Optional[set] = None) -> dict:
     now = now or utcnow()
     now_s = now.timestamp()
     q = cfg["quotes"]
@@ -155,6 +157,8 @@ def consensus(conn, ticker: str, cfg: dict, now=None, providers: Optional[List[C
     todo = []
     for fn in providers or PROVIDERS:
         name = _NAMES.get(fn.__name__, fn.__name__.upper())
+        if only is not None and name not in only:
+            continue
         if conn is not None and providers is None and not _budget_ok(conn, name, cfg, now_s):
             continue
         todo.append(fn)
@@ -201,21 +205,63 @@ def consensus(conn, ticker: str, cfg: dict, now=None, providers: Optional[List[C
             "execution_eligible": bool(status == "PASS" and clk["execution"]), "observations": raw, "note": note}
 
 
-def store(conn, c: dict, now=None) -> None:
+def health_of(x: dict) -> tuple:
+    """-> (state, reachable, fresh). 'Reachable' = the provider answered with a usable price (however old). 'Fresh' = it is also recent enough to trade on.
+    A provider that answers with an old price (market closed) is STALE, which is normal: it is NOT a failure."""
+    http = x.get("http_status")
+    if x.get("error"):
+        return ("AUTH_FAILED" if http in (401, 403) else "RATE_LIMITED" if http == 429 else "DOWN"), False, False
+    if x.get("accepted"):
+        return "HEALTHY", True, True
+    if x.get("stale_only"):
+        return "STALE", True, False
+    return "DEGRADED", False, False
+
+
+def store(conn, c: dict, now=None, cache: bool = True, backoff: bool = True) -> None:
     now = now or utcnow()
     conn.execute("INSERT INTO quote_consensus(ticker,created,session,status,consensus_price,provider_count,max_deviation,execution_eligible,providers_json,observations_json) VALUES(?,?,?,?,?,?,?,?,?,?)",
                  (c["ticker"], iso(now), c["session"], c["status"], c["price"], c["provider_count"], c["max_deviation"], int(c["execution_eligible"]), json.dumps(c["providers_used"]), json.dumps(c["observations"], sort_keys=True, default=str)))
     for x in c["observations"]:
         p = x["provider"]
-        st = "AUTH_FAILED" if x.get("http_status") in (401, 403) else "RATE_LIMITED" if x.get("http_status") == 429 else "HEALTHY" if x["accepted"] else "DEGRADED"
-        back = time.time() + 900 if st == "RATE_LIMITED" else (time.time() + 3600 if st == "AUTH_FAILED" else 0)
+        st, reachable, fresh = health_of(x)
+        back = (now.timestamp() + 900 if st == "RATE_LIMITED" else (now.timestamp() + 3600 if st == "AUTH_FAILED" else 0)) if backoff else None     # None = leave any existing pause as it is
         conn.execute("INSERT OR IGNORE INTO provider_health(provider) VALUES(?)", (p,))
-        conn.execute("UPDATE provider_health SET requests=requests+1,successes=successes+?,failures=failures+?,auth_failures=auth_failures+?,rate_limits=rate_limits+?,"
-                     "last_success=CASE WHEN ? THEN ? ELSE last_success END,last_error=?,state=?,backoff_until=? WHERE provider=?",
-                     (int(x["accepted"]), int(not x["accepted"]), int(x.get("http_status") in (401, 403)), int(x.get("http_status") == 429), int(x["accepted"]), iso(now), x.get("reject_reason"), st, back, p))
-    if c["price"] and c["status"] in ("PASS", "VALUATION_ONLY") and c["quoted_at"]:
+        conn.execute("UPDATE provider_health SET requests=0,successes=0,failures=0,auth_failures=0,rate_limits=0,last_success=NULL,last_error=NULL WHERE provider=? AND last_checked IS NULL", (p,))   # numbers left by the OLD app are discarded
+        conn.execute("UPDATE provider_health SET requests=requests+1,successes=successes+?,failures=failures+?,auth_failures=auth_failures+?,rate_limits=rate_limits+?,last_checked=?,"
+                     "last_success=CASE WHEN ? THEN ? ELSE last_success END,last_fresh=CASE WHEN ? THEN ? ELSE last_fresh END,last_error=?,state=?,backoff_until=COALESCE(?,backoff_until) WHERE provider=?",
+                     (int(reachable), int(not reachable), int(x.get("http_status") in (401, 403)), int(x.get("http_status") == 429), iso(now), int(reachable), iso(now), int(fresh), iso(now),
+                      x.get("reject_reason") if not reachable else None, st, back, p))
+    if cache and c["price"] and c["status"] in ("PASS", "VALUATION_ONLY") and c["quoted_at"]:
         conn.execute("INSERT INTO quote_cache(ticker,price,source,quoted_at,updated_epoch) VALUES(?,?,?,?,?) ON CONFLICT(ticker) DO UPDATE SET price=excluded.price,source=excluded.source,quoted_at=excluded.quoted_at,updated_epoch=excluded.updated_epoch",
                      (c["ticker"], c["price"], "CONSENSUS:" + "+".join(c["providers_used"]), c["quoted_at"], now.timestamp()))
+
+
+def probe(conn, cfg: dict, now=None, fetch: Callable = net.get_json) -> dict:
+    """Keep the provider table TRUE: a cheap SPY check of every configured provider on a schedule you set (Settings -> Execution), market open or closed.
+    Providers with hourly/daily budgets (Alpha Vantage: ~20 a day) are checked at most every 3 hours: the trade path needs those calls more than a health check does."""
+    now = now or utcnow()
+    mins = float((cfg.get("quotes") or {}).get("probe_minutes", 10) or 0)
+    if mins <= 0:
+        return {"skipped": "off"}
+    if not db.due(conn, "quote_probe", mins * 0.9 / 60.0, now):
+        return {"skipped": "not due"}
+    only = set()
+    for fn in PROVIDERS:
+        name = _NAMES.get(fn.__name__, fn.__name__.upper())
+        lim = cfg["quotes"]["limits"].get(name)
+        row = conn.execute("SELECT last_checked FROM provider_health WHERE provider=?", (name,)).fetchone()
+        last = parse_ts(row["last_checked"]) if row and row["last_checked"] else None
+        scarce = bool(lim) and lim[1] >= 3600
+        if not scarce or last is None or (now - last).total_seconds() >= 3 * 3600:
+            only.add(name)
+    db.mark_run(conn, "quote_probe", "", now)
+    try:
+        c = consensus(conn, "SPY", cfg, now, None, fetch, "exit", only=only)
+        store(conn, c, now, cache=False, backoff=False)          # observe only: no price-cache write (an old consensus must not overwrite a newer after-hours price) and NO pause: a health check must never block a trading provider
+    except Exception as e:  # noqa: BLE001 - a health check must never fail a trading cycle
+        return {"skipped": "probe failed: %s" % type(e).__name__}
+    return {"checked": sorted(x["provider"] for x in c["observations"]), "status": c["status"]}
 
 
 def get_quote(conn, ticker: str, cfg: dict, purpose: str = "exit", now=None, providers=None, fetch: Callable = net.get_json) -> dict:

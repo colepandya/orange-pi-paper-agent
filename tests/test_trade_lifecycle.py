@@ -198,7 +198,9 @@ class TestBuy(Base):
         self.assertEqual(self.one("SELECT status FROM decisions")[0], "AWAITING_QUOTE")
         self.mkt.down = {"finnhub", "yahoo"}                                                       # Twelve Data + Alpaca
         self.cycle(T_OPEN + dt.timedelta(minutes=10))
-        self.assertEqual(self.one("SELECT status FROM decisions")[0], "EXECUTED")
+        self.assertEqual(self.one("SELECT status FROM decisions")[0], "AWAITING_QUOTE")           # Twelve Data was just rate-limited: it is paused for 15 minutes (this used to be skipped by a naming bug)
+        self.cycle(T_OPEN + dt.timedelta(minutes=20))
+        self.assertEqual(self.one("SELECT status FROM decisions")[0], "EXECUTED")                 # ...and is used again as soon as the pause is over
 
     def test_a_single_implausible_price_is_not_accepted_without_a_second_source(self):
         """One source has no cross-check, so it must at least be plausible against the last close (default +-20%)."""
