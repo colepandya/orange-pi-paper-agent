@@ -65,6 +65,35 @@ GENERIC_FIRST |= set("""stock stocks here there where when what which while work
  food foods beverage beverages drink drinks coffee tea sugar salt rice grain grains corn wheat meat fish dairy fruit fruits vegetable vegetables restaurant restaurants hotel hotels resort resorts
  travel tour tours cruise cruises airline airlines air flight flights ship ships shipping freight cargo truck trucks rail railway road auto cars car motor motors motion move moves moving drive drives
  ride rides run runs running race races sport sports fitness gym health wellness beauty fashion style styles wear clothing apparel shoe shoes bag bags luxury home homes living lifestyle""".split())
+# Words that are NOT a company name by themselves. Real failures (Oct 2026): "Helen Markovic" -> Helen of Troy (HELE), "Jordan Valley" -> JORD, "Fed Chair Powell" -> Powell Industries,
+# "Google Gemini" -> Gemini Space Station, "NBT Bancorp Inc." -> "Bancorp, Inc." (TBBK): the SEC's legal name for The Bancorp is just "Bancorp, Inc.".
+GIVEN_NAMES = set("""james john robert michael william david richard joseph thomas charles christopher daniel matthew anthony mark donald steven paul andrew joshua kenneth kevin brian george timothy ronald edward jason jeffrey ryan jacob gary
+ nicholas eric jonathan stephen larry justin scott brandon benjamin samuel gregory alexander frank patrick raymond jack dennis jerry tyler aaron jose adam nathan henry douglas zachary peter kyle walter ethan jeremy harold keith christian roger noah gerald carl
+ terry sean austin arthur lawrence jesse dylan bryan joe jordan billy bruce albert willie gabriel logan alan juan wayne roy ralph randy eugene vincent russell elijah louis bobby philip johnny mary patricia jennifer linda elizabeth barbara susan jessica sarah karen
+ nancy lisa margaret betty sandra ashley dorothy kimberly emily donna michelle carol amanda melissa deborah stephanie rebecca sharon laura cynthia kathleen amy angela shirley anna brenda pamela emma nicole helen samantha katherine christine debra rachel carolyn
+ janet catherine maria heather diane ruth julie olivia joyce virginia victoria kelly lauren christina joan evelyn judith megan andrea cheryl hannah jacqueline martha gloria teresa ann sara madison frances kathryn janice jean abigail alice julia judy sophia grace
+ denise amber doris marilyn danielle beverly isabella theresa diana natalie brittany charlotte marie kayla alexis lori vladimir angela ursula marcus gustavo mohammed ahmed ali omar hassan carlos miguel pedro luis diego sergio andre pierre jean francois hans klaus""".split())
+SURNAMES = set("""smith johnson williams brown jones garcia miller davis rodriguez martinez hernandez lopez gonzalez wilson anderson thomas taylor moore jackson martin lee perez thompson white harris sanchez clark ramirez lewis robinson walker young allen
+ king wright scott torres nguyen hill flores green adams nelson baker hall rivera campbell mitchell carter roberts gomez phillips evans turner diaz parker cruz edwards collins reyes stewart morris morales murphy cook rogers gutierrez ortiz morgan cooper
+ peterson bailey reed kelly howard ramos kim cox ward richardson watson brooks chavez wood james bennett gray mendoza ruiz hughes price alvarez castillo sanders patel myers long ross foster powell jenkins perry russell sullivan bell coleman butler henderson
+ barnes fisher vasquez simmons romero patterson hamilton graham reynolds griffin wallace moreno west cole hayes bryant herrera gibson ellis tran medina stevens murray castro marshall owens harrison fernandez mcdonald woods washington kennedy wells vargas
+ henry chen freeman webb tucker burns crawford olson simpson porter hunter gordon mendez silva shaw snyder mason dixon munoz hunt hicks holmes palmer wagner black robertson boyd rose stone salazar fox warren mills meyer rice schmidt garza daniels ferguson
+ nichols stephens soto weaver gardner payne grant dunn kelley spencer hawkins arnold pierce hansen peters santos hart bradley knight elliott cunningham duncan armstrong hudson carroll lane riley andrews ray delgado berry perkins hoffman johnston matthews
+ richards willis carpenter lawrence sandoval guerrero chapman ortega watkins greene wheeler valdez harper burke larson santiago maldonado morrison franklin carlson townsend trump biden musk bezos zuckerberg buffett dimon yellen lagarde bessent""".split())
+PRODUCT_WORDS = set("gemini copilot bard claude llama alexa siri cortana chatgpt grok sora".split())
+DESCRIPTOR_WORDS = set("""bancorp bancshares bankshares financial financials finance industries industrial enterprises international national united american federal savings mutual community citizens peoples security heritage
+ pioneer liberty patriot independence frontier premier southern northern eastern western central pacific atlantic midwest regional""".split())
+TITLE_WORDS = set("""chair chairman chairwoman chairperson president ceo cfo coo mr mrs ms dr sen senator rep representative governor gov secretary judge justice minister prime fed treasury speaker mayor commissioner director professor prof
+ sir dame lord lady pope king queen prince princess sheikh emir general gen analyst economist strategist""".split())
+TAIL_WORDS = set("inc incorporated corp corporation co company ltd limited plc holdings holding group the llc lp sa nv ag".split())
+_EXCH_PHRASES = re.compile(r"(?i)\b(?:nasdaq global select market|nasdaq global market|nasdaq capital market|nasdaq stock market|nasdaq composite|nasdaq[- ]100|nasdaq[- ]listed|nyse[- ]listed|nyse american|nyse arca|"
+                           r"(?:on|in|listed on|trades on|traded on|trading on)\s+(?:the\s+)?(?:nasdaq|nyse))\b")
+BODY_ONLY = 0.6            # a company named ONLY in the body (while the headline names another) is context, not the subject
+COUNTERPARTY = 0.6         # "... with Microsoft", "... on Google Gemini": the counterparty, not the subject
+COUNTERPARTY_WORDS = {"with", "from", "via", "using", "on", "atop", "through", "alongside"}
+
+GENERIC_FIRST |= DESCRIPTOR_WORDS | PRODUCT_WORDS
+
 CLEAN_TAIL = re.compile(r"\b(inc|incorporated|corp|corporation|co|company|ltd|limited|plc|holdings|holding|group|sa|nv|ag|lp|llc|the|com|dot|class [a-c]|new)\b", re.I)
 
 
@@ -97,6 +126,9 @@ class Universe:
             if not toks:
                 return
             single = len(p.split()) == 1
+            core = [w.strip(".,'") for w in p.split() if w.strip(".,'") not in TAIL_WORDS]
+            if len(core) <= 1 and (not core or core[0] in GENERIC_FIRST):
+                return                                              # ONE generic word plus legal suffixes ("Bancorp, Inc.") can only be matched by ticker / exchange tag / CIK; multi-word names like "Main Street Capital" are fine
             c = conf if single else (multi_conf if multi_conf is not None else max(conf, 0.9))
             anchor = max(toks, key=len)
             if not any(e[0] == p and e[1] == ticker for e in self.index.setdefault(anchor, [])):
@@ -111,9 +143,9 @@ class Universe:
                     pass
             clean, multi, first = derived[t]
             for v in [meta.get("name", "")] + list(meta.get("aliases", []) or []) + [clean] + multi:
-                if len(norm(v)) >= 4 and not (len(norm(v).split()) == 1 and (norm(v) in GENERIC_FIRST or norm(v) in self.common)):
+                if len(norm(v)) >= 4 and not (len(norm(v).split()) == 1 and (norm(v) in GENERIC_FIRST or norm(v) in self.common or norm(v) in GIVEN_NAMES or norm(v) in SURNAMES)):
                     add(v, t, 0.65)
-            if first and len(first) >= 5 and first not in GENERIC_FIRST and first not in self.common and first_counts[first] == 1:
+            if first and len(first) >= 5 and first not in GENERIC_FIRST and first not in self.common and first not in GIVEN_NAMES and first not in SURNAMES and first_counts[first] == 1:
                 add(first, t, 0.70)                                   # a distinctive, UNIQUE, non-dictionary first word: "Garmin", "Palantir", "Wendy's"
         for brand, t in BRANDS.items():
             if t in self.watch:
@@ -143,7 +175,15 @@ class Universe:
             t = self.by_cik.get(int(m.group(1)))
             if t:
                 add(t, 0.95, "cik")
+        names_raw = raw
+        for m in _EX.finditer(raw):                                      # "(NASDAQ: NBTB)": the ticker counts (above), the word NASDAQ is not the company Nasdaq, Inc.
+            names_raw = names_raw[:m.start()] + " " * (m.end() - m.start()) + names_raw[m.end():]
+        names_raw = _EXCH_PHRASES.sub(lambda m: " " * len(m.group(0)), names_raw)       # "trades on the Nasdaq Global Select Market"
+        raw_for_names = raw
+        raw = names_raw
         low = " " + norm(raw) + " "
+        title_n = " " + norm(title or "") + " "
+        named: List[Tuple[str, float, str, str]] = []
         for tok in set(low.split()):
             for phrase, t, single, base in self.index.get(tok, ()):
                 if (" " + phrase + " ") not in low:
@@ -153,6 +193,8 @@ class Universe:
                     m_cap = re.search(r"(?<![A-Za-z0-9-])" + re.escape(phrase[0].upper()) + r"(?i:" + re.escape(phrase[1:]) + r")(?![A-Za-z0-9])(?!-[A-Za-z])", raw)      # not "Meta-analysis", "Apple-style"
                     if not m_cap:
                         continue
+                    if phrase not in BRANDS and set(re.findall(r"[a-z']+", " ".join(re.findall(r"[A-Za-z']+", raw[:m_cap.start()])[-2:]).lower())) & TITLE_WORDS:
+                        continue                                       # "Fed Chair Powell", "Sen. Warren": a person, not a company
                     if phrase in COMMON_WORD_ALIASES:
                         prev = re.findall(r"[A-Za-z']+", raw[:m_cap.start()])[-1:]
                         prev_w = prev[0].lower() if prev else ""
@@ -160,7 +202,17 @@ class Universe:
                             continue          # "price Target", "the Block": common-noun use
                         add(t, 0.55, "name_ambiguous")   # recorded as evidence but below the trading confidence floor
                         continue
-                add(t, base, "brand" if phrase in BRANDS else ("name" if not single else "name_single"))
+                named.append((t, base, "brand" if phrase in BRANDS else ("name" if not single else "name_single"), phrase))
+        in_title = [(t, c, h, ph) for (t, c, h, ph) in named if (" " + ph + " ") in title_n]
+        first_pos = min((title_n.find(" " + ph + " ") for (_t, _c, _h, ph) in in_title), default=0)
+        for (t, c, h, ph) in named:
+            pos = title_n.find(" " + ph + " ")
+            if in_title and pos < 0:
+                c *= BODY_ONLY                                         # named only in the body while the headline is about someone else
+            elif in_title and pos > first_pos and (re.findall(r"[a-z0-9']+", title_n[:pos]) or [""])[-1] in COUNTERPARTY_WORDS:
+                c *= COUNTERPARTY                                      # "deal WITH Microsoft": the counterparty is not the subject
+            add(t, c, h)
+        raw = raw_for_names
         for m in _BARE.finditer(title or ""):
             t = m.group(1)
             if t not in COMMON_TICKERS and t in self.watch:

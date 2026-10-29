@@ -146,7 +146,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
         return {"status": status, "decision_id": did, "why": why}
 
     if score < cfg["portfolio"]["entry_score"]:
-        return finish("REJECTED", "eligibility %.0f < %d" % (score, cfg["portfolio"]["entry_score"]), action="NO_TRADE")
+        return finish("REJECTED", "eligibility %.2f < %.2f" % (score, float(cfg["portfolio"]["entry_score"])), action="NO_TRADE")
     if f["verdict"] != "BUY":
         return finish("REJECTED", "; ".join(f["why"]) or f["verdict"], action="NO_TRADE")
     if paused(cfg):
@@ -306,7 +306,8 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
     for row in conn.execute("SELECT * FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') ORDER BY COALESCE(ev_net,-9) DESC, id LIMIT 80").fetchall():
         c = candidate_from_decision(row)
         age = (now - parse_ts(row["created"])).total_seconds() / 3600 if parse_ts(row["created"]) else 999
-        if not c or age > icfg["trade_event_max_age_hours"]:
+        total_age = ((c.get("age_hours") or 0) + age) if c else 999          # how old the NEWS is now = its age when decided + the time spent waiting
+        if not c or total_age > icfg["trade_event_max_age_hours"]:
             with db.tx(conn):
                 conn.execute("UPDATE decisions SET status='EXPIRED' WHERE id=?", (row["id"],))
             continue
@@ -316,7 +317,7 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
         if (cap > 0 and new_exec >= cap):
             out["deferred"] += 1                    # still pending; will be retried next cycle
             continue
-        c["age_hours"] = (c.get("age_hours") or 0) + age
+        c["age_hours"] = total_age
         if conn.execute("SELECT 1 FROM positions WHERE decision_id=?", (row["id"],)).fetchone():
             continue
         if late():

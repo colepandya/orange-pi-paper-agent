@@ -333,6 +333,15 @@ def analyze(title: str, summary: str = "") -> Dict:
         direction = 0.0 if neg else -0.85                              # a shock is risk-off, whatever the surrounding vocabulary ("jumps", "surges"...) says
     if hed and mp is None and best.name not in SHOCK_TYPES:
         direction *= 0.6
+    reaction, contradictory, priced_in = price_reaction(title_n), False, False
+    if reaction and best.scope in ("company", "sector") and best.name not in SHOCK_TYPES and best.name not in RECAP_TYPES and direction != 0:
+        sgn, pct, strong = reaction
+        if sgn * direction < 0:                                     # "good news" but the stock FELL (or the reverse): the headline contradicts itself, so it is not a clean signal
+            direction, contradictory = 0.0, True
+        elif (pct or 0) >= 0.10:                                    # the stock ALREADY moved 10%+ on this news (it says so in the headline): that is a move that happened, not a signal
+            direction, priced_in = 0.0, True
+        elif strong or (pct or 0) >= 0.05:                          # a big move has already happened: much of the edge is priced in
+            direction *= 0.6
     amount = extract_amount(title + " " + (summary or ""))
     mag = best.magnitude
     if amount:
@@ -346,7 +355,27 @@ def analyze(title: str, summary: str = "") -> Dict:
     return {"event_type": best.name, "scope": best.scope, "direction": max(-1.0, min(1.0, direction)),
             "magnitude": max(0.05, min(1.0, mag)), "amount_usd": amount, "regions": regions(full), "matched": hit,
             "negated": neg, "hedged": hed, "decay_days": best.decay_days, "power": best.power, "horizon": best.horizon,
-            "type_score": best_s}
+            "type_score": best_s, "reaction": reaction[0] * (reaction[1] or 0.0) if reaction else None, "contradictory": contradictory, "priced_in": priced_in}
+
+
+_NEG_MOVE = r"(?:slump|plung|plummet|tumbl|sink|sank|drop|fall|fell|crater|tank|dive|slid|slip|sag|crash|retreat|erase|lose|lost|sell ?off|sold off|slashe)\w*"
+_POS_MOVE = r"(?:jump|soar|surg|spik|rall|climb|gain|pop|rocket|skyrocket|leap|ris|rose|advanc|rebound)\w*"
+_STRONG_MOVE = re.compile(r"(?:plung|plummet|crater|soar|surg|skyrocket|crash|tank|rocket)")
+_REACTION = re.compile(r"(?:(?:stock|shares|stocks)\s+(?:[\w']+\s+){0,2}?|(?<![a-z])[a-z][a-z0-9']*\s+)(" + _NEG_MOVE + "|" + _POS_MOVE + r")(?:\s+(?:by|about|nearly|over|more than|as much as))?(?:\s+(\d+(?:\.\d+)?)\s*%)?")
+
+
+def price_reaction(title_n: str):
+    """The stock's own move as reported IN THE HEADLINE ("GOOGL Stock Slumps 11% After-Hours", "shares jump 8%"): (+1 / -1, fraction or None, strong?) or None.
+    A move needs the word stock/shares before the verb, or a percentage after it, so "raises guidance" and "price rise in the cost of..." are not reactions."""
+    for m in _REACTION.finditer(title_n):
+        verb, pct = m.group(1), m.group(2)
+        has_subject = ("stock" in m.group(0) or "shares" in m.group(0))
+        if not (has_subject or pct):
+            continue
+        sign = -1 if re.fullmatch(_NEG_MOVE, verb) else (1 if re.fullmatch(_POS_MOVE, verb) else 0)
+        if sign:
+            return sign, (float(pct) / 100.0 if pct else None), bool(_STRONG_MOVE.search(verb))
+    return None
 
 
 def decay_weight(age_days: float, decay_days: float) -> float:

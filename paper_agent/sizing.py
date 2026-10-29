@@ -12,10 +12,15 @@ def size_position(forecast: dict, ticker_meta: dict, state: dict, cfg: dict, reg
     eq = state["equity"]
     reasons: List[str] = []
     sigma_h = max(forecast["sigma_h"], 0.01)
-    kelly = max(0.0, forecast["ev_net"] / (sigma_h ** 2))
-    base = min(0.25 * kelly, 1.0)
-    reasons.append("quarter-Kelly %.1f%% from EV %.2f%% / var %.4f" % (base * 100, forecast["ev_net"] * 100, sigma_h ** 2))
-    pct, binding = base, "kelly"
+    # Kelly (EV / variance) saturates at 100% for EVERY swing idea (a 2.7% EV against a 3.5% typical move is ~2200%), so the edge never changed the size. Size by CONVICTION instead:
+    # how big the edge is relative to a typical move, with a floor so a marginal idea still gets a meaningful but small position. Kelly is kept as a reference only.
+    kelly_ref = max(0.0, forecast["ev_net"] / (sigma_h ** 2))
+    edge = max(0.0, forecast["ev_net"]) / sigma_h
+    full = max(0.05, float(r.get("full_size_edge", 0.5)))
+    conviction = min(1.0, max(0.25, edge / full)) if forecast["ev_net"] > 0 else 0.0
+    base = conviction * r["max_position_pct"]
+    reasons.append("conviction %.2f: edge %.2f of a typical move (full size needs %.2f) -> %.1f%% of the portfolio before adjustments (quarter-Kelly would say %.0f%%, which is saturated and not used)" % (conviction, edge, full, base * 100, min(0.25 * kelly_ref, 9.99) * 100))
+    pct, binding = base, "conviction"
 
     def cap(val: float, label: str):
         nonlocal pct, binding

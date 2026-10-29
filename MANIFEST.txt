@@ -12,6 +12,7 @@ docs/INTELLIGENCE.md
 docs/LIMITS.md
 docs/OMEGA_MAPPING.md
 docs/OPERATIONS.md
+docs/REVIEW_FINDINGS.md
 docs/SETTINGS.md
 paper_agent/__init__.py
 paper_agent/__main__.py
@@ -124,6 +125,7 @@ tests/test_quote_health.py
 tests/test_recall.py
 tests/test_regressions.py
 tests/test_report.py
+tests/test_review_fixes.py
 tests/test_schema_drift.py
 tests/test_settings_page.py
 tests/test_settings_ui.py

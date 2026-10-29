@@ -21,7 +21,7 @@ EVENT_LABEL = {
     "market_infrastructure_outage": "an exchange or payments outage", "geopolitical_conflict": "geopolitical conflict",
 }
 TONE = {"EXECUTED": "good", "AWAITING_MARKET": "wait", "AWAITING_QUOTE": "wait", "AWAITING_CAPACITY": "wait", "HELD": "wait", "VETOED": "bad", "REJECTED": "bad", "RISK_REJECTED": "bad",
-        "NO_TRADE": "info", "DUPLICATE": "info", "PAUSED": "bad", "ERROR": "bad", "CAPACITY_DEFERRED": "wait"}
+        "NO_TRADE": "info", "DUPLICATE": "info", "EXPIRED": "info", "PAUSED": "bad", "ERROR": "bad", "CAPACITY_DEFERRED": "wait"}
 
 
 def esc(x) -> str:
@@ -58,7 +58,7 @@ def age_text(h: Optional[float]) -> str:
 
 _RULES: List[Tuple[re.Pattern, str, Optional[bool]]] = [
     (re.compile(r"^all gates passed$"), "Every check passed.", True),
-    (re.compile(r"^eligibility (\d+) < (\d+)"), r"The story's quality score is \1 out of 100; \2 is needed. It is too weak, too old, or from too unreliable a source to act on.", False),
+    (re.compile(r"^eligibility ([\d.]+) < ([\d.]+)"), r"The story's quality score is \1 out of 100; \2 is needed. It is too weak, too old, or from too unreliable a source to act on.", False),
     (re.compile(r"^EV net (-?[\d.]+)% <= 0"), r"Expected profit after costs is \1%, i.e. negative on average. Buying would lose money in expectation.", False),
     (re.compile(r"^EV net (-?[\d.]+)% below minimum ([\d.]+)%"), r"Expected profit after costs is only \1%; at least \2% is needed to be worth the risk. Not enough edge.", False),
     (re.compile(r"^bearish event; long-only book"), "This is bad news for the company. The portfolio only buys (it never shorts), so it stays out.", False),
@@ -131,6 +131,8 @@ def explain(conn, cfg: dict, did: int, now=None) -> Optional[dict]:
         head, summary = "Good idea on %s, but the portfolio had no room this cycle" % t, "It was not rejected: it is retried while the news is fresh."
     elif st == "HELD":
         head, summary = "On hold: a market-wide shock happened after %s was queued" % t, "Buying into a shock is how paper accounts get hurt. It is re-checked every cycle and released when the shock has aged out."
+    elif st == "EXPIRED":
+        head, summary = "Expired: the news behind %s was too old by the time it could be acted on" % t, "News loses its edge quickly; a BUY that could not be executed while it was fresh is dropped rather than traded late."
     elif st == "DUPLICATE":
         head, summary = "Skipped: %s" % (why_main or "already holding this stock"), "Another position in %s is already open, so a second BUY would stack the same bet. The strongest idea is processed first." % t
     elif st == "VETOED":

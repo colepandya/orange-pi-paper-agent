@@ -37,6 +37,7 @@ FIELDS: List[Field] = [
     F("risk.ruin_loss_pct", "Ruin threshold (for survival probability)", "pct", "Risk limits", 0.05, 0.8, "A stress loss above this counts against survival probability."),
     F("risk.drawdown_pause_pct", "Pause new trades at drawdown of", "pct", "Risk limits", 0.02, 0.5, "No new entries once drawdown from peak reaches this."),
     F("risk.daily_loss_pause_pct", "Pause new trades after one-day loss of", "pct", "Risk limits", 0.005, 0.2, ""),
+    F("risk.full_size_edge", "Edge needed for a FULL-size position (expected profit / typical move)", "float", "Risk limits", 0.1, 3.0, "Positions scale with the edge: at this value (0.5 = half a typical move) a position gets the maximum size; weaker ideas get proportionally less, never below 25% of the maximum."),
     F("risk.allow_add_to_position", "Allow a second position in a stock already held", "bool", "Risk limits", help="Off: if you already hold a stock, further BUYs on it are skipped (they would stack the same bet). The best-EV idea is processed first."),
     F("risk.veto_adverse_news", "Re-check queued BUYs against news that arrived after they were decided", "bool", "Risk limits", help="A later bearish story about the same company cancels the BUY; a market-wide shock holds it."),
     F("risk.veto_news_direction", "Later news counts as adverse at direction <=", "float", "Risk limits", -1.0, -0.1, "-1 = very bearish, 0 = neutral."),

@@ -1,3 +1,10 @@
+# Build 26
+* **Wrong-company attribution fixed at the source** (an outside review found it; all eight examples reproduced): the headline now decides what a story is about (a company named only in the body, or after "with / from / on", counts 60%);
+  "NASDAQ" / "listed on the Nasdaq" no longer means Nasdaq, Inc.; first names, common surnames, AI product names and generic legal names ("Bancorp, Inc.") can no longer BE a company; "Fed Chair Powell" is a person.
+* **Headlines that contradict themselves are not trades:** "GOOGL Stock Slumps 11% ... Earnings Beat" scored +0.85. Good news with a falling stock (or the reverse) is now neutral; a headline move of 10%+ is "already priced in"; a smaller aligned move is discounted.
+* **Position size now follows the edge.** Kelly saturated at 100% for every idea, so a 0.7% edge was sized like a 4% one. Size now scales with conviction (edge / typical move; Settings -> Risk limits -> "Edge needed for a FULL-size position").
+* Queued BUYs expire by the NEWS's age (age when decided + time waiting), not just the decision's age. The eligibility message shows two decimals ("64.96 < 65.00"). Full review verdicts: docs/REVIEW_FINDINGS.md.
+
 # Build 25
 * **Quote providers table is now true.** It used to change only when a trade needed a price, counted a provider that answered with an OLD price (market closed) as a failure, kept alarming leftovers from the old app
   (UNKNOWN, TIINGO, EODHD "DEGRADED, never"), and showed no "last checked" time. Now a quick SPY probe checks every configured provider every 10 minutes (Settings -> Execution; 0 = off), market open or closed.

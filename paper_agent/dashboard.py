@@ -261,7 +261,7 @@ def page_decisions(c, cfg, s, q):
 
 
 OUTCOME_MEANING = {"EXECUTED": "bought", "AWAITING_MARKET": "queued for the open", "AWAITING_QUOTE": "waiting for a fresh price", "AWAITING_CAPACITY": "waiting for room in the portfolio", "HELD": "held after a market shock",
-                   "VETOED": "cancelled at the last look", "DUPLICATE": "skipped: already holding the stock", "REJECTED": "rejected (not enough edge / quality)", "NO_TRADE": "no trade (bad news / no company)",
+                   "VETOED": "cancelled at the last look", "DUPLICATE": "skipped: already holding the stock", "EXPIRED": "expired (the news got too old)", "REJECTED": "rejected (not enough edge / quality)", "NO_TRADE": "no trade (bad news / no company)",
                    "RISK_REJECTED": "blocked by a risk limit", "PAUSED": "paused", "ERROR": "error", "CAPACITY_DEFERRED": "deferred (time budget)"}
 
 
