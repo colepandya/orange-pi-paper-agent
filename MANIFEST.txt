@@ -1,7 +1,5 @@
-.gitignore
 BUILD
 CHANGELOG.md
-README.md
 config/config.example.json
 config/deploy-settings.json
 config/market-data.env
@@ -15,9 +13,8 @@ docs/OMEGA_MAPPING.md
 docs/OPERATIONS.md
 docs/REVIEW_FINDINGS.md
 docs/SETTINGS.md
+.gitignore
 none
-paper_agent/__init__.py
-paper_agent/__main__.py
 paper_agent/auth.py
 paper_agent/backup.py
 paper_agent/candqueue.py
@@ -32,9 +29,9 @@ paper_agent/dossier.py
 paper_agent/earnings.py
 paper_agent/entities.py
 paper_agent/envmerge.py
-paper_agent/ev.py
 paper_agent/event_intel.py
 paper_agent/evidence.py
+paper_agent/ev.py
 paper_agent/executor.py
 paper_agent/explain.py
 paper_agent/filings.py
@@ -42,10 +39,12 @@ paper_agent/flows.py
 paper_agent/funnel.py
 paper_agent/gaps.py
 paper_agent/golden.py
+paper_agent/__init__.py
 paper_agent/keys.py
 paper_agent/learning.py
-paper_agent/llm.py
 paper_agent/llm_client.py
+paper_agent/llm.py
+paper_agent/__main__.py
 paper_agent/maintain.py
 paper_agent/marketdata.py
 paper_agent/monitor.py
@@ -75,6 +74,7 @@ paper_agent/thesis.py
 paper_agent/timeutil.py
 paper_agent/trader.py
 paper_agent/universe.py
+README.md
 scripts/cleanup-ram.sh
 scripts/doctor.sh
 scripts/enable-llm.sh
@@ -103,9 +103,9 @@ systemd/paper-agent-universe.service
 systemd/paper-agent-universe.timer
 systemd/paper-agent-update.service
 systemd/paper-agent-update.timer
-tests/__init__.py
 tests/fake_internet.py
 tests/helpers.py
+tests/__init__.py
 tests/soak_twenty_days.py
 tests/test_deploy_settings.py
 tests/test_durability.py

@@ -1,3 +1,6 @@
+# Hotfix 30.1
+* Banded (zebra) table rows on every dashboard table (System and Settings included), in light and dark mode.
+
 # Build 30
 * **A "shock" must move the market.** After build 29 a war story ("At least 14 people killed in attack on Ukraine train station": war_escalation, many outlets) still froze every BUY for 6 hours. A headline of a dangerous kind reported by 2+ outlets now only freezes new BUYs
   if SPY is ALSO down at least 1% versus its previous close (live quote from the 10-minute probe, else today's bar). If the market's move is unknown, a headline alone is not proof. Settings -> Risk limits: "Market must also be down at least" (0 = headlines alone suffice).
