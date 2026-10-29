@@ -1,3 +1,16 @@
+# Build 29
+* **Why NO queued BUY executed at the open** (found by replaying the owner's real database: 68 queued BUYs, 0 executed; after the fixes the same open buys 8 stocks, ~$538k, sized by edge). Four rules were rejecting almost everything for the wrong reasons:
+  1. **News aged on the wall clock.** A story from just after the close lost ~14 of 20 eligibility points overnight while the market was shut (27 rejections, all 52-65 vs a 65 threshold). News now ages on the MARKET clock
+     (regular session = 1h/h, pre-market and after-hours = a quarter, nights/weekends/holidays = 0); nothing is traded on news over 3 days old by the wall clock either.
+  2. **"Market-wide shock" holds fired on non-shocks** ("Bitcoin weakens as hawkish Fed", an SEC filing header, a video-game row; 7 holds). A shock is now a dangerous KIND of event (crash, war escalation, emergency policy, financial stress, exchange outage)
+     confirmed by at least 2 outlets (Settings -> Risk limits -> "Outlets needed to confirm a market-wide shock").
+  3. **The "bad news since" veto fired on any story that merely mentioned the ticker** (market wraps, roundups, "Alphabet slides, Microsoft firms" cancelled MICROSOFT; 13 cancellations). A story now cancels a BUY only if it is ABOUT that company (the first company its headline names);
+     roundups, commentary and recaps never cancel.
+  4. Swing minimum reward:risk 1.2 -> 1.0 (still editable). The remaining rejections of that kind have targets on the 1.2% floor against 1.5% stops: roughly zero expectancy after costs, correctly skipped.
+* **SEC filing headers are half of everything ingested** (4,721 of 9,389 events) and were classified from the company's NAME ("Acquisition Corp" = merger, "Item 5.07: vote" = election, "Private Credit Fund" = credit stress; 94 junk election events, 29 junk mergers).
+  They are now read for what they say: neutral by default, and a clear adverse signal for the 8-K items that really are bad news (1.03 bankruptcy, 3.01 delisting, 4.02 non-reliance, 2.04, 2.06, 1.02), which the veto uses.
+* `python3 -m paper_agent requeue [--apply]`: re-opens recent BUYs that were turned down by the now-corrected rules (eligibility-by-age, old-style vetoes, non-shock holds) so they are judged afresh against current prices and news. Real rejections (a real gap, poor reward:risk, wrong company, duplicates) stay final.
+
 # Build 28
 * **Database clean-up** (from analysing the owner's real database: 30 MB, 103 tables, only 58 used by this version; 95% of `decisions` written by the retired v4 app; news and events growing ~130 MB a month with nothing ever deleted).
   `python3 -m paper_agent db-maintain plan` shows exactly what would happen (changes nothing); `... apply` takes a verified backup, archives the legacy tables and the 4,962 v4 decisions to a separate file (row-counted on disk BEFORE

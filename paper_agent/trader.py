@@ -4,12 +4,13 @@ from __future__ import annotations
 import datetime as dt
 import time
 import json
+import re
 import math
 import os
 from typing import Callable, Dict, List, Optional
 
 from . import pretrade, candqueue, company, db, ev, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
-from .timeutil import add_trading_days, iso, market_state, parse_ts, utcnow
+from .timeutil import market_hours_between, add_trading_days, iso, market_state, parse_ts, utcnow
 
 PENDING = ("AWAITING_MARKET", "AWAITING_QUOTE", "AWAITING_CAPACITY", "HELD")
 
@@ -266,6 +267,33 @@ def backfill_reference_prices(conn, now) -> int:
     return n
 
 
+# Decisions the OLD rules turned down for reasons that have since been corrected (build 29): news that aged overnight, a "shock" that was not one, a veto from a story that was not about the company.
+SUPERSEDED_GATES = (re.compile(r"^eligibility [\d.]+ < [\d.]+"), re.compile(r"^VETO: news about \w[\w.-]* arrived after this BUY was decided"), re.compile(r"^HELD: market-wide shock"))
+
+
+def reopen_superseded(conn, now, hours: float = 36.0, apply: bool = False) -> List[dict]:
+    """List (and with apply=True, re-open as AWAITING_MARKET) recent BUYs that were rejected, vetoed or held by a rule that has since been corrected, so the corrected rules judge them afresh against
+    CURRENT prices and news. Everything else (a real gap, a real loss of edge, wrong company, duplicates, expiries) stays final."""
+    cutoff = iso(now - dt.timedelta(hours=hours))
+    out = []
+    for row in conn.execute("SELECT id,ticker,status,reason FROM decisions WHERE action='BUY' AND status IN ('REJECTED','VETOED','HELD') AND created>? ORDER BY id", (cutoff,)).fetchall():
+        try:
+            r = json.loads(row["reason"] or "{}")
+        except ValueError:
+            continue
+        gate = (r.get("gates") or [""])[-1]
+        if not r.get("candidate") or not any(p.match(gate) for p in SUPERSEDED_GATES):
+            continue
+        if conn.execute("SELECT 1 FROM positions WHERE decision_id=?", (row["id"],)).fetchone():
+            continue
+        out.append({"id": row["id"], "ticker": row["ticker"], "was": row["status"], "gate": gate[:110]})
+        if apply:
+            r["gates"] = list(r.get("gates") or []) + ["re-opened: the rule that turned this down was corrected; judged afresh against current prices and news"]
+            with db.tx(conn):
+                conn.execute("UPDATE decisions SET status='AWAITING_MARKET', reason=? WHERE id=?", (json.dumps(r, sort_keys=True, default=str), row["id"]))
+    return out
+
+
 def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict, now, quote_fn: Callable, md_fetch=None, intel: Optional[dict] = None, deadline: Optional[float] = None) -> dict:
     out = {"processed": 0, "executed": 0, "retried": 0, "deferred": 0, "errors": 0, "by_status": {}}
     icfg = cfg["intelligence"]
@@ -306,8 +334,10 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
     for row in conn.execute("SELECT * FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') ORDER BY COALESCE(ev_net,-9) DESC, id LIMIT 80").fetchall():
         c = candidate_from_decision(row)
         age = (now - parse_ts(row["created"])).total_seconds() / 3600 if parse_ts(row["created"]) else 999
-        total_age = ((c.get("age_hours") or 0) + age) if c else 999          # how old the NEWS is now = its age when decided + the time spent waiting
-        if not c or total_age > icfg["trade_event_max_age_hours"]:
+        born = (c.get("age_hours") or 0) if c else 0
+        created_at = parse_ts(row["created"])
+        total_age = (born + market_hours_between(created_at, now)) if (c and created_at) else 999        # how old the NEWS is on the MARKET clock: nights and weekends do not age it
+        if not c or total_age > icfg["trade_event_max_age_hours"] or born + age > float(icfg.get("stale_event_hours", 72)):          # ...but nothing is traded on news over 3 days old by the wall clock
             with db.tx(conn):
                 conn.execute("UPDATE decisions SET status='EXPIRED' WHERE id=?", (row["id"],))
             continue

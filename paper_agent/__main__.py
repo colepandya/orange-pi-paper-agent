@@ -6,7 +6,7 @@ import json
 import os
 import sys
 
-from . import VERSION, backup as backup_mod, config, db, net, pipeline, universe as universe_mod
+from . import VERSION, backup as backup_mod, config, db, net, pipeline, trader, universe as universe_mod
 from .config import CONFIG_DIR, DB_PATH, STATE_DIR
 from .timeutil import utcnow
 
@@ -40,6 +40,9 @@ def main(argv=None) -> int:
     mp.add_argument("--news-days", type=int)
     mp.add_argument("--log-days", type=int)
     mp.add_argument("--quiet", action="store_true")
+    rq = sub.add_parser("requeue", help="re-open recent BUYs that were turned down by a rule that has since been corrected (shows them; --apply does it)")
+    rq.add_argument("--hours", type=float, default=36)
+    rq.add_argument("--apply", action="store_true")
     sub.add_parser("common-words", help="learn which words are ordinary English from the stored news")
     rp2 = sub.add_parser("report", help="write the open/midday/close report (also pushed to your phone if a ntfy topic is set)")
     rp2.add_argument("--no-push", action="store_true")
@@ -88,6 +91,13 @@ def main(argv=None) -> int:
         conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
         res = evidence.recover(conn, pipeline.load_universe(), cfg, utcnow(), args.hours)
         print("recover: examined %(examined)d unrecorded events from the last %(h)gh -> queued %(queued)d trade candidate(s) for the next cycle; reasons: %(by_gate)s" % {**res, "h": args.hours})
+        return 0
+    if args.cmd == "requeue":
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        rows = trader.reopen_superseded(conn, utcnow(), args.hours, args.apply)
+        for r in rows:
+            print("  %-6s was %-9s %s" % (r["ticker"], r["was"], r["gate"]))
+        print("%d decision(s) %s." % (len(rows), "re-opened: the next cycle (within 5 minutes) judges them with the corrected rules" if args.apply else "would be re-opened. To do it:  ... requeue --apply"))
         return 0
     if args.cmd == "db-maintain":
         from . import maintain

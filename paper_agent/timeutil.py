@@ -202,6 +202,20 @@ def market_state(now: Optional[dt.datetime] = None) -> dict:
     return {"session": "CLOSED", "execution": False}
 
 
+def market_hours_between(start: dt.datetime, end: dt.datetime, ext_weight: float = 0.25, step_minutes: int = 15) -> float:
+    """Hours of MARKET time between two moments: the regular session counts fully, pre-market and after-hours at ``ext_weight``, nights / weekends / holidays not at all.
+    News that arrives after the close has had NO chance to be priced until the market reopens, so it must not age while the market is shut (it aged 17 hours overnight and lost 14 of 20 eligibility points)."""
+    if end <= start:
+        return 0.0
+    total, t, step = 0.0, start, dt.timedelta(minutes=step_minutes)
+    while t < end:
+        nxt = min(end, t + step)
+        s = market_state(t + (nxt - t) / 2)["session"]
+        total += (1.0 if s == "REGULAR" else ext_weight if s in ("PRE_MARKET", "AFTER_HOURS") else 0.0) * (nxt - t).total_seconds() / 3600.0
+        t = nxt
+    return total
+
+
 def last_market_open(now: Optional[dt.datetime] = None) -> dt.datetime:
     """UTC time of the most recent regular-session open (09:30 New York) at or before ``now``."""
     n = (now or utcnow()).astimezone(NY)

@@ -15,14 +15,18 @@ WAR = "China launches missile strikes on Taiwan as global markets plunge"
 BAD = "NVIDIA cuts full-year outlook as DOJ opens probe into export violations"
 
 
+SRC2 = TL.SRC + [dict(TL.SRC[0], id="t2", name="Wire2", url="http://y/rss")]       # a second outlet: a real shock is reported by more than one
+
+
 class Scenario(TL.Base):
     def runTest(self):
         pass
 
-    def cyc(self, now, titles=()):
+    def cyc(self, now, titles=(), sources=None):
         self.mkt.now = now
         items = [(t, "", RF(now - dt.timedelta(minutes=10))) for t in titles]
-        return pipeline.run_cycle(self.c, self.cfg, H.universe(), TL.SRC, self.deps(items), now)
+        srcs = sources or (SRC2 if WAR in titles else TL.SRC)                          # WAR = a widely reported shock: two outlets carry it
+        return pipeline.run_cycle(self.c, self.cfg, H.universe(), srcs, self.deps(items), now)
 
     def buy(self):
         return self.c.execute("SELECT status,reason FROM decisions WHERE ticker='NVDA' AND action='BUY' ORDER BY id LIMIT 1").fetchone()

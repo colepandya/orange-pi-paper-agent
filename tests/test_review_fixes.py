@@ -172,8 +172,8 @@ class TestTheQueueAgesByTheNewsNotJustTheDecision(unittest.TestCase):
             w.cyc(TL.T_PRE, [TL.NVDA_NEWS])
             w.cyc(TL.T_PRE + dt.timedelta(hours=10))
             self.assertEqual(w.status(), "AWAITING_MARKET")                          # ~11 h old news: still good for the open
-            w.cyc(TL.T_PRE + dt.timedelta(hours=26))
-            self.assertEqual(w.status(), "EXPIRED")                                  # a weekend-length wait: dropped, not traded late
+            w.cyc(TL.T_PRE + dt.timedelta(hours=80))
+            self.assertEqual(w.status(), "EXPIRED")                                  # a weekend-length wait (over 3 days by the wall clock): dropped, not traded late
         finally:
             w.tearDown()
 

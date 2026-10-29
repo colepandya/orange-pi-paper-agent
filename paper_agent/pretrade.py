@@ -10,26 +10,38 @@ from __future__ import annotations
 import datetime as dt
 from typing import Optional
 
+from . import nlp
 from .timeutil import iso, parse_ts
 
 
-def adverse_company_news(conn, ticker: str, since: str, cfg: dict, exclude_event: Optional[int] = None) -> Optional[dict]:
+def adverse_company_news(conn, ticker: str, since: str, cfg: dict, exclude_event: Optional[int] = None, universe=None) -> Optional[dict]:
+    """Later bad news about THIS company. Market wraps, roundups and "X slides, Y firms" headlines mention a ticker without being about it:
+    with a universe, the story must name this company FIRST (as its subject); commentary and recaps never veto."""
     r = cfg["risk"]
-    row = conn.execute("SELECT id,headline,direction,magnitude,credibility,created,event_type FROM events WHERE created>? AND tickers_json LIKE ? AND id!=? AND scope IN ('company','sector') "
-                       "AND direction<=? AND magnitude>=? AND credibility>=0.5 AND gate IS NOT 'stale' ORDER BY direction ASC, magnitude DESC LIMIT 1",
-                       (since, '%"' + ticker + '"%', exclude_event or -1, float(r["veto_news_direction"]), float(r["veto_news_magnitude"]))).fetchone()
-    return dict(row) if row else None
+    rows = conn.execute("SELECT id,headline,direction,magnitude,credibility,created,event_type FROM events WHERE created>? AND tickers_json LIKE ? AND id!=? AND scope IN ('company','sector') "
+                        "AND direction<=? AND magnitude>=? AND credibility>=0.5 AND gate IS NOT 'stale' AND gate IS NOT 'too_many_companies' AND event_type NOT IN ('price_recap','opinion_piece') "
+                        "ORDER BY direction ASC, magnitude DESC LIMIT 15",
+                        (since, '%"' + ticker + '"%', exclude_event or -1, float(r["veto_news_direction"]), float(r["veto_news_magnitude"]))).fetchall()
+    for row in rows:
+        if universe is None or (universe.subjects(row["headline"]) or [None])[0] == ticker:
+            return dict(row)
+    return None
 
 
 def market_shock(conn, since: str, now, cfg: dict) -> Optional[dict]:
+    """A real shock is a dangerous KIND of event (crash, war escalation, emergency policy, financial stress, exchange outage) reported by at least ``shock_min_sources`` outlets.
+    (It used to be ANY macro-scope story scored strongly negative: "Bitcoin weakens as hawkish Fed", a video-game controversy and an SEC filing header all froze the whole queue.)"""
     r = cfg["risk"]
     hours = float(r["shock_hold_hours"])
     if hours <= 0:
         return None
-    row = conn.execute("SELECT id,headline,direction,magnitude,credibility,created,event_type FROM events WHERE created>? AND created>? AND scope NOT IN ('company','sector') "
-                       "AND direction<=? AND magnitude>=0.6 AND credibility>=0.6 ORDER BY direction ASC, magnitude DESC LIMIT 1",
-                       (since, iso(now - dt.timedelta(hours=hours)), float(r["shock_direction"]))).fetchone()
-    return dict(row) if row else None
+    types = sorted(nlp.SHOCK_TYPES)
+    rows = conn.execute("SELECT id,headline,direction,magnitude,credibility,created,event_type,source FROM events WHERE created>? AND created>? AND scope NOT IN ('company','sector') "
+                        "AND event_type IN (%s) AND direction<=? AND magnitude>=0.6 AND credibility>=0.6 ORDER BY direction ASC, magnitude DESC LIMIT 30" % ",".join("?" * len(types)),
+                        (since, iso(now - dt.timedelta(hours=hours))) + tuple(types) + (float(r["shock_direction"]),)).fetchall()
+    if rows and len({x["source"] for x in rows}) >= int(r.get("shock_min_sources", 2)):
+        return dict(rows[0])
+    return None
 
 
 def gap(price: float, ref: Optional[float], cfg: dict) -> Optional[float]:
@@ -56,7 +68,7 @@ def review(conn, cfg: dict, c: dict, decided_at: str, now, price: Optional[float
     if wrong:
         return {"action": "veto", "reason": wrong}
     if r.get("veto_adverse_news", True):
-        n = adverse_company_news(conn, c["ticker"], decided_at, cfg, c.get("event_id"))
+        n = adverse_company_news(conn, c["ticker"], decided_at, cfg, c.get("event_id"), universe)
         if n:
             return {"action": "veto", "reason": "VETO: news about %s arrived after this BUY was decided and points the other way (%s, direction %+.2f): \"%s\"" % (c["ticker"], n["event_type"], n["direction"], (n["headline"] or "")[:110])}
         s = market_shock(conn, decided_at, now, cfg)

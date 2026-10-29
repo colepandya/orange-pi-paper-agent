@@ -278,7 +278,7 @@ class TestNoCandidateIsEverSilentlyDropped(unittest.TestCase):
     def test_deferred_candidates_expire_with_the_event_instead_of_lingering(self):
         c = H.fresh_db()
         self.run_entries(c, self.candidates(5))
-        self.run_entries(c, [], NOW + dt.timedelta(hours=30))                     # older than the 24h trade window
+        self.run_entries(c, [], NOW + dt.timedelta(hours=80))                     # older than 3 days by the wall clock (overnight hours do not age news, so 30h would not be enough)
         self.assertEqual(c.execute("SELECT COUNT(*) FROM decisions WHERE status='EXPIRED'").fetchone()[0], 2)
 
     def test_the_funnel_counts_deferred_decisions(self):

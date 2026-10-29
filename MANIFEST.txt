@@ -123,6 +123,7 @@ tests/test_intel.py
 tests/test_keys.py
 tests/test_live_findings.py
 tests/test_maintain.py
+tests/test_open_blockers.py
 tests/test_performance.py
 tests/test_polish.py
 tests/test_preflight.py

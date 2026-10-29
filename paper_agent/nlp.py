@@ -294,7 +294,31 @@ def _score_type(et: EventType, title_n: str, body_n: str):
     return score, start, hit
 
 
+# SEC filing headers ("8-K - ACME Acquisition Corp (0001234567) (Filer)") are HALF of everything ingested and carry no news in the title. They used to be classified from the COMPANY'S NAME:
+# "Acquisition Corp" became a merger, "Item 5.07: vote" an election, "Private Credit Fund" credit stress. The 8-K ITEM numbers in the summary are what they actually say.
+_FILING = re.compile(r"^(?:8-K|8-K/A|10-K|10-K/A|10-Q|10-Q/A|20-F|6-K|40-F|[345]|[345]/A|SC 13[DG](?:/A)?|SCHEDULE 13[DG](?:/A)?|S-1|S-1/A|S-3|S-3ASR|S-8|424B\d|FWP|DEF 14A|DEFA14A|DEF 14C|PRE 14A|13F-HR|NT 10-[KQ]|SD|11-K|D|144|CORRESP|UPLOAD|EFFECT|25-NSE|15-12[BG]|N-[A-Z0-9-]+|497[A-Z]*|POS AM|ARS|X-17A-5) - ")
+# 8-K items that are genuinely adverse: (direction, magnitude, what it says). Everything else (results, agreements, officers, Reg FD, exhibits, votes) is neutral until the actual document is read.
+_ADVERSE_ITEMS = {"1.03": (-0.90, 0.85, "bankruptcy or receivership"), "3.01": (-0.60, 0.70, "delisting notice"), "4.02": (-0.70, 0.75, "non-reliance on previously issued financial statements"),
+                  "2.04": (-0.50, 0.55, "triggering event that accelerates a debt obligation"), "2.06": (-0.40, 0.50, "material impairment"), "1.02": (-0.30, 0.40, "termination of a material agreement")}
+
+
+def _analyze_filing(title: str, summary: str) -> Dict:
+    a = _analyze_text("", "")                                                           # a neutral baseline in exactly the shape every caller expects
+    items = re.findall(r"Item (\d\.\d\d)", summary or "")
+    worst = min((_ADVERSE_ITEMS[i] for i in items if i in _ADVERSE_ITEMS), default=None, key=lambda v: v[0])
+    a.update({"event_type": "sec_filing", "scope": "company", "direction": 0.0, "magnitude": 0.10, "filing_items": sorted(set(items))})
+    if worst and re.match(r"^8-K", title):
+        a.update({"event_type": "bankruptcy_distress", "direction": worst[0], "magnitude": worst[1], "filing_note": worst[2]})
+    return a
+
+
 def analyze(title: str, summary: str = "") -> Dict:
+    if _FILING.match(title or ""):
+        return _analyze_filing(title, summary)
+    return _analyze_text(title, summary)
+
+
+def _analyze_text(title: str, summary: str = "") -> Dict:
     """Classify an item. Returns dict(event_type, scope, direction[-1..1], magnitude[0..1], amount_usd, regions, matched, negated, hedged,
     decay_days, power, horizon)."""
     title_n, body_n = norm(title) + (" qmarkend" if (title or "").rstrip().endswith("?") else ""), norm(summary)[:1500]

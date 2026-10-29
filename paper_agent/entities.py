@@ -157,6 +157,27 @@ class Universe:
     def meta(self, t: str) -> dict:
         return self.watch.get(t, {})
 
+    def subjects(self, title: str) -> List[str]:
+        """The companies a HEADLINE names, in the order it names them (the first is the subject: "Alphabet slides, Microsoft firms" is about Alphabet)."""
+        hits = [t for t, c, _h in self.match(title, "") if c >= 0.6]
+        if not hasattr(self, "_by_ticker"):
+            bt: Dict[str, List[str]] = {}
+            for entries in self.index.values():
+                for ph, tk, _s, _c in entries:
+                    bt.setdefault(tk, []).append(ph)
+            self._by_ticker = bt
+        low, up = " " + norm(title) + " ", (title or "").upper()
+
+        def pos(t: str) -> int:
+            best = 10 ** 6
+            for ph in self._by_ticker.get(t, ()):
+                i = low.find(" " + ph + " ")
+                if i >= 0:
+                    best = min(best, i)
+            m = re.search(r"(?<![A-Z0-9])%s(?![A-Z0-9])" % re.escape(t), up)
+            return min(best, m.start()) if m else best
+        return sorted(hits, key=pos)
+
     def match(self, title: str, summary: str = "", max_tickers: int = 8) -> List[Tuple[str, float, str]]:
         """Returns [(ticker, confidence, how)] sorted by confidence."""
         raw = (title or "") + " . " + (summary or "")[:1200]
