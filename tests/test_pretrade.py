@@ -147,5 +147,79 @@ class TestLastLook(unittest.TestCase):
             s.tearDown()
 
 
+class TestBuysQueuedByOlderBuilds(unittest.TestCase):
+    """REGRESSION: a BUY queued by an older build has no 'previous close' stored, so the gap check silently skipped it and it executed straight into a -9% gap."""
+
+    def legacy(self, w):
+        w.cyc(TL.T_PRE, [TL.NVDA_NEWS])
+        d = w.c.execute("SELECT id,reason FROM decisions WHERE ticker='NVDA' ORDER BY id LIMIT 1").fetchone()
+        r = json.loads(d["reason"])
+        r.pop("ref_price", None)
+        r.pop("decided_at", None)                                                    # exactly what an older build stored
+        w.c.execute("UPDATE decisions SET reason=? WHERE id=?", (json.dumps(r), d["id"]))
+        return d["id"]
+
+    def reason(self, w, did):
+        return json.loads(w.c.execute("SELECT reason FROM decisions WHERE id=?", (did,)).fetchone()[0])
+
+    def test_the_reference_is_filled_in_while_the_market_is_closed_and_the_gap_then_cancels_the_buy(self):
+        w = Scenario()
+        w.setUp()
+        try:
+            did = self.legacy(w)
+            w.cyc(TL.T_PRE + dt.timedelta(minutes=5))
+            r = self.reason(w, did)
+            self.assertAlmostEqual(r["ref_price"], 120.0, places=4)                  # the previous close
+            self.assertTrue(r["decided_at"])
+            w.mkt.price["NVDA"] = 109.0
+            w.cyc(TL.T_OPEN)
+            self.assertEqual(w.c.execute("SELECT status FROM decisions WHERE id=?", (did,)).fetchone()[0], "VETOED")
+            self.assertEqual(w.positions(), 0)
+        finally:
+            w.tearDown()
+
+    def test_a_normal_gap_still_executes_and_an_existing_reference_is_never_overwritten(self):
+        w = Scenario()
+        w.setUp()
+        try:
+            did = self.legacy(w)
+            r = self.reason(w, did)
+            r["ref_price"] = 119.0                                                    # a real reference stored earlier
+            w.c.execute("UPDATE decisions SET reason=? WHERE id=?", (json.dumps(r), did))
+            w.cyc(TL.T_PRE + dt.timedelta(minutes=5))
+            self.assertEqual(self.reason(w, did)["ref_price"], 119.0)
+            w.mkt.price["NVDA"] = 118.2
+            w.cyc(TL.T_OPEN)
+            self.assertEqual(w.c.execute("SELECT status FROM decisions WHERE id=?", (did,)).fetchone()[0], "EXECUTED")
+        finally:
+            w.tearDown()
+
+    def test_it_never_backfills_during_the_session_when_the_last_bar_is_todays_live_price(self):
+        w = Scenario()
+        w.setUp()
+        try:
+            did = self.legacy(w)
+            w.mkt.down = {"twelve", "finnhub", "alpaca", "yahoo"}                      # at the open no price can be verified, so the BUY stays queued
+            w.cyc(TL.T_OPEN)
+            self.assertEqual(w.c.execute("SELECT status FROM decisions WHERE id=?", (did,)).fetchone()[0], "AWAITING_QUOTE")
+            self.assertIsNone(self.reason(w, did).get("ref_price"))
+        finally:
+            w.tearDown()
+
+    def test_stale_or_missing_data_means_no_gap_test_rather_than_a_wrong_one(self):
+        w = Scenario()
+        w.setUp()
+        try:
+            did = self.legacy(w)
+            w.c.execute("UPDATE market_series SET day=date(day,'-60 days') WHERE symbol='NVDA'")        # the whole history is two months old
+            w.cyc(TL.T_PRE + dt.timedelta(minutes=5))
+            self.assertIsNone(self.reason(w, did).get("ref_price"))
+            w.c.execute("DELETE FROM market_series WHERE symbol='NVDA'")
+            w.cyc(TL.T_PRE + dt.timedelta(minutes=10))                                         # no bar at all: must not crash
+            self.assertIsNone(self.reason(w, did).get("ref_price"))
+        finally:
+            w.tearDown()
+
+
 if __name__ == "__main__":
     unittest.main()

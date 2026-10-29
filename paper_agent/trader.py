@@ -242,11 +242,39 @@ def _defer(conn, c: dict, now, why: str) -> int:
         return _decision(conn, c, "AWAITING_CAPACITY", "BUY", reason, eligibility_score(c), now, None, None, None, "", c.get("thesis_key"))
 
 
+def backfill_reference_prices(conn, now) -> int:
+    """BUYs queued by an OLDER build have no 'previous close' to measure the overnight gap against, so the gap check would silently skip them (one executed straight into a -9% gap in testing).
+    While the market is closed the last close IS that reference, so fill it in then; never during the session, when the 'last' bar is today's live price."""
+    if market_state(now)["execution"]:
+        return 0
+    n = 0
+    for row in conn.execute("SELECT id,ticker,created,reason FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') AND ticker!=''").fetchall():
+        try:
+            r = json.loads(row["reason"] or "{}")
+        except ValueError:
+            continue
+        if not isinstance(r, dict) or r.get("ref_price"):
+            continue
+        bar = conn.execute("SELECT close,day FROM market_series WHERE symbol=? ORDER BY day DESC LIMIT 1", (row["ticker"],)).fetchone()
+        when = parse_ts(bar["day"]) if bar else None
+        if not bar or not bar["close"] or not when or (now - when).total_seconds() > 6 * 86400:
+            continue                                                    # no recent daily bar: better no gap test than a wrong one
+        r["ref_price"] = float(bar["close"])
+        r.setdefault("decided_at", row["created"])
+        conn.execute("UPDATE decisions SET reason=? WHERE id=?", (json.dumps(r, sort_keys=True, default=str), row["id"]))
+        n += 1
+    return n
+
+
 def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict, now, quote_fn: Callable, md_fetch=None, intel: Optional[dict] = None, deadline: Optional[float] = None) -> dict:
     out = {"processed": 0, "executed": 0, "retried": 0, "deferred": 0, "errors": 0, "by_status": {}}
     icfg = cfg["intelligence"]
     cap = int(cfg["risk"]["max_new_per_cycle"])          # 0 = unlimited: funds / risk limits / the time budget are the real limits
     new_exec = 0                                    # executions this cycle (retries AND fresh) count against the per-cycle cap
+    try:
+        out["backfilled_ref"] = backfill_reference_prices(conn, now)
+    except Exception:  # noqa: BLE001 - bookkeeping must never stop trading
+        out["backfilled_ref"] = 0
 
     def late() -> bool:
         return deadline is not None and time.time() > deadline            # out of time: the rest stay in the durable queue for the next cycle

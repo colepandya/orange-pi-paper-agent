@@ -1,3 +1,7 @@
+# Build 24
+* **Fixed: BUYs queued by an older build had no overnight-gap protection.** They stored no "previous close", so the gap check silently skipped them (in testing one executed straight into a -9% gap). While the market is
+  closed, every waiting BUY that lacks a reference now gets the last close filled in (never during the session, never over an existing reference, never from stale data).
+
 # Build 23
 * **Performance tab (new):** insights on every trade: realized P&L, win rate, profit factor, average win/loss, average hold, cumulative and daily P&L charts, and breakdowns by how trades ended, kind of news, hold time,
   time of day and stock; biggest wins/losses and every closed trade with a "Why?" link; what happened to every BUY idea. A plain-English verdict that refuses to judge fewer than ~20 trades and points at specific
