@@ -1,3 +1,11 @@
+# Build 30
+* **A "shock" must move the market.** After build 29 a war story ("At least 14 people killed in attack on Ukraine train station": war_escalation, many outlets) still froze every BUY for 6 hours. A headline of a dangerous kind reported by 2+ outlets now only freezes new BUYs
+  if SPY is ALSO down at least 1% versus its previous close (live quote from the 10-minute probe, else today's bar). If the market's move is unknown, a headline alone is not proof. Settings -> Risk limits: "Market must also be down at least" (0 = headlines alone suffice).
+* **US states, countries and cities can no longer be company names** ("...over Alaska campaign investigation" was a trade candidate for Alaska Air Group). The full names still match ("Alaska Air Group", "Texas Instruments").
+* **A failing retry is never silent.** If retrying a waiting BUY threw an exception, the decision was left exactly as it was (still "waiting", old note showing) and a NEW `ERROR` decision was added every cycle: from the Funnel it looked stuck, with no reason.
+  The failure is now written onto the waiting decision itself ("retry failed (2 in a row) at 08:42 UTC: <error>"), which the Funnel and Decisions pages show as what it is waiting for; no new rows are created; five failures in a row turn it into an `ERROR`;
+  and the note disappears as soon as a retry works. A brand-new candidate that fails is still recorded as an `ERROR` decision, as before.
+
 # Build 29
 * **Why NO queued BUY executed at the open** (found by replaying the owner's real database: 68 queued BUYs, 0 executed; after the fixes the same open buys 8 stocks, ~$538k, sized by edge). Four rules were rejecting almost everything for the wrong reasons:
   1. **News aged on the wall clock.** A story from just after the close lost ~14 of 20 eligibility points overnight while the market was shut (27 rejections, all 52-65 vs a 65 threshold). News now ages on the MARKET clock

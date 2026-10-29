@@ -84,12 +84,22 @@ def event(c, kind, scope, direction, mag, source, created, cred=0.9, headline="x
               ("%s-%s-%s" % (headline[:20], source, created), created, created, source, headline, kind, scope, direction, mag, cred, tickers, gate))
 
 
+def spy(c, prev, now_price, at_time, probe=True):
+    """SPY's previous close and where it trades now (as the 10-minute quote probe recorded it)."""
+    c.execute("INSERT OR REPLACE INTO market_series(symbol,day,open,high,low,close,volume) VALUES('SPY','2026-10-28',?,?,?,?,1)", (prev, prev, prev, prev))
+    if probe:
+        c.execute("INSERT INTO quote_consensus(ticker,created,session,status,consensus_price,provider_count,max_deviation) VALUES('SPY',?,'REGULAR','PASS',?,2,0.0)", (iso(at_time - dt.timedelta(minutes=5)), now_price))
+
+
 class TestAShockHasToBeAShock(unittest.TestCase):
     NOW = at(2026, 10, 29, 13, 45)
     SINCE = iso(at(2026, 10, 29, 8, 0))
     T = iso(at(2026, 10, 29, 12, 0))
 
-    def shock(self, c, **risk):
+    def shock(self, c, market=-0.02, **risk):
+        """market = how far SPY is down today (None = no market data at all)."""
+        if market is not None:
+            spy(c, prev=100.0, now_price=100.0 * (1 + market), at_time=self.NOW)
         cfg = H.cfg()
         cfg["risk"].update(shock_hold_hours=6, shock_direction=-0.6, **risk)
         return pretrade.market_shock(c, self.SINCE, self.NOW, cfg)
@@ -122,6 +132,34 @@ class TestAShockHasToBeAShock(unittest.TestCase):
             event(c2, "market_crash", "macro", -0.85, 0.97, src, iso(at(2026, 10, 29, 3, 0)), headline="crash")                      # older than the 6-hour window
             event(c2, "market_crash", "company", -0.85, 0.97, src, self.T, headline="crash")                                         # about one company
         self.assertIsNone(self.shock(c2))
+
+    def test_a_war_story_alone_does_not_freeze_trading_the_market_must_actually_be_falling(self):
+        """The 30 Oct case: 'At least 14 people killed in attack on Ukraine train station' (war_escalation, -0.85, many outlets) held an AVGO BUY through the whole session."""
+        h = "At least 14 people killed in attack on Ukraine train station"
+        for mkt in (-0.002, 0.004, None):                                                    # market flat / up / unknown
+            c = H.fresh_db()
+            for src in ("Wire", "Wire2", "Wire3"):
+                event(c, "war_escalation", "macro", -0.85, 0.8, src, self.T, headline=h)
+            self.assertIsNone(self.shock(c, market=mkt), mkt)
+        c = H.fresh_db()
+        for src in ("Wire", "Wire2"):
+            event(c, "war_escalation", "macro", -0.85, 0.8, src, self.T, headline=h)
+        self.assertEqual(self.shock(c, market=-0.015)["event_type"], "war_escalation")        # the same story WITH a falling market is a shock
+        self.assertIsNone(self.shock(c, market=-0.015, shock_market_drop_pct=0.02))           # the owner can demand a bigger fall
+        self.assertIsNotNone(self.shock(c, market=None, shock_market_drop_pct=0))              # 0 = headlines alone suffice (the old behaviour, on request)
+
+    def test_the_market_move_comes_from_the_live_probe_else_todays_bar(self):
+        c = H.fresh_db()
+        c.execute("INSERT OR REPLACE INTO market_series(symbol,day,open,high,low,close,volume) VALUES('SPY','2026-10-28',100,100,100,100,1)")
+        self.assertIsNone(pretrade.market_reaction(c, self.NOW))                                  # no data today: unknown, never assumed
+        c.execute("INSERT INTO market_series(symbol,day,open,high,low,close,volume) VALUES('SPY','2026-10-29',99,99,98,98.4,1)")
+        self.assertAlmostEqual(pretrade.market_reaction(c, self.NOW), -0.016, places=4)           # today's bar
+        c.execute("INSERT INTO quote_consensus(ticker,created,session,status,consensus_price,provider_count,max_deviation) VALUES('SPY',?,'REGULAR','PASS',97.0,2,0)", (iso(self.NOW - dt.timedelta(minutes=10)),))
+        self.assertAlmostEqual(pretrade.market_reaction(c, self.NOW), -0.03, places=4)            # a fresh probe quote wins
+        self.assertAlmostEqual(pretrade.market_reaction(c, self.NOW + dt.timedelta(hours=2)), -0.016, places=4)      # a probe quote older than 45 minutes is ignored: back to today's bar
+        c.execute("DELETE FROM quote_consensus")
+        c.execute("INSERT INTO quote_consensus(ticker,created,session,status,consensus_price,provider_count,max_deviation) VALUES('SPY',?,'PRE_MARKET','VALUATION_ONLY',90.0,1,0)", (iso(self.NOW - dt.timedelta(minutes=10)),))
+        self.assertAlmostEqual(pretrade.market_reaction(c, self.NOW), -0.016, places=4)           # a stale pre-market valuation is never treated as today's move
 
     def test_a_confirmed_crash_still_holds_the_buy_end_to_end(self):
         w = TP.Scenario()
@@ -273,6 +311,81 @@ class TestReopeningWhatTheOldRulesGotWrong(unittest.TestCase):
                 self.assertEqual(sqlite3.connect(path).execute("SELECT status FROM decisions WHERE id=?", (did,)).fetchone()[0], "AWAITING_MARKET")
             finally:
                 cli.DB_PATH = saved
+        finally:
+            w.tearDown()
+
+
+class TestAFailingRetryIsNeverSilent(unittest.TestCase):
+    """The owner's Funnel showed re-opened BUYs 'waiting' with their old note and nothing in Positions. A retry that THROWS used to leave the decision untouched and add a new ERROR row each cycle, so it looked stuck with no reason."""
+
+    def boom(self, *a, **k):
+        raise RuntimeError("boom: provider returned something unexpected")
+
+    def test_the_failure_is_written_on_the_waiting_decision_without_spawning_rows(self):
+        w = TP.Scenario()
+        w.setUp()
+        try:
+            w.cyc(TL.T_PRE, [TL.NVDA_NEWS])
+            before = w.c.execute("SELECT COUNT(*) FROM decisions").fetchone()[0]
+            real = trader.process_candidate
+            with mock.patch.object(trader, "process_candidate", side_effect=lambda *a, **k: self.boom() if k.get("existing_decision") else real(*a, **k)):
+                w.cyc(TL.T_OPEN)
+                w.cyc(TL.T_OPEN + dt.timedelta(minutes=5))
+            self.assertEqual(w.c.execute("SELECT COUNT(*) FROM decisions").fetchone()[0], before)                 # no new ERROR rows each cycle
+            self.assertEqual(w.buy()["status"], "AWAITING_MARKET")                                                 # still waiting, not wrongly dead after two failures
+            self.assertRegex(w.gate(), r"^retry failed \(2 in a row\) at 13:45 UTC: RuntimeError: boom")           # ...and the page can say WHY it is stuck
+        finally:
+            w.tearDown()
+
+    def test_five_failures_in_a_row_become_an_error_and_a_success_clears_the_count(self):
+        w = TP.Scenario()
+        w.setUp()
+        try:
+            w.cyc(TL.T_PRE, [TL.NVDA_NEWS])
+            real = trader.process_candidate
+            flaky = lambda *a, **k: self.boom() if k.get("existing_decision") else real(*a, **k)           # noqa: E731
+            with mock.patch.object(trader, "process_candidate", side_effect=flaky):
+                for i in range(2):
+                    w.cyc(TL.T_OPEN + dt.timedelta(minutes=5 * i))
+            self.assertIn("retry failed (2 in a row)", w.gate())
+            w.cyc(TL.T_OPEN + dt.timedelta(minutes=15))                                                          # the fault clears: it trades, and the failure note is gone
+            self.assertEqual((w.buy()["status"], w.positions()), ("EXECUTED", 1))
+            self.assertNotIn("retry_failures", w.buy()["reason"])
+        finally:
+            w.tearDown()
+        w = TP.Scenario()
+        w.setUp()
+        try:
+            w.cyc(TL.T_PRE, [TL.NVDA_NEWS])
+            with mock.patch.object(trader, "process_candidate", side_effect=lambda *a, **k: self.boom()):
+                for i in range(5):
+                    w.cyc(TL.T_OPEN + dt.timedelta(minutes=5 * i))
+            self.assertEqual(w.buy()["status"], "ERROR")                                                         # a permanent fault is eventually called what it is
+            self.assertIn("retry failed (5 in a row)", w.gate())
+        finally:
+            w.tearDown()
+
+    def test_the_funnel_shows_the_failure_as_what_the_decision_is_waiting_for(self):
+        w = TP.Scenario()
+        w.setUp()
+        try:
+            w.cyc(TL.T_PRE, [TL.NVDA_NEWS])
+            real = trader.process_candidate
+            with mock.patch.object(trader, "process_candidate", side_effect=lambda *a, **k: self.boom() if k.get("existing_decision") else real(*a, **k)):
+                w.cyc(TL.T_OPEN)
+            from paper_agent import funnel
+            pend = funnel.report(w.c, 6, TL.T_OPEN)["pending"]
+            self.assertIn("retry failed", pend[0]["waiting_for"])
+        finally:
+            w.tearDown()
+
+    def test_a_fresh_candidate_that_fails_is_still_a_visible_error_decision(self):
+        w = TP.Scenario()
+        w.setUp()
+        try:
+            with mock.patch.object(trader, "process_candidate", side_effect=lambda *a, **k: self.boom()):
+                w.cyc(TL.T_PRE, [TL.NVDA_NEWS])
+            self.assertEqual([r[0] for r in w.c.execute("SELECT status FROM decisions")], ["ERROR"])
         finally:
             w.tearDown()
 

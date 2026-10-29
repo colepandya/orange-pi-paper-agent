@@ -4,11 +4,12 @@ import json
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import helpers as H  # noqa: E402
 import test_trade_lifecycle as TL  # noqa: E402
-from paper_agent import funnel, pipeline, report  # noqa: E402
+from paper_agent import pretrade, funnel, pipeline, report  # noqa: E402
 
 RF = TL.RF
 WAR = "China launches missile strikes on Taiwan as global markets plunge"
@@ -19,8 +20,19 @@ SRC2 = TL.SRC + [dict(TL.SRC[0], id="t2", name="Wire2", url="http://y/rss")]    
 
 
 class Scenario(TL.Base):
+    reaction = -0.02                                                                    # SPY down 2% on the day: a real shock is confirmed by the market itself (tests can override)
+
     def runTest(self):
         pass
+
+    def setUp(self):
+        super().setUp()
+        self._rx = mock.patch.object(pretrade, "market_reaction", side_effect=lambda *a, **k: self.reaction)
+        self._rx.start()
+
+    def tearDown(self):
+        self._rx.stop()
+        super().tearDown()
 
     def cyc(self, now, titles=(), sources=None):
         self.mkt.now = now

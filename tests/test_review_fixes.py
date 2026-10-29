@@ -16,7 +16,7 @@ from paper_agent.entities import Universe  # noqa: E402
 ROWS = [("SEAGATE TECHNOLOGY HOLDINGS PLC", "STX"), ("MICROSOFT CORP", "MSFT"), ("Broadcom Inc.", "AVGO"), ("NISOURCE INC.", "NI"), ("ServiceNow, Inc.", "NOW"), ("Alphabet Inc.", "GOOGL"),
         ("Gemini Space Station, Inc.", "GEMI"), ("HELEN OF TROY LTD", "HELE"), ("NBT BANCORP INC", "NBTB"), ("NASDAQ, INC.", "NDAQ"), ("Bancorp, Inc.", "TBBK"), ("GARMIN LTD", "GRMN"),
         ("MICRON TECHNOLOGY INC", "MU"), ("INTERCONTINENTAL EXCHANGE, INC.", "ICE"), ("Freedom Holding Corp.", "FRHC"), ("GEN DIGITAL INC.", "GEN"), ("EQUINIX INC", "EQIX"),
-        ("POWELL INDUSTRIES INC", "POWL"), ("Jordan Industries Inc", "JORD"), ("NVIDIA CORP", "NVDA"), ("Apple Inc.", "AAPL"), ("Amazon.com, Inc.", "AMZN"), ("Main Street Capital Corp", "MAIN"), ("CASSIDY HOLDINGS CORP", "CSDY")]
+        ("POWELL INDUSTRIES INC", "POWL"), ("Jordan Industries Inc", "JORD"), ("NVIDIA CORP", "NVDA"), ("Apple Inc.", "AAPL"), ("Amazon.com, Inc.", "AMZN"), ("Main Street Capital Corp", "MAIN"), ("CASSIDY HOLDINGS CORP", "CSDY"), ("ALASKA AIR GROUP, INC.", "ALK"), ("TEXAS INSTRUMENTS INC", "TXN")]
 
 
 def uni():
@@ -64,6 +64,9 @@ class TestAttribution(unittest.TestCase):
         self.assertEqual(found(u, "Sen. Warren Questions Jordan Hearing", ""), [])                                                             # first names / politicians
         self.assertEqual(found(u, "Google Gemini Gets New Features", ""), ["GOOGL"])                                                           # an AI product is not Gemini Space Station
         self.assertEqual(found(u, "President Powell Addresses the Fed", ""), [])                                                               # person-title guard
+        self.assertEqual(found(u, "Trump again calls for prosecution of Mary Peltola as turmoil grows over Alaska campaign investigation", ""), [])      # a US state is not Alaska Air Group
+        self.assertEqual(found(u, "Alaska Air Group raises full-year outlook", ""), ["ALK"])                                                    # ...but the airline is still found by its name
+        self.assertEqual(found(u, "Texas Instruments beats estimates and raises guidance", ""), ["TXN"])
         self.assertEqual(found(u, "Sen. Cassidy Questions Fed Chair at Hearing", ""), [])                                                      # a person NOT in any name list: only the title guard can know
         self.assertEqual(found(u, "Cassidy Holdings Raises Full-Year Outlook", ""), ["CSDY"])                                                  # ...while the real company is still found
 

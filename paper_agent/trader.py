@@ -308,14 +308,30 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
         return deadline is not None and time.time() > deadline            # out of time: the rest stay in the durable queue for the next cycle
 
     def attempt(c: dict, **kw) -> dict:
-        """One candidate, isolated: an exception becomes a visible ERROR decision instead of aborting every candidate after it."""
+        """One candidate, isolated: an exception can never abort every candidate after it.
+        A FRESH candidate that fails becomes a visible ERROR decision. A decision that was already WAITING is not silently left as it was (that looked like "stuck, nothing happens", with a new ERROR row
+        each cycle): the failure is written onto that same decision, where the Funnel and Decisions pages show it, and after 5 failures in a row it becomes an ERROR."""
         try:
             return process_candidate(conn, cfg, universe, c, regime, now, quote_fn, md_fetch, intel=intel, **kw)
         except Exception as e:  # noqa: BLE001
             out["errors"] += 1
+            msg = "%s: %s" % (type(e).__name__, str(e)[:200])
+            existing = kw.get("existing_decision")
+            if existing:
+                try:
+                    with db.tx(conn):
+                        raw = conn.execute("SELECT reason FROM decisions WHERE id=?", (existing,)).fetchone()
+                        R = json.loads(raw["reason"] or "{}") if raw else {}
+                        fails = int(R.get("retry_failures", 0)) + 1
+                        R["retry_failures"] = fails
+                        R["gates"] = [g for g in (R.get("gates") or []) if not str(g).startswith("retry failed")] + ["retry failed (%d in a row) at %s UTC: %s" % (fails, now.strftime("%H:%M"), msg)]
+                        conn.execute("UPDATE decisions SET reason=?%s WHERE id=?" % (", status='ERROR'" if fails >= 5 else ""), (json.dumps(R, sort_keys=True, default=str), existing))
+                except Exception:  # noqa: BLE001
+                    pass
+                return {"status": "ERROR", "decision_id": existing}
             try:
                 with db.tx(conn):
-                    did = _decision(conn, c, "ERROR", "BUY", {"error": "%s: %s" % (type(e).__name__, str(e)[:200]), "candidate": {k: c.get(k) for k in ("event_id", "event_type", "headline")}, "gates": ["internal error"]},
+                    did = _decision(conn, c, "ERROR", "BUY", {"error": msg, "candidate": {k: c.get(k) for k in ("event_id", "event_type", "headline")}, "gates": ["unexpected error: " + msg]},
                                     eligibility_score(c), now, None, None, None, "", c.get("thesis_key"))
             except Exception:  # noqa: BLE001
                 did = 0

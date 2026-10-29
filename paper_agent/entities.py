@@ -80,6 +80,9 @@ SURNAMES = set("""smith johnson williams brown jones garcia miller davis rodrigu
  henry chen freeman webb tucker burns crawford olson simpson porter hunter gordon mendez silva shaw snyder mason dixon munoz hunt hicks holmes palmer wagner black robertson boyd rose stone salazar fox warren mills meyer rice schmidt garza daniels ferguson
  nichols stephens soto weaver gardner payne grant dunn kelley spencer hawkins arnold pierce hansen peters santos hart bradley knight elliott cunningham duncan armstrong hudson carroll lane riley andrews ray delgado berry perkins hoffman johnston matthews
  richards willis carpenter lawrence sandoval guerrero chapman ortega watkins greene wheeler valdez harper burke larson santiago maldonado morrison franklin carlson townsend trump biden musk bezos zuckerberg buffett dimon yellen lagarde bessent""".split())
+PLACE_NAMES = set("""alabama alaska arizona arkansas california colorado connecticut delaware florida georgia hawaii idaho illinois indiana iowa kansas kentucky louisiana maine maryland massachusetts michigan minnesota mississippi
+ missouri montana nebraska nevada ohio oklahoma oregon pennsylvania tennessee texas utah vermont virginia washington wisconsin wyoming carolina dakota england scotland ireland france germany italy spain portugal poland ukraine russia china japan korea india brazil
+ canada mexico israel iran iraq syria turkey egypt africa europe asia australia zealand london paris berlin tokyo beijing shanghai moscow kyiv kiev taiwan singapore dubai texan alaskan""".split())
 PRODUCT_WORDS = set("gemini copilot bard claude llama alexa siri cortana chatgpt grok sora".split())
 DESCRIPTOR_WORDS = set("""bancorp bancshares bankshares financial financials finance industries industrial enterprises international national united american federal savings mutual community citizens peoples security heritage
  pioneer liberty patriot independence frontier premier southern northern eastern western central pacific atlantic midwest regional""".split())
@@ -143,9 +146,9 @@ class Universe:
                     pass
             clean, multi, first = derived[t]
             for v in [meta.get("name", "")] + list(meta.get("aliases", []) or []) + [clean] + multi:
-                if len(norm(v)) >= 4 and not (len(norm(v).split()) == 1 and (norm(v) in GENERIC_FIRST or norm(v) in self.common or norm(v) in GIVEN_NAMES or norm(v) in SURNAMES)):
+                if len(norm(v)) >= 4 and not (len(norm(v).split()) == 1 and (norm(v) in GENERIC_FIRST or norm(v) in self.common or norm(v) in GIVEN_NAMES or norm(v) in SURNAMES or norm(v) in PLACE_NAMES)):
                     add(v, t, 0.65)
-            if first and len(first) >= 5 and first not in GENERIC_FIRST and first not in self.common and first not in GIVEN_NAMES and first not in SURNAMES and first_counts[first] == 1:
+            if first and len(first) >= 5 and first not in GENERIC_FIRST and first not in self.common and first not in GIVEN_NAMES and first not in SURNAMES and first not in PLACE_NAMES and first_counts[first] == 1:
                 add(first, t, 0.70)                                   # a distinctive, UNIQUE, non-dictionary first word: "Garmin", "Palantir", "Wendy's"
         for brand, t in BRANDS.items():
             if t in self.watch:

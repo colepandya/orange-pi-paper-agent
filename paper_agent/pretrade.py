@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from . import nlp
 from .timeutil import iso, parse_ts
@@ -28,6 +29,20 @@ def adverse_company_news(conn, ticker: str, since: str, cfg: dict, exclude_event
     return None
 
 
+def market_reaction(conn, now) -> Optional[float]:
+    """How far the MARKET itself has moved today: SPY versus its previous close, from the live quote the 10-minute probe records during the session (fresh within 45 minutes), else from today's daily bar.
+    None = unknown (pre-market, nothing recorded yet): a headline alone is then not proof of a shock."""
+    ny = now.astimezone(ZoneInfo("America/New_York")).date().isoformat()
+    prev = conn.execute("SELECT close FROM market_series WHERE symbol='SPY' AND day<? ORDER BY day DESC LIMIT 1", (ny,)).fetchone()
+    if not prev or not prev["close"]:
+        return None
+    q = conn.execute("SELECT consensus_price,created FROM quote_consensus WHERE ticker='SPY' AND session='REGULAR' AND status IN ('PASS','VALUATION_ONLY') AND consensus_price IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
+    if q and parse_ts(q["created"]) and (now - parse_ts(q["created"])).total_seconds() <= 45 * 60:
+        return float(q["consensus_price"]) / float(prev["close"]) - 1
+    bar = conn.execute("SELECT close FROM market_series WHERE symbol='SPY' AND day=?", (ny,)).fetchone()
+    return (float(bar["close"]) / float(prev["close"]) - 1) if bar and bar["close"] else None
+
+
 def market_shock(conn, since: str, now, cfg: dict) -> Optional[dict]:
     """A real shock is a dangerous KIND of event (crash, war escalation, emergency policy, financial stress, exchange outage) reported by at least ``shock_min_sources`` outlets.
     (It used to be ANY macro-scope story scored strongly negative: "Bitcoin weakens as hawkish Fed", a video-game controversy and an SEC filing header all froze the whole queue.)"""
@@ -40,6 +55,11 @@ def market_shock(conn, since: str, now, cfg: dict) -> Optional[dict]:
                         "AND event_type IN (%s) AND direction<=? AND magnitude>=0.6 AND credibility>=0.6 ORDER BY direction ASC, magnitude DESC LIMIT 30" % ",".join("?" * len(types)),
                         (since, iso(now - dt.timedelta(hours=hours))) + tuple(types) + (float(r["shock_direction"]),)).fetchall()
     if rows and len({x["source"] for x in rows}) >= int(r.get("shock_min_sources", 2)):
+        need = float(r.get("shock_market_drop_pct", 0.01))
+        if need > 0:                                                    # "At least 14 killed in attack on Ukraine train station" is a tragedy, not a market event: the MARKET must be reacting too
+            mv = market_reaction(conn, now)
+            if mv is None or mv > -need:
+                return None
         return dict(rows[0])
     return None
 
