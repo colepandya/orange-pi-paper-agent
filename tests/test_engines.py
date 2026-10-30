@@ -237,6 +237,7 @@ class TestLearning(unittest.TestCase):
 
     def test_overconfidence_is_recalibrated(self):
         c, cfg, _ = setup()
+        cfg["intelligence"]["learning_mode"] = "apply"                       # this tests the APPLY behaviour; the default is observe (see test_learning_mode.py)
         self.seed_forecasts(c, 120, 0.45, p=0.8)
         r = learning.recalibrate(c, cfg, NOW)
         self.assertIsNotNone(r["calibration"])
@@ -253,6 +254,7 @@ class TestLearning(unittest.TestCase):
 
     def test_predictions_resolve_against_prices_and_update_source_stats(self):
         c, cfg, u = setup()
+        cfg["intelligence"]["learning_mode"] = "apply"
         day0 = (NOW - dt.timedelta(days=20)).date().isoformat()
         for s in ("AAA", "SPY"):
             md.store_series(c, s, [{"day": (NOW - dt.timedelta(days=20 - i)).date().isoformat(), "open": 100, "high": 100, "low": 100, "close": (100 + (i * 0.5 if s == "AAA" else 0)), "volume": 1e6} for i in range(21)])

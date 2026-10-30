@@ -45,7 +45,7 @@ DEFAULTS: Dict[str, Any] = {
     "intelligence": {
         "stale_event_hours": 72, "trade_event_max_age_hours": 24, "thesis_entry_min_probability": 0.70, "thesis_entries_per_day": 12,
         "allow_thesis_entries": True, "contradiction_hours": 6, "company_refresh_hours": 72,
-        "regime_refresh_hours": 6, "learning_min_samples": 20, "llm_enabled": False,
+        "regime_refresh_hours": 6, "learning_min_samples": 20, "learning_mode": "observe", "llm_enabled": False,
         "llm_max_per_cycle": 6, "gdelt_enabled": True,
         "finnhub_company_news_max": 15, "max_company_refresh_per_cycle": 6,
         # --- LLM analyst (provider-agnostic). Off until llm_enabled=true AND a key for the tier's provider exists.

@@ -32,6 +32,9 @@ def main(argv=None) -> int:
     pp2.add_argument("--offline", action="store_true")
     rp = sub.add_parser("recover", help="re-evaluate recent events whose candidates were lost when a cycle died")
     rp.add_argument("--hours", type=float, default=24)
+    lp = sub.add_parser("learning", help="what the system has learned: status and proposals (observe mode); --promote shows what would go live, --promote --apply makes it live")
+    lp.add_argument("--promote", action="store_true")
+    lp.add_argument("--apply", action="store_true")
     mp = sub.add_parser("db-maintain", help="database clean-up: `plan` shows what would happen (default), `apply` archives legacy data and expires old news")
     mp.add_argument("action", nargs="?", choices=("plan", "apply"), default="plan")
     mp.add_argument("--retention-only", action="store_true", help="only expire old news/logs (what the weekly timer does); leave legacy data alone")
@@ -244,6 +247,18 @@ def main(argv=None) -> int:
             return 0 if r else 1
         res = golden.run(client, uni)
         return 0 if res["passed"] >= res["total"] * 0.8 else 1
+    if args.cmd == "learning":
+        from . import learning, stamp
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        cur = stamp.current(conn)
+        print("strategy %s, settings fingerprint %s, in force since %s | learning mode: %s" % (stamp.STRATEGY_VERSION, cur["fingerprint"] if cur else "-", cur["at"] if cur else "-", "observe (decisions unchanged)" if learning.observing(cfg) else "APPLY (live)"))
+        res = learning.promote(conn, cfg, utcnow(), apply=bool(args.promote and args.apply))
+        for p in res["parameters"]:
+            print("  %-34s live %-24s proposed %-24s %s" % (p["key"], json.dumps(p["live"])[:24], json.dumps(p["proposed"])[:24], p["why"][:60]))
+        for o in res["sources"]:
+            print("  source record %-30s %-18s hits %g misses %g" % (o["source"], o["event_type"], o["hits"], o["misses"]))
+        print("%d parameter proposal(s), %d source record(s)%s" % (len(res["parameters"]), len(res["sources"]), (" MADE LIVE and logged in the strategy history" if res["applied"] else ("" if not args.promote else " (dry run: add --apply to make them live)"))))
+        return 0
     if args.cmd == "learn":
         from . import learning
         print(json.dumps({"resolved": learning.resolve_due(conn, cfg), "recalibrated": learning.recalibrate(conn, cfg)}, default=str, indent=1))

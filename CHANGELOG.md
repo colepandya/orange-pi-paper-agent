@@ -1,3 +1,12 @@
+# Build 35
+* **A fair trial: the strategy no longer changes itself.** Found while planning the 2-4 week test: the app rewrote its own behaviour automatically through two paths: `recalibrate` (probability calibration, event-type power, move scales, thesis priors; fires at about
+  40 resolved predictions, i.e. early November) and `resolve_due` (per-source hit/miss counts that move source credibility from the very FIRST resolved prediction). New setting `intelligence.learning_mode`, default **observe**: it keeps learning and records
+  what it WOULD change (`proposed:*`, `observed:<source>`) but decisions do not read them. `apply` restores the old behaviour. Review with `python3 -m paper_agent learning`; make reviewed proposals live with `learning --promote --apply` (audited and logged).
+* **Strategy stamp** (`stamp.py`): every cycle records the strategy version and a fingerprint of the decision-affecting settings; changes are logged with exactly which setting moved. Operational settings never count. Shown on the Intelligence tab. docs/STRATEGY_FREEZE.md.
+* **No change to any trading decision**: verified with `tools/golden.py` (a new development tool that replays the owner's real database through the real trading code and compares every decision, position and ledger row to a recorded baseline): the open, the full
+  buy-to-sell lifecycle with and without the owner's settings, mid-session news and thesis ideas are identical to build 34.
+* Everything in builds 32-34 is included.
+
 # Build 34
 * **Thesis-driven ideas were stuck on the same few stocks (owner report: "all decisions after 2:04pm are Thesis-driven: ai_infrastructure").** The generator took the top 4 beneficiaries BEFORE removing stocks outside the universe or decided in the last 24 h, and every beneficiary of a
   thesis scores the same, so ties fell back to table order: always ALAB, AMD, AMT, AMZN, ANET. Those were proposed and skipped every cycle and nothing else was ever considered. Now: the filters come first; stocks are ranked by their weight in the thesis, then by

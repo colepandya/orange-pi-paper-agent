@@ -18,6 +18,11 @@ from . import db, ev, marketdata as md, nlp, quotes
 from .timeutil import add_trading_days, iso, parse_ts, utcnow
 
 
+def observing(cfg: Optional[dict]) -> bool:
+    """True (the default) = keep learning but only RECORD what would change; decisions stay exactly as they are. 'apply' = rewrite live probabilities, move sizes, source credibility."""
+    return str(((cfg or {}).get("intelligence") or {}).get("learning_mode", "observe")) != "apply"
+
+
 def _base_prices(conn, ticker: str, now):
     q = quotes.valuation_price(conn, ticker, now)
     spy = quotes.valuation_price(conn, "SPY", now)
@@ -105,8 +110,9 @@ def resolve_due(conn, cfg: dict, now=None, fetch: Optional[Callable] = None, max
                          (p["id"], iso(now), outcome, ret, bret, abn, brier, json.dumps({"claim": p["claim"]})))
             conn.execute("UPDATE predictions SET resolved=1 WHERE id=?", (p["id"],))
             if p["kind"] in ("forecast", "llm_chain") and p["source"] and p["event_type"]:
+                src_key = ("observed:" + p["source"]) if observing(cfg) else p["source"]                 # observe mode: kept apart, where credibility never looks
                 conn.execute("INSERT INTO source_stats(source,event_type,hits,misses,updated) VALUES(?,?,?,?,?) ON CONFLICT(source,event_type) DO UPDATE SET hits=hits+excluded.hits,misses=misses+excluded.misses,updated=excluded.updated",
-                             (p["source"], p["event_type"], outcome, 1 - outcome, iso(now)))
+                             (src_key, p["event_type"], outcome, 1 - outcome, iso(now)))
         done += 1
     return {"resolved": done, "waiting": skipped}
 
@@ -129,7 +135,11 @@ def position_closed(conn, position_id: int, pnl: float, cost: float, trigger: st
 def recalibrate(conn, cfg: dict, now=None) -> dict:
     now = now or utcnow()
     minn = int(cfg["intelligence"]["learning_min_samples"])
-    out: Dict = {"calibration": None, "event_types": {}, "theses": {}}
+    observe = observing(cfg)
+    out: Dict = {"calibration": None, "event_types": {}, "theses": {}, "mode": "observe" if observe else "apply"}
+
+    def put(key: str, value, why: str) -> None:
+        db.set_param(conn, ("proposed:" + key) if observe else key, value, why + (" [PROPOSAL ONLY: learning_mode=observe, not used by decisions]" if observe else ""))
     rows = conn.execute("SELECT p.event_type,p.probability,p.claim,o.outcome,o.abnormal_return FROM outcomes o JOIN predictions p ON p.id=o.prediction_id WHERE p.kind='forecast'").fetchall()
     n = len(rows)
     if n >= max(minn, 40):
@@ -140,7 +150,7 @@ def recalibrate(conn, cfg: dict, now=None) -> dict:
         w = n / (n + 60.0)
         b = max(0.3, min(1.5, w * slope + (1 - w) * 1.0))
         a = my - b * mp
-        db.set_param(conn, "calibration", {"a": a, "b": b, "n": n}, "linear recalibration of forecast probabilities")
+        put("calibration", {"a": a, "b": b, "n": n}, "linear recalibration of forecast probabilities")
         out["calibration"] = {"a": a, "b": b, "n": n}
     by: Dict[str, List] = {}
     for r in rows:
@@ -151,12 +161,12 @@ def recalibrate(conn, cfg: dict, now=None) -> dict:
         hit = statistics.mean(r["outcome"] for r in g)
         default = nlp.BY_NAME[et].power if et in nlp.BY_NAME else 0.4
         power = max(0.15, min(0.9, (default * 10 + hit * len(g)) / (10 + len(g))))
-        db.set_param(conn, "power:" + et, power, "n=%d hit=%.2f" % (len(g), hit))
+        put("power:" + et, power, "n=%d hit=%.2f" % (len(g), hit))
         signed = [(r["abnormal_return"] or 0.0) * (1 if r["claim"] == "abnormal_up" else -1) for r in g]
         expected = ev.MOVE_PRIOR.get(et)
         if expected:
             scale = max(0.5, min(1.5, (len(g) * (statistics.mean(signed) / expected) + 10 * 1.0) / (len(g) + 10)))
-            db.set_param(conn, "move_scale:" + et, scale, "n=%d realised %.4f vs prior %.4f" % (len(g), statistics.mean(signed), expected))
+            put("move_scale:" + et, scale, "n=%d realised %.4f vs prior %.4f" % (len(g), statistics.mean(signed), expected))
         else:
             scale = 1.0
         out["event_types"][et] = {"n": len(g), "hit": hit, "power": power, "scale": scale}
@@ -171,9 +181,39 @@ def recalibrate(conn, cfg: dict, now=None) -> dict:
             continue
         gap = statistics.mean(r["outcome"] for r in g) - statistics.mean(r["probability"] for r in g)
         newp = max(seed[k] - 0.15, min(seed[k] + 0.15, thesis_prior_now(conn, k, seed[k]) + 0.3 * gap))
-        db.set_param(conn, "prior:" + k, newp, "n=%d realised-minus-predicted %.3f" % (len(g), gap))
+        put("prior:" + k, newp, "n=%d realised-minus-predicted %.3f" % (len(g), gap))
         out["theses"][k] = {"n": len(g), "gap": gap, "prior": newp}
     return out
+
+
+def proposals(conn) -> tuple:
+    """What observe mode has recorded: parameter proposals (with the live value beside each) and per-source hit/miss counts kept apart."""
+    props = []
+    for r in conn.execute("SELECT key,value_json,reason FROM model_params WHERE key LIKE 'proposed:%' ORDER BY key"):
+        live = r["key"][len("proposed:"):]
+        props.append({"key": live, "proposed": json.loads(r["value_json"]), "live": db.param(conn, live), "why": r["reason"] or ""})
+    obs = [dict(r) for r in conn.execute("SELECT source,event_type,hits,misses FROM source_stats WHERE source LIKE 'observed:%' ORDER BY source,event_type")]
+    return props, obs
+
+
+def promote(conn, cfg: dict, now=None, apply: bool = False) -> dict:
+    """Make reviewed proposals live. Dry run unless apply=True. Recorded in the strategy history so later results are attributed to the new behaviour."""
+    from . import stamp
+    now = now or utcnow()
+    props, obs = proposals(conn)
+    if apply and (props or obs):
+        with db.tx(conn):
+            for p in props:
+                db.set_param(conn, p["key"], p["proposed"], "promoted by the owner: " + p["why"].replace(" [PROPOSAL ONLY: learning_mode=observe, not used by decisions]", ""))
+                conn.execute("DELETE FROM model_params WHERE key=?", ("proposed:" + p["key"],))
+            for o in obs:
+                live = o["source"][len("observed:"):]
+                conn.execute("INSERT INTO source_stats(source,event_type,hits,misses,updated) VALUES(?,?,?,?,?) ON CONFLICT(source,event_type) DO UPDATE SET hits=hits+excluded.hits,misses=misses+excluded.misses,updated=excluded.updated",
+                             (live, o["event_type"], o["hits"], o["misses"], iso(now)))
+                conn.execute("DELETE FROM source_stats WHERE source=? AND event_type=?", (o["source"], o["event_type"]))
+        db.audit(conn, "owner", "learning_promote", "", {"parameters": len(props), "source_records": len(obs)})
+        stamp.record(conn, cfg, now, note="learning promoted: %d parameters, %d source records made live" % (len(props), len(obs)))
+    return {"parameters": props, "sources": obs, "applied": bool(apply and (props or obs))}
 
 
 def thesis_prior_now(conn, key: str, default: float) -> float:

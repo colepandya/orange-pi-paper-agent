@@ -16,7 +16,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List, Optional
 
-from . import auth as auth_mod, config, control, explain, maintain, performance, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui, sources
+from . import auth as auth_mod, config, control, explain, maintain, performance, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, stamp, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui, sources
 from .config import DB_PATH, load_config
 from .timeutil import market_state, parse_ts, to_nz, utcnow, iso, SESSION_LABEL
 
@@ -394,6 +394,11 @@ def page_intel(c, cfg, s):
         out.append("<h2>%s</h2>" % label + table(["Name", "N", "Hit rate", "Brier"], [[k, v["n"], pct(v["hit"], 0), "%.3f" % v["brier"]] for k, v in sorted(m[key].items(), key=lambda x: -x[1]["n"])[:15]]))
     out.append("<h2>Regime features</h2>" + table(["Feature", "Value"], [[k, "n/a" if v is None else "%.4f" % v] for k, v in sorted((s["reg"].get("features") or {}).items())]))
     out.append("<h2>Research tasks</h2>" + table(["Priority", "Kind", "Subject", "Description", "Status", "Result"], [[("%.1f" % r["priority"]), r["kind"], r["subject"], r["description"][:140], r["status"], r["result"] or ""] for r in c.execute("SELECT * FROM research_tasks ORDER BY status='OPEN' DESC,priority DESC,id DESC LIMIT 40")]))
+    cur = stamp.current(c)
+    props, obs = learning.proposals(c)
+    out.append("<p>Strategy <b>%s</b> &middot; settings fingerprint <code>%s</code> &middot; in force since %s &middot; %d change(s) recorded &middot; learning: <b>%s</b>%s</p>" % (
+        E(stamp.STRATEGY_VERSION), E(cur["fingerprint"]) if cur else "-", to_nz(cur["at"], "%d %b %H:%M") if cur else "-", len(stamp.history(c)), "observe only" if learning.observing(cfg) else "APPLYING",
+        (" &middot; <b>%d</b> proposal(s) and <b>%d</b> source record(s) waiting for your review (not used by decisions)" % (len(props), len(obs))) if (props or obs) else ""))
     out.append("<h2>Learned parameters</h2>" + table(["Key", "Value", "Why", "Updated"], [[r["key"], r["value_json"][:80], r["reason"] or "", to_nz(r["updated"], "%d %b")] for r in c.execute("SELECT * FROM model_params ORDER BY updated DESC LIMIT 30")]))
     return "".join(out)
 

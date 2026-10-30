@@ -16,6 +16,7 @@ docs/OMEGA_MAPPING.md
 docs/OPERATIONS.md
 docs/REVIEW_FINDINGS.md
 docs/SETTINGS.md
+docs/STRATEGY_FREEZE.md
 none
 paper_agent/__init__.py
 paper_agent/__main__.py
@@ -73,6 +74,7 @@ paper_agent/settings.py
 paper_agent/settings_ui.py
 paper_agent/sizing.py
 paper_agent/sources.py
+paper_agent/stamp.py
 paper_agent/theses_seed.py
 paper_agent/thesis.py
 paper_agent/timeutil.py
@@ -126,6 +128,7 @@ tests/test_guards.py
 tests/test_installer.py
 tests/test_intel.py
 tests/test_keys.py
+tests/test_learning_mode.py
 tests/test_lens.py
 tests/test_live_findings.py
 tests/test_maintain.py
@@ -152,3 +155,4 @@ tests/test_thesis_entries.py
 tests/test_trade_lifecycle.py
 tests/test_trading_with_reader.py
 tests/test_world_events.py
+tools/golden.py

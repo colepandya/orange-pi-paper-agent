@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, List, Optional
 
-from . import (candqueue, config, earnings, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, marketdata as md, monitor, narrative, net, portfolio as pf,
+from . import (candqueue, config, earnings, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, marketdata as md, monitor, narrative, net, portfolio as pf,
                quotes, regime as regime_engine, sources, thesis, trader)
 from .config import load_json, CONFIG_DIR
 from .entities import Universe
@@ -155,6 +155,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         return report
     quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json))
     thesis.seed(conn)
+    report["strategy"] = _stage(report, "strategy", stamp.record, conn, cfg, now)
     icfg = cfg["intelligence"]
     client = llm_client.LLMClient(conn, cfg, deps.llm_transport)
     analyst = deps.analyst or event_intel.make_analyst(conn, cfg, universe, deps.llm_transport)
@@ -293,7 +294,8 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
             lr = _stage(report, "learning", learning.resolve_due, conn, cfg, now, deps.series_fetch)
             rc = _stage(report, "recalibrate", learning.recalibrate, conn, cfg, now)
             db.mark_run(conn, "learning", "", now)
-            report["learning"] = {"resolved": lr, "recalibrated": bool(rc and (rc["calibration"] or rc["event_types"] or rc["theses"]))}
+            anything = bool(rc and (rc["calibration"] or rc["event_types"] or rc["theses"]))
+            report["learning"] = {"resolved": lr, "mode": "observe" if learning.observing(cfg) else "apply", "recalibrated": anything and not learning.observing(cfg), "proposed": anything and learning.observing(cfg)}
         _stage(report, "gaps", gaps.scan, conn, cfg, now)
         _stage(report, "gaps_resolve", gaps.resolve_auto, conn, cfg, universe, deps.fetch_json, deps.fetch, now)
     if intel:
