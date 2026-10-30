@@ -272,7 +272,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     report["knowledge"] = _stage(report, "knowledge", refresh_knowledge)
 
     # ---- capital allocation
-    cands = cands + trader.thesis_candidates(conn, cfg, reg, universe)
+    cands = cands + trader.thesis_candidates(conn, cfg, reg, universe, now)
     ent = _stage(report, "entries", trader.run_entries, conn, cfg, universe, cands, reg, now, quote_fn, deps.series_fetch if deps.series_fetch else None, intel, t_start + budget * 1.2)
     report["entries"] = ent
 

@@ -87,6 +87,7 @@ def cfg():
     c = load_config("/nonexistent", with_overrides=False)      # never read the host's dashboard settings
     c["runtime"]["pause_file"] = "/nonexistent/pause"
     c["runtime"]["min_available_memory_mb"] = 0
+    c["intelligence"]["allow_thesis_entries"] = False                      # the news-path tests must not be joined by thesis ideas: the thesis path has its own tests
     c["reader"]["mode"] = "off"                                             # tests must never touch the network: the article reader has its own tests that switch it on with a fake fetcher
     c["strategy"]["swing_enabled"] = False                                  # most fixtures were written for the classic multi-week profile; swing tests switch it on
     c["risk"]["max_gap_down_pct"] = c["risk"]["max_gap_up_pct"] = 1.0     # overnight-gap guard OFF here: most fixtures have an unrelated "previous close". Tests of the guard switch it on.

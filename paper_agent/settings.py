@@ -97,6 +97,7 @@ FIELDS: List[Field] = [
     F("intelligence.learning_min_samples", "Samples before the system self-adjusts", "int", "Refresh times", 5, 500, ""),
     F("intelligence.gdelt_enabled", "Use GDELT world-event queries", "bool", "Refresh times"),
     F("intelligence.allow_thesis_entries", "Allow thesis-driven entries (no news trigger)", "bool", "Refresh times"),
+    F("intelligence.thesis_entries_per_day", "Max thesis-driven ideas evaluated per day (no news trigger)", "int", "Refresh times", 0, 100, "Ideas proposed by a strong thesis rather than by a news story. Each stock is looked at once, then not again for a day (3 days if it was turned down). 0 = none."),
     F("intelligence.thesis_entry_min_probability", "Min thesis probability for thesis-driven entries", "pct", "Refresh times", 0.5, 0.95, ""),
     F("intelligence.finnhub_company_news_max", "Companies polled for Finnhub news per cycle", "int", "Refresh times", 0, 50, ""),
     F("intelligence.max_company_refresh_per_cycle", "Company profiles refreshed per cycle", "int", "Refresh times", 0, 20, ""),

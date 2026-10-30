@@ -160,6 +160,23 @@ def record_health(conn, src: dict, status, error=None, count: int = 0, clock: Ca
                  (src["id"], src["name"], t, success, str(status), failures, back, count, (str(error)[:300] if error else None)))
 
 
+def disabled_ids(cfg: Optional[dict], srcs: Optional[List[dict]] = None) -> set:
+    """Ids of the feeds that are switched off: by the owner in Settings (source_overrides) or shipped off in sources.json. The ONE definition, so the collector, the Sources table and the research-gap scan agree."""
+    off = {sid for sid, o in ((cfg or {}).get("source_overrides") or {}).items() if isinstance(o, dict) and o.get("enabled") is False}
+    if srcs is None:
+        try:
+            from . import config as _cfg
+            d = _cfg.load_json(os.path.join(_cfg.CONFIG_DIR, "sources.json"), {"sources": []})
+            srcs = d["sources"] if isinstance(d, dict) else d
+        except Exception:  # noqa: BLE001
+            srcs = []
+    for s in srcs:
+        o = ((cfg or {}).get("source_overrides") or {}).get(s.get("id"), {})
+        if (s.get("enabled", True) is False and o.get("enabled") is not True) or o.get("enabled") is False:
+            off.add(s.get("id"))
+    return off
+
+
 def source_due(conn, src: dict, clock: Callable = time.time) -> bool:
     r = conn.execute("SELECT last_attempt,backoff_until FROM source_health WHERE source_id=?", (src["id"],)).fetchone()
     if not r:

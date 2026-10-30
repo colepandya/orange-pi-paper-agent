@@ -43,7 +43,7 @@ DEFAULTS: Dict[str, Any] = {
     "schedule": {"cycle_minutes": 10, "guard_minutes": 2, "update_hours": 3},      # applied to systemd timers by the control worker
     "source_overrides": {},                                                       # {"<source id>": {"enabled": bool, "interval": seconds}}
     "intelligence": {
-        "stale_event_hours": 72, "trade_event_max_age_hours": 24, "thesis_entry_min_probability": 0.70,
+        "stale_event_hours": 72, "trade_event_max_age_hours": 24, "thesis_entry_min_probability": 0.70, "thesis_entries_per_day": 12,
         "allow_thesis_entries": True, "contradiction_hours": 6, "company_refresh_hours": 72,
         "regime_refresh_hours": 6, "learning_min_samples": 20, "llm_enabled": False,
         "llm_max_per_cycle": 6, "gdelt_enabled": True,

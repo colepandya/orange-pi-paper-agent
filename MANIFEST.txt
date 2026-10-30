@@ -112,6 +112,7 @@ tests/helpers.py
 tests/soak_twenty_days.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py
+tests/test_disabled_feeds.py
 tests/test_durability.py
 tests/test_earnings.py
 tests/test_engines.py
@@ -147,6 +148,7 @@ tests/test_settings_page.py
 tests/test_settings_ui.py
 tests/test_swing.py
 tests/test_systemd.py
+tests/test_thesis_entries.py
 tests/test_trade_lifecycle.py
 tests/test_trading_with_reader.py
 tests/test_world_events.py

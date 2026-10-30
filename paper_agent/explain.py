@@ -189,7 +189,13 @@ def explain(conn, cfg: dict, did: int, now=None) -> Optional[dict]:
 
     # ------------------------------------------------------------------ the trigger
     trig = None
-    if c:
+    if d.get("origin") == "thesis":
+        th = conn.execute("SELECT name,probability FROM theses WHERE key=?", (d.get("thesis_key") or "",)).fetchone() if d.get("thesis_key") else None
+        label = (th["name"] if th else (d.get("thesis_key") or "market")).replace("_", " ")
+        trig = {"headline": "An idea from our \u201c%s\u201d thesis, not from a news story" % label, "source": "thesis engine (no news or article involved)",
+                "line": "Nothing was published about %s to trigger this. Our \u201c%s\u201d thesis is rated %s likely and lists %s as a company that would benefit, so the thesis engine proposed it. With no story there is no article to read: "
+                        "the forecast rests on the thesis and the stock's recent price history alone." % (t, label, ("%.0f%%" % (th["probability"] * 100)) if th else "highly", t), "match": ""}
+    elif c:
         et = c.get("event_type") or "general_news"
         trig = {"headline": c.get("headline") or "(no headline stored)", "source": c.get("source") or "unknown source",
                 "line": "%s. We read it as: %s. Effect on the stock: %s. Importance: %s. Reported by %s." % (age_text(c.get("age_hours")).capitalize(), EVENT_LABEL.get(et, et.replace("_", " ")),
@@ -221,7 +227,11 @@ def explain(conn, cfg: dict, did: int, now=None) -> Optional[dict]:
         checks.append((not elig_failed, "Story quality score %.0f / 100." % elig))
     if f:
         v = f.get("verdict")
-        checks.append((v == "BUY", "Edge check: %s." % ("expected profit %s clears the minimum" % pct(f["ev_net"], 2) if v == "BUY" else (translate_gate((_json(json.dumps(r.get("forecast") or {})).get("why") or [""])[0])[1] or v))))
+        edge_txt = "expected profit %s clears the minimum" % pct(f["ev_net"], 2) if v == "BUY" else (translate_gate((_json(json.dumps(r.get("forecast") or {})).get("why") or [""])[0])[1] or v)
+        ran = float(inp.get("priced_in") or 0.0) / 0.8                                    # the forecast treats 80% of the last 5 sessions' rise as already in the price
+        if v != "BUY" and ran >= 0.02:
+            edge_txt = edge_txt.rstrip(".") + ". Main reason: the stock has already risen about %.0f%% over the last 5 trading days, and the forecast treats most of a recent rise as already in the price" % (ran * 100)
+        checks.append((v == "BUY", "Edge check: %s." % edge_txt))
     for ok, txt in gates:
         if not (txt.startswith("The story's quality") or txt.startswith("Every check")):
             checks.append((ok, txt))

@@ -1,3 +1,15 @@
+# Build 34
+* **Thesis-driven ideas were stuck on the same few stocks (owner report: "all decisions after 2:04pm are Thesis-driven: ai_infrastructure").** The generator took the top 4 beneficiaries BEFORE removing stocks outside the universe or decided in the last 24 h, and every beneficiary of a
+  thesis scores the same, so ties fell back to table order: always ALAB, AMD, AMT, AMZN, ANET. Those were proposed and skipped every cycle and nothing else was ever considered. Now: the filters come first; stocks are ranked by their weight in the thesis, then by
+  company size (NVDA, GOOGL, MSFT, AMZN on the owner's data); a stock turned down is left alone for 3 days, a decided one for 1; held stocks are never proposed; and a daily cap (Settings -> Refresh times, default 12, 0 = none) stops it flooding the Decisions page.
+  The generator now uses the cycle's own clock (it must not mix in the real one).
+* **A thesis decision now says what it is.** The Why page shows "An idea from our 'X' thesis, not from a news story ... no article to read" instead of a pseudo-headline, and when the edge is negative it says why ("the stock has already risen about 20% over the last 5 trading days;
+  the forecast treats most of a recent rise as already in the price"). The Decisions page has a "From" column (news / thesis idea) and filters.
+* **The thesis-driven buy path is now tested end to end** (it never was): thesis -> candidate -> forecast -> risk checks -> bought at the open -> stop-loss -> sold, with the books reconciling; plus bought once, not every cycle.
+* **Switched-off feeds (owner report: "disabled but still refreshed").** Proven with a test that counts real fetches: no code path (cycles, doctor, preflight, report) contacts a feed switched off in Settings. But two places still treated them as live problems: the System tab's Sources table kept
+  showing them as "failing x12 HTTP 429", and the research-gap scan kept raising "Source X failing" tasks. The table now marks them OFF (listed last, with a note) and the scan ignores them and closes the old tasks. One shared definition (`sources.disabled_ids`).
+* Everything in builds 32 and 33 is included (article reader, rotation protection).
+
 # Build 33
 * **No more pointless round trips.** Replaying the owner's real open with their real settings showed a stock bought at 13:45 and sold at 13:50 for a "superior opportunity" (a later idea scored better per unit of risk): a 0.5% loss for nothing.
   A position is now protected from being rotated out for 6 hours after it is bought (Settings -> Risk limits -> "Protect a new position from being rotated out for (hours)", 0 = off). Rotation had one assertion of test coverage; it now has real tests.

@@ -393,15 +393,25 @@ def run_entries(conn, cfg: dict, universe, candidates: List[dict], regime: dict,
     return out
 
 
-def thesis_candidates(conn, cfg: dict, regime: dict, universe) -> List[dict]:
+def thesis_candidates(conn, cfg: dict, regime: dict, universe, now=None) -> List[dict]:
     icfg = cfg["intelligence"]
     if not icfg["allow_thesis_entries"]:
         return []
     held = {r[0] for r in conn.execute("SELECT ticker FROM positions WHERE status='OPEN'")}
+    now = now or utcnow()                                                                                      # the cycle's own clock, like everything else
+    since_day, since_3d = iso(now - dt.timedelta(hours=24)), iso(now - dt.timedelta(hours=72))
+    decided = {r[0] for r in conn.execute("SELECT ticker FROM decisions WHERE origin='thesis' AND created>?", (since_day,))}
+    passed_on = {r[0] for r in conn.execute("SELECT ticker FROM decisions WHERE origin='thesis' AND created>? AND status IN ('REJECTED','RISK_REJECTED')", (since_3d,))}      # looked at and turned down: not again for 3 days
+    room = int(icfg.get("thesis_entries_per_day", 12)) - conn.execute("SELECT COUNT(*) FROM decisions WHERE origin='thesis' AND created>?", (since_day,)).fetchone()[0]
+    if room <= 0:
+        return []
     out = []
-    for o in thesis_engine.thesis_candidates(conn, regime.get("regime", "unknown"), icfg["thesis_entry_min_probability"], held, limit=4):
+    # the filters (universe, recently decided / turned down) come BEFORE the limit: the same four stocks used to be proposed and skipped every cycle, so nothing else was ever considered
+    for o in thesis_engine.thesis_candidates(conn, regime.get("regime", "unknown"), icfg["thesis_entry_min_probability"], held | decided | passed_on, limit=80):
         if universe is not None and o["ticker"] not in universe:
             continue
+        if len(out) >= min(4, room):
+            break
         out.append({"ticker": o["ticker"], "direction": min(1.0, 0.4 + o["net"]), "magnitude": min(1.0, 0.25 + 0.5 * (o["p"] - 0.5)), "event_type": "thesis_signal", "conf": 0.7, "credibility": 0.7,
                     "age_hours": 0.0, "horizon": 10, "origin": "thesis", "thesis_key": o["thesis_key"], "p": o["p"], "headline": "Thesis-driven: %s (P=%.0f%%)" % (o["thesis_key"], o["p"] * 100), "source": "thesis_engine"})
     return out

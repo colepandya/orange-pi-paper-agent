@@ -16,7 +16,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List, Optional
 
-from . import auth as auth_mod, config, control, explain, maintain, performance, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui
+from . import auth as auth_mod, config, control, explain, maintain, performance, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui, sources
 from .config import DB_PATH, load_config
 from .timeutil import market_state, parse_ts, to_nz, utcnow, iso, SESSION_LABEL
 
@@ -231,6 +231,16 @@ def page_decision_detail(c, cfg, did):
     return back + (explain.render_html(ex) if ex else "<p class=bad>No such decision.</p>")
 
 
+def _sources_table(c, cfg) -> str:
+    """Feeds that are switched off are shown as OFF (they are not fetched), not as failures with a stale error."""
+    off = sources.disabled_ids(cfg)
+    rows = list(c.execute("SELECT * FROM source_health ORDER BY failures DESC,name"))
+    live = [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", r["last_status"], r["failures"], r["items_total"], (r["last_error"] or "")[:60]] for r in rows if r["source_id"] not in off]
+    dead = [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", "OFF (Settings)", "-", r["items_total"], "switched off by you: not fetched"] for r in rows if r["source_id"] in off]
+    note = ("<p class=mut>%d feed(s) are switched off in Settings and are <b>not being fetched</b>; they are listed last for reference only.</p>" % len(dead)) if dead else ""
+    return note + table(["Source", "Last success", "Status", "Failures", "Items", "Error"], live + dead)
+
+
 def page_decisions(c, cfg, s, q):
     if (q.get("id") or [""])[0].isdigit():
         return page_decision_detail(c, cfg, int((q.get("id") or ["0"])[0]))
@@ -241,9 +251,15 @@ def page_decisions(c, cfg, s, q):
         sql += " AND status=?"; args.append(st)
     if tk:
         sql += " AND ticker=?"; args.append(tk)
+    org = (q.get("origin") or [""])[0]
+    if org == "thesis":
+        sql += " AND origin='thesis'"
+    elif org == "news":
+        sql += " AND (origin IS NULL OR origin!='thesis')"
     rows = c.execute(sql + " ORDER BY id DESC LIMIT 120", args).fetchall()
     stats = [r[0] for r in c.execute("SELECT DISTINCT status FROM decisions")]
     out = ["<form>Status <select name=status><option value=''>all</option>%s</select> Ticker <input name=ticker value='%s' size=6><input type=hidden name=tab value=decisions><button>Filter</button></form>" % ("".join("<option%s>%s</option>" % (" selected" if x == st else "", E(x)) for x in stats), E(tk))]
+    out.append("<p class=mut>Idea from: %s</p>" % " | ".join(("<b>%s</b>" % lab) if org == key else "<a href='?tab=decisions&origin=%s'>%s</a>" % (key, lab) for key, lab in (("", "all"), ("news", "news stories"), ("thesis", "thesis ideas (no news)"))))
     body = []
     for r in rows:
         try:
@@ -257,8 +273,8 @@ def page_decisions(c, cfg, s, q):
             plain = "(could not summarise: %s)" % type(e).__name__
         waiting = "<br><span class=mut style='font-size:12px'>%s</span>" % E(plain[:200])
         det = "<a href='?tab=decisions&id=%d'>Why? &rarr;</a>" % r["id"]
-        body.append([to_nz(r["created"], "%d %b %H:%M"), r["ticker"], Raw(E(r["status"]) + waiting), r["action"], "%.0f" % (r["score"] or 0), pct(r["ev_net"], 2), r["thesis_key"] or "", money(r["amount"]) if r["amount"] else "-", Raw(det)])
-    out.append(table(["Time", "Ticker", "Status", "Action", "Elig.", "EV net", "Thesis", "Amount", "Why"], body))
+        body.append([to_nz(r["created"], "%d %b %H:%M"), r["ticker"], Raw(E(r["status"]) + waiting), "thesis idea" if r["origin"] == "thesis" else "news", r["action"], "%.0f" % (r["score"] or 0), pct(r["ev_net"], 2), r["thesis_key"] or "", money(r["amount"]) if r["amount"] else "-", Raw(det)])
+    out.append(table(["Time", "Ticker", "Status", "From", "Action", "Elig.", "EV net", "Thesis", "Amount", "Why"], body))
     return "".join(out)
 
 
@@ -454,7 +470,7 @@ def provider_section(c, cfg, now) -> str:
 
 def page_system(c, cfg, s, q=None):
     u = llm_client.LLMClient(c, cfg).usage_summary()
-    out = ["<div class=grid>" + card("LLM spend today", "$%.3f / $%.2f" % (u["today_usd"], u["daily_budget"])) + card("LLM spend this month", "$%.2f / $%.0f" % (u["month_usd"], u["monthly_budget"])) + card("LLM calls today", "%d (cache hits %d, failed %d)" % (u["calls_today"], u["cache_hits_today"], u["failures_today"])) + "</div>", "<h2>Sources</h2>" + table(["Source", "Last success", "Status", "Failures", "Items", "Error"], [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", r["last_status"], r["failures"], r["items_total"], (r["last_error"] or "")[:60]] for r in c.execute("SELECT * FROM source_health ORDER BY failures DESC,name")])]
+    out = ["<div class=grid>" + card("LLM spend today", "$%.3f / $%.2f" % (u["today_usd"], u["daily_budget"])) + card("LLM spend this month", "$%.2f / $%.0f" % (u["month_usd"], u["monthly_budget"])) + card("LLM calls today", "%d (cache hits %d, failed %d)" % (u["calls_today"], u["cache_hits_today"], u["failures_today"])) + "</div>", "<h2>Sources</h2>" + _sources_table(c, cfg)]
     out.append(provider_section(c, cfg, s["now"]))
     out.append(database_section(c, cfg, s["now"], "db" in ((q or {}).get("refresh") or [])))
     out.append("<h2>Recent cycles</h2>" + table(["Started", "Mode", "Status", "Errors"], [[to_nz(r["started"], "%d %b %H:%M"), r["mode"], r["status"], ", ".join(json.loads(r["report_json"] or "{}").get("errors", []))] for r in c.execute("SELECT * FROM cycle_runs ORDER BY id DESC LIMIT 15")]))

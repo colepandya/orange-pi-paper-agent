@@ -175,18 +175,19 @@ def ticker_thesis_score(conn, ticker: str, regime: str = "unknown") -> dict:
     return {"score": score, "primary": best["key"], "p": best["probability"], "state": best["state"], "views": views}
 
 
-def thesis_candidates(conn, regime: str, min_p: float, held: set, limit: int = 6) -> List[dict]:
+def thesis_candidates(conn, regime: str, min_p: float, held: set, limit: int = 6, exclude: Optional[set] = None) -> List[dict]:
     """Thesis-driven ideas: beneficiaries of Active/Strong theses (never Overcrowded/Weakening/Broken) not already held."""
     out = []
+    skip = set(exclude or ())
     for t in conn.execute("SELECT * FROM theses WHERE active=1 AND state IN ('Active','Strong') AND probability>=? AND net_strength>0 ORDER BY probability DESC", (min_p,)):
         tilt = style_tilt(regime, t["style"])
         if tilt < 0.85:
             continue
-        for c in conn.execute("SELECT ticker FROM thesis_companies WHERE thesis_key=? AND role='beneficiary' ORDER BY weight DESC", (t["key"],)):
-            if c["ticker"] not in held:
-                out.append({"ticker": c["ticker"], "thesis_key": t["key"], "p": t["probability"], "net": t["net_strength"], "tilt": tilt})
+        for c in conn.execute("SELECT tc.ticker,tc.weight,co.market_cap FROM thesis_companies tc LEFT JOIN companies co ON co.ticker=tc.ticker WHERE tc.thesis_key=? AND tc.role='beneficiary' ORDER BY tc.weight DESC", (t["key"],)):
+            if c["ticker"] not in held and c["ticker"] not in skip:
+                out.append({"ticker": c["ticker"], "thesis_key": t["key"], "p": t["probability"], "net": t["net_strength"], "tilt": tilt, "weight": float(c["weight"] or 1.0), "cap": float(c["market_cap"] or 0.0)})
     seen, res = set(), []
-    for o in sorted(out, key=lambda x: -(x["p"] * x["tilt"])):
+    for o in sorted(out, key=lambda x: (-(x["p"] * x["tilt"] * x["weight"]), -x["cap"], x["ticker"])):      # how central the stock is to the thesis, then the BIGGEST company first (they used to fall back to table order: always ALAB, AMD, AMT, AMZN...)
         if o["ticker"] not in seen:
             seen.add(o["ticker"])
             res.append(o)

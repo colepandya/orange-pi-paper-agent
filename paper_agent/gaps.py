@@ -43,7 +43,13 @@ def scan(conn, cfg: dict, now=None) -> int:
             n += _task(conn, "thesis_stale", t["key"], "Thesis '%s' (P=%.0f%%) has had no evidence for %.0f days: seek confirming or contradicting information" % (t["name"], t["probability"] * 100, min(age_days, 999)), 0.5, True, now)
         if t["probability"] >= 0.6 and t["confidence_quality"] < 0.3:
             n += _task(conn, "thesis_low_quality", t["key"], "Thesis '%s' is high-probability but low evidence quality (%.2f)" % (t["name"], t["confidence_quality"]), 0.6, False, now)
+    from . import sources as _sources
+    off = _sources.disabled_ids(cfg)                                          # a feed the owner switched off is not a problem to research
+    for sid in off:
+        conn.execute("UPDATE research_tasks SET status='RESOLVED',resolved_at=?,result='feed switched off in Settings' WHERE kind='source_down' AND subject=? AND status='OPEN'", (iso(now), sid))
     for s in conn.execute("SELECT source_id,failures,last_error FROM source_health WHERE failures>=3"):
+        if s["source_id"] in off:
+            continue
         n += _task(conn, "source_down", s["source_id"], "Source %s failing (%d consecutive): %s" % (s["source_id"], s["failures"], (s["last_error"] or "")[:80]), 0.4, False, now)
     n += _task(conn, "institutional_13f", "global", "Institutional ownership / 13F changes are not available from free feeds: add a data source or EDGAR 13F-HR parsing", 0.3, False, now)
     return n
