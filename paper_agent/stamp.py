@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 from . import db
 from .timeutil import iso, utcnow
 
-STRATEGY_VERSION = "S1"                    # S1 = builds 25-35: news + thesis ideas, swing exits, article reader, EV-based sizing
+STRATEGY_VERSION = "S2"                    # S1 = builds 25-36: news + thesis ideas, swing exits, article reader, EV-based sizing. S2 = build 37: a shock hold needs a headline that names the shock, from distinct publishers
 HISTORY_KEY = "strategy_history"
 SNAPSHOT_KEY = "strategy_snapshot"
 MAX_HISTORY = 200

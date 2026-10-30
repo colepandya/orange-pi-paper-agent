@@ -161,7 +161,7 @@ class TestTheStrategyStamp(unittest.TestCase):
         stamp.record(c, cfg, NOW)
         old = stamp.STRATEGY_VERSION
         try:
-            stamp.STRATEGY_VERSION = "S2"
+            stamp.STRATEGY_VERSION = old + "-next"
             self.assertTrue(stamp.record(c, cfg, NOW + dt.timedelta(days=1))["changed"])
             self.assertEqual(stamp.current(c)["note"], "strategy version changed")
         finally:

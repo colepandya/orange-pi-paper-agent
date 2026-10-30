@@ -113,6 +113,8 @@ def gate_family(status: str, gate: str) -> str:
         return "edge too small or negative"
     if "liquid" in g or "daily dollar volume" in g or "adv" in g.split():
         return "liquidity"
+    if g.startswith("held:") or "market-wide shock" in g:
+        return "held for a market-wide shock"
     if status == "VETOED" or "veto" in g or "arrived after this buy" in g:
         return "vetoed by later news"
     if "gap" in g or "opened" in g and "previous close" in g:

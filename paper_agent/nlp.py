@@ -143,7 +143,7 @@ EVENT_TYPES += [
     _t("emergency_policy", "macro", -1, .75, 5, .80, [r"emergency (?:rate (?:cut|hike|move|decision)|fed (?:meeting|action|move)|central bank (?:meeting|action|move)|liquidity|lending|stimulus|policy (?:meeting|move))", "unscheduled rate"], 5),
     _t("financial_stress_event", "macro", -1, .85, 14, .85, [
         r"(?:bank|lender|brokerage)\s+(?:collapses?|collapsed|implodes?|imploded|(?:fails?|failed)(?!\s+(?:to|the|a|an|its)\b|(?:\s+\w+){0,2}\s+(?:stress|tests?|audits?|inspections?|exams?)\b))", r"(?:hedge fund|fund)\s+(?:collapses?|collapsed|implodes?|imploded)",
-        "bank run", "run on the bank", "bank failure", "bank collapse", "halts withdrawals", "deposit flight"], 10),
+        "bank run", "run on the bank", "bank failure", "bank collapse", r"(?:bank|lender|brokerage|credit union|(?:money market |hedge )?fund)s?\s+(?:halts?|suspends?|freezes?)\s+(?:all\s+)?withdrawals?", "deposit flight"], 10),
     _t("market_infrastructure_outage", "macro", -1, .75, 3, .75, [
         r"(?:cyber ?attack|hack|outage|glitch|ransomware)\s+(?:\w+\s+){0,5}(?:stock exchange|nyse|nasdaq|clearing house|payments? system|trading platform)",
         r"(?:nyse|nasdaq|stock exchange|clearing house|trading platform)\s+(?:\w+\s+){0,4}(?:outage|hacked|cyber ?attack)"], 3),

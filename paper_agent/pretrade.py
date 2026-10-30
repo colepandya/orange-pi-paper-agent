@@ -8,6 +8,7 @@ Nothing here predicts anything: it only refuses to act on a stale idea."""
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -43,6 +44,19 @@ def market_reaction(conn, now) -> Optional[float]:
     return (float(bar["close"]) / float(prev["close"]) - 1) if bar and bar["close"] else None
 
 
+_PUBLISHER_TAIL = re.compile(r"\s+(?:top news|world news|world|business|economy|markets?|technology|tech|news|politics|press releases?)$", re.I)
+
+
+def publisher(source: Optional[str]) -> str:
+    """The outlet behind a feed name, so two feeds of ONE publisher do not count as two outlets: 'CNBC Top News' / 'CNBC World' -> cnbc, 'The Guardian Business' -> the guardian."""
+    s = (source or "").strip()
+    while True:
+        t = _PUBLISHER_TAIL.sub("", s)
+        if t == s or not t:
+            return s.lower()
+        s = t
+
+
 def market_shock(conn, since: str, now, cfg: dict) -> Optional[dict]:
     """A real shock is a dangerous KIND of event (crash, war escalation, emergency policy, financial stress, exchange outage) reported by at least ``shock_min_sources`` outlets.
     (It used to be ANY macro-scope story scored strongly negative: "Bitcoin weakens as hawkish Fed", a video-game controversy and an SEC filing header all froze the whole queue.)"""
@@ -52,15 +66,20 @@ def market_shock(conn, since: str, now, cfg: dict) -> Optional[dict]:
         return None
     types = sorted(nlp.SHOCK_TYPES)
     rows = conn.execute("SELECT id,headline,direction,magnitude,credibility,created,event_type,source FROM events WHERE created>? AND created>? AND scope NOT IN ('company','sector') "
-                        "AND event_type IN (%s) AND direction<=? AND magnitude>=0.6 AND credibility>=0.6 ORDER BY direction ASC, magnitude DESC LIMIT 30" % ",".join("?" * len(types)),
+                        "AND event_type IN (%s) AND direction<=? AND magnitude>=0.6 AND credibility>=0.6 ORDER BY direction ASC, magnitude DESC LIMIT 60" % ",".join("?" * len(types)),
                         (since, iso(now - dt.timedelta(hours=hours))) + tuple(types) + (float(r["shock_direction"]),)).fetchall()
-    if rows and len({x["source"] for x in rows}) >= int(r.get("shock_min_sources", 2)):
+    # the HEADLINE has to name the shock. The feed's summary is read too when a story is classified, so a crypto hack whose summary says "halts withdrawals" became a bank run, and an opinion column
+    # that mentions an attack became a war: judged on the headline alone, those are ordinary news.
+    named = [x for x in rows if nlp.analyze(x["headline"] or "", "")["event_type"] in nlp.SHOCK_TYPES]
+    outlets = sorted({publisher(x["source"]) for x in named})
+    if named and len(outlets) >= int(r.get("shock_min_sources", 2)):
         need = float(r.get("shock_market_drop_pct", 0.01))
+        mv = None
         if need > 0:                                                    # "At least 14 killed in attack on Ukraine train station" is a tragedy, not a market event: the MARKET must be reacting too
             mv = market_reaction(conn, now)
             if mv is None or mv > -need:
                 return None
-        return dict(rows[0])
+        return dict(named[0], outlets=outlets, spy_move=mv)
     return None
 
 
@@ -91,10 +110,12 @@ def review(conn, cfg: dict, c: dict, decided_at: str, now, price: Optional[float
         n = adverse_company_news(conn, c["ticker"], decided_at, cfg, c.get("event_id"), universe)
         if n:
             return {"action": "veto", "reason": "VETO: news about %s arrived after this BUY was decided and points the other way (%s, direction %+.2f): \"%s\"" % (c["ticker"], n["event_type"], n["direction"], (n["headline"] or "")[:110])}
-        s = market_shock(conn, decided_at, now, cfg)
+        everyone = str(r.get("shock_applies_to", "after_decision")) == "all_buys"
+        s = market_shock(conn, iso(now - dt.timedelta(hours=float(r["shock_hold_hours"]))) if everyone else decided_at, now, cfg)
         if s:
             until = parse_ts(s["created"]) + dt.timedelta(hours=float(r["shock_hold_hours"]))
-            return {"action": "hold", "reason": "HELD: market-wide shock since this BUY was decided (%s, direction %+.2f): \"%s\". Re-checked every cycle; released after %s UTC if nothing worse happens." % (s["event_type"], s["direction"], (s["headline"] or "")[:90], until.strftime("%d %b %H:%M"))}
+            seen = "reported by %s%s" % (", ".join(s["outlets"]), ("; SPY is %+.2f%% versus its previous close" % (s["spy_move"] * 100)) if s.get("spy_move") is not None else "")
+            return {"action": "hold", "reason": "HELD: market-wide shock %s (%s, direction %+.2f): \"%s\" (%s). Re-checked every cycle; released after %s UTC if nothing worse happens." % ("while this BUY waits" if everyone else "since this BUY was decided", s["event_type"], s["direction"], (s["headline"] or "")[:90], seen, until.strftime("%d %b %H:%M"))}
     g = gap(price, c.get("ref_price"), cfg) if price else None
     if g is not None:
         if g <= -float(r["max_gap_down_pct"]):

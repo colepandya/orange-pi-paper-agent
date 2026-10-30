@@ -1,3 +1,14 @@
+# Build 37  (strategy S2)
+* **Review of the real Friday 30 Oct open: why 8 queued BUYs were held until they expired.** SPY really did close down 1.37%, so the market gate worked. What was wrong was what counted as the shock:
+  - the classifier also reads the feed SUMMARY, so a crypto hack whose summary said "halts withdrawals" became a bank run (financial_stress_event, -0.85), and an opinion column and a West Bank raids story became war escalation;
+  - "two outlets" meant two feeds, not two outlets (CNBC Top News and CNBC World are one publisher) and not one story (a Ukraine blackout from CNBC plus a crypto heist from Al Jazeera "corroborated" each other).
+  Now a hold needs a HEADLINE that names the shock, from 2+ distinct PUBLISHERS, with the market falling (unchanged). "Halts withdrawals" is a bank run only for a bank, brokerage, lender or fund. The hold text states the outlets and SPY's move.
+* **New setting `risk.shock_applies_to`** (default `after_decision`, the previous behaviour): the review showed SPG, NBHC and CBOE were decided AFTER the risk-off stories and traded into the same falling market (SPG and NBHC lost money) while RIVN and FHI, decided before, were
+  held. `all_buys` holds every queued BUY while a confirmed shock is live. The choice is the owner's, to be made with the missed-trade results.
+* The missed-trade analysis files shock holds under "held for a market-wide shock" (they were hidden under "expired or cancelled"), so the cost or benefit of the rule can be read.
+* **Strategy version S1 -> S2** (a decision rule changed): results before and after are separate measurement periods. No other decision changed: tools/golden.py shows the open, the full buy-to-sell lifecycles, mid-session news and thesis ideas identical to build 36.
+* Everything in builds 32-36 is included.
+
 # Build 36
 * **Missed-trade analysis: what would the ideas we did NOT take have done?** After the US close the bot fetches 5-minute prices for every stock it looked at and replays each idea through the REAL exit code (`executor.run`) on a throw-away in-memory
   book: same stop ratchet, partial exit and runner, target extension and time stop, so the simulation cannot drift from the real rules. Trades we did take are replayed too, from their real entry, so the engine's accuracy is measured. New `whatif.py`,

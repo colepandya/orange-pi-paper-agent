@@ -125,17 +125,18 @@ class TestAShockHasToBeAShock(unittest.TestCase):
 
     def test_one_outlet_is_enough_if_the_owner_says_so_and_old_or_company_events_never_count(self):
         c = H.fresh_db()
-        event(c, "market_crash", "macro", -0.85, 0.97, "Wire", self.T, headline="crash")
+        event(c, "market_crash", "macro", -0.85, 0.97, "Wire", self.T, headline="Dow plunges 1,500 points as global stock market crash deepens")
         self.assertIsNotNone(self.shock(c, shock_min_sources=1))
         c2 = H.fresh_db()
         for src in ("Wire", "Wire2"):
-            event(c2, "market_crash", "macro", -0.85, 0.97, src, iso(at(2026, 10, 29, 3, 0)), headline="crash")                      # older than the 6-hour window
-            event(c2, "market_crash", "company", -0.85, 0.97, src, self.T, headline="crash")                                         # about one company
+            event(c2, "market_crash", "macro", -0.85, 0.97, src, iso(at(2026, 10, 29, 3, 0)), headline="Dow plunges 1,500 points as global stock market crash deepens")                      # older than the 6-hour window
+            event(c2, "market_crash", "company", -0.85, 0.97, src, self.T, headline="Dow plunges 1,500 points as global stock market crash deepens")                                         # about one company
         self.assertIsNone(self.shock(c2))
 
     def test_a_war_story_alone_does_not_freeze_trading_the_market_must_actually_be_falling(self):
-        """The 30 Oct case: 'At least 14 people killed in attack on Ukraine train station' (war_escalation, -0.85, many outlets) held an AVGO BUY through the whole session."""
-        h = "At least 14 people killed in attack on Ukraine train station"
+        """The 30 Oct case: a Ukraine train-station attack (war_escalation, -0.85, many outlets) held an AVGO BUY through the whole session. The headline must NAME the shock (a drone attack); the same
+        tragedy worded as 'people killed in attack on Ukraine train station' is ordinary news (build 37: see test_shock_rules.py)."""
+        h = "Russian drone attack on Ukrainian train station kills at least 14, officials say"
         for mkt in (-0.002, 0.004, None):                                                    # market flat / up / unknown
             c = H.fresh_db()
             for src in ("Wire", "Wire2", "Wire3"):

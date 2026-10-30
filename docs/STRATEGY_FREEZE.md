@@ -24,3 +24,9 @@ Any result can be attributed to the strategy in force when it was produced (`sta
 1. Do not change decision settings, the article-reader mode or thesis settings mid-trial; if you must, the stamp records it and the trial is split at that moment.
 2. Code changes during a trial must pass `tools/golden.py check`: behaviour scenarios identical. Install outside the US session (02:30-09:00 NZDT).
 3. A change to decision logic bumps `STRATEGY_VERSION` and a re-recorded baseline, and starts a new measurement period.
+
+## Strategy S2 (build 37): what a market-wide shock hold means
+S1 -> S2 changed one decision rule, found by reviewing the real open of Friday 30 Oct, where 8 queued BUYs (edge +2.3% to +5.2%) were held until they expired. SPY was genuinely down 1.37% that day, so the market gate worked; the
+shock itself was mis-identified. A hold now needs: a story whose HEADLINE names a shock (the feed summary alone no longer makes a heist a bank run or an opinion column a war); at least `shock_min_sources` DISTINCT PUBLISHERS
+(CNBC Top News + CNBC World are one); and the market falling by `shock_market_drop_pct`. The hold text now states the outlets and SPY's move. `risk.shock_applies_to` chooses whether a hold covers only BUYs decided before the story
+(after_decision, the default, as before) or every queued BUY while the shock is live (all_buys). The missed-trade analysis files these under "held for a market-wide shock", so what the rule costs or saves can be read from results.
