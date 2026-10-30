@@ -26,7 +26,9 @@ def position_remaining(conn, h: dict, now=None) -> Optional[dict]:
     rem = p * (T - r) + (1 - p) * (S - r)
     left = max(1, int(plan["max_hold_days"]) - trading_days_between(pos["opened"], now or utcnow()))
     vol = md.daily_vol(conn, h["ticker"], 60, 0.025)
-    return {"position_id": h["position_id"], "ticker": h["ticker"], "remaining_ev": rem, "per_risk": rem / max(vol * math.sqrt(left), 1e-3), "days_left": left, "return": r}
+    opened = parse_ts(pos["opened"])
+    age_h = ((now or utcnow()) - opened).total_seconds() / 3600.0 if opened else 9999.0
+    return {"position_id": h["position_id"], "ticker": h["ticker"], "remaining_ev": rem, "per_risk": rem / max(vol * math.sqrt(left), 1e-3), "days_left": left, "return": r, "age_h": age_h}
 
 
 def evaluate(conn, forecast: dict, sizing_ok: bool, state: dict, cfg: dict, now=None, headroom_pct: float = 1.0) -> dict:
@@ -40,6 +42,11 @@ def evaluate(conn, forecast: dict, sizing_ok: bool, state: dict, cfg: dict, now=
     rems = [x for x in (position_remaining(conn, h, now) for h in state["holdings"]) if x]
     if not rems:
         return {"ok": False, "reason": "no capacity and no rotation candidate", "rotate_out": None}
+    protect = float(cfg["risk"].get("rotation_min_hold_hours", 6))
+    old_enough = [x for x in rems if x.get("age_h", 9999.0) >= protect]            # a position bought minutes ago is not churned out for a marginally better idea (the round trip costs money and proves nothing)
+    if not old_enough:
+        return {"ok": False, "reason": "capacity full and every holding is too new to rotate out (protected for %g hours after buying)" % protect, "rotate_out": None}
+    rems = old_enough
     weakest = min(rems, key=lambda x: x["per_risk"])
     if cand_score >= 1.5 * max(weakest["per_risk"], 0.0) + 0.05 and forecast["ev_net"] > weakest["remaining_ev"]:
         return {"ok": False, "reason": "capacity full: rotate out %s (remaining EV/risk %.2f vs candidate %.2f)" % (weakest["ticker"], weakest["per_risk"], cand_score),

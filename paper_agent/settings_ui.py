@@ -53,6 +53,9 @@ def _input(f: S.Field, cfg: dict, base: dict, raw: Dict[str, str]) -> str:
     if f.kind == "bool":
         chk = " checked" if val in ("1", "true", "on") else ""
         return '<input type=hidden name="%s" value=0><label><input type=checkbox name="%s" value=1%s> enabled</label>' % (E(f.name), E(f.name), chk)
+    if f.kind == "choice":
+        opts = "".join('<option value="%s"%s>%s</option>' % (E(c), " selected" if c == val else "", E(c)) for c in (f.choices or []))
+        return '<select name="%s">%s</select>' % (E(f.name), opts)
     unit = " %" if f.kind == "pct" else ""
     cls = "wide" if f.kind in ("email", "hostlist", "topic") else "num"
     return '<input type=text class=%s name="%s" value="%s" inputmode=decimal>%s' % (cls, E(f.name), E(val), unit)

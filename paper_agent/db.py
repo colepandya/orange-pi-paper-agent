@@ -98,6 +98,9 @@ CREATE TABLE IF NOT EXISTS forecasts(
  direction TEXT NOT NULL,horizon_days INTEGER NOT NULL,p_up REAL,ev_gross REAL,ev_net REAL,risk_score REAL,confidence REAL,
  target_return REAL,stop_return REAL,regime TEXT,verdict TEXT NOT NULL,scenarios_json TEXT NOT NULL,inputs_json TEXT NOT NULL,hash TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_forecasts_ticker ON forecasts(ticker,created DESC);
+CREATE TABLE IF NOT EXISTS article_reads(uid TEXT PRIMARY KEY,url TEXT,fetched_at TEXT NOT NULL,status TEXT NOT NULL,http INTEGER,via TEXT,chars INTEGER,domain TEXT,analysis_json TEXT,merge_note TEXT);
+CREATE INDEX IF NOT EXISTS ix_article_reads_time ON article_reads(fetched_at);
+CREATE TABLE IF NOT EXISTS article_domains(domain TEXT PRIMARY KEY,ok INTEGER NOT NULL DEFAULT 0,fails INTEGER NOT NULL DEFAULT 0,blocked_until TEXT,last_status TEXT,updated TEXT);
 CREATE TABLE IF NOT EXISTS predictions(
  id INTEGER PRIMARY KEY AUTOINCREMENT,created TEXT NOT NULL,kind TEXT NOT NULL,subject TEXT NOT NULL,claim TEXT NOT NULL,probability REAL NOT NULL,
  baseline_price REAL,benchmark_price REAL,expected_return REAL,horizon_date TEXT NOT NULL,source TEXT,event_type TEXT,thesis_key TEXT,

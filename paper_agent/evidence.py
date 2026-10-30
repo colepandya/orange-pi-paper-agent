@@ -158,6 +158,7 @@ def _persist_one(conn, universe, cfg: dict, icfg: dict, rules, chosen: dict, ana
             stats["evidence"] += 1
         # trading candidates: single-company, fresh, first-of-cluster, strong enough.  EVERY event records WHY it did or did not qualify (events.gate).
         blocked = {e["ticker"] for e in intel_effects if e["order"] > int(icfg["max_trade_order"])} if intel else set()
+        blocked |= set(a.get("article_not_about") or [])                      # the full article is about someone else: this company is only mentioned in passing
         gate, new_cands = build_event_candidates(universe, a, title, n["source"], n["uid"], eid, tickers, conf, novelty, age_h, cred, icfg, blocked)
         candidates.extend(new_cands)
         have = {c["ticker"] for c in new_cands}
@@ -232,7 +233,7 @@ def recover(conn, universe, cfg: dict, now, hours: float = 24.0) -> dict:
     return res
 
 
-def process_new_news(conn, universe, cfg: dict, now: Optional[dt.datetime] = None, analyst: Optional[Callable] = None, limit: int = 600) -> dict:
+def process_new_news(conn, universe, cfg: dict, now: Optional[dt.datetime] = None, analyst: Optional[Callable] = None, limit: int = 600, article_fetcher: Optional[Callable] = None) -> dict:
     from . import event_intel
     now = now or utcnow()
     icfg = cfg["intelligence"]
@@ -258,6 +259,12 @@ def process_new_news(conn, universe, cfg: dict, now: Optional[dt.datetime] = Non
             pre.append((n, a, pub, age_h, age_h > float(icfg["stale_event_hours"]), matches))
         except Exception as e:  # noqa: BLE001
             failed.append((n, e))
+    # ---- read the ARTICLE behind the items worth reading (budgeted; no LLM) and fold what it says into each item's analysis, BEFORE any gate looks at it
+    try:
+        from . import reader
+        art_stats = reader.enrich(conn, universe, cfg, pre, now, article_fetcher)
+    except Exception as ex:  # noqa: BLE001 - reading articles must never stop news from being processed
+        art_stats = {"mode": "error", "error": "%s: %s" % (type(ex).__name__, str(ex)[:120]), "read": 0}
     # ---- which items deserve an LLM read this cycle (budgeted, ranked)
     chosen = event_intel.pick_for_llm(conn, pre, icfg, analyst)
     # ---- pass 2: persist events + evidence
@@ -271,7 +278,7 @@ def process_new_news(conn, universe, cfg: dict, now: Optional[dt.datetime] = Non
         _record_error_event(conn, n, now, e)
         stats["errors"] += 1
     stats["candidates"] = len(candidates)
-    return {"stats": stats, "candidates": candidates}
+    return {"stats": stats, "candidates": candidates, "articles": art_stats}
 
 
 MNA_ACQUIRER_DIRECTION = -0.3        # acquirers usually dip on announcement: recorded as a visible "no trade (long-only)" decision, not silently dropped
@@ -279,7 +286,7 @@ GATE_LABELS = {
     "candidate": "became a trade candidate", "candidate_llm": "became a trade candidate (LLM)", "stale": "too old when first seen (older than the stale window)",
     "expired": "evidence already expired", "duplicate_story": "same story already seen (first copy was handled)", "older_than_trade_window": "older than the trade window",
     "market_wide_event": "macro / market-wide event (moves theses and regime, not a single stock)", "no_company_matched": "no listed company recognised in the text",
-    "too_many_companies": "roundup naming more than 3 companies", "direction_too_weak": "direction unclear (no clear good/bad news)", "commentary_not_news": "opinion / analysis / list article (a question, \"stocks to buy\", \"I'd buy\"...): not new information", "already_moved": "the headline says the stock already moved 10%+ on this news: that edge is gone", "contradictory_signals": "the headline contradicts itself (good news but the stock fell, or the reverse): needs research, not a trade", "retrospective_recap": "after-the-fact article explaining a price move (already priced in, never a reason to buy)", "magnitude_too_small": "event too minor",
+    "too_many_companies": "roundup naming more than 3 companies", "direction_too_weak": "direction unclear (no clear good/bad news)", "commentary_not_news": "opinion / analysis / list article (a question, \"stocks to buy\", \"I'd buy\"...): not new information", "article_disagrees": "the full article says something different from the headline: needs research, not a trade", "stale_in_article": "the article itself says this happened days ago: the market has already reacted", "already_moved": "the headline says the stock already moved 10%+ on this news: that edge is gone", "contradictory_signals": "the headline contradicts itself (good news but the stock fell, or the reverse): needs research, not a trade", "retrospective_recap": "after-the-fact article explaining a price move (already priced in, never a reason to buy)", "magnitude_too_small": "event too minor",
     "company_match_uncertain": "company match not certain enough (name ambiguous)", "merger_role_unknown": "merger: could not tell which side the company is on",
     "no_ticker_passed_checks": "no company passed the final checks",
 }
@@ -299,6 +306,10 @@ def candidate_gate(a: dict, tickers: List[str], conf: Dict[str, float], novelty:
         return "commentary_not_news"
     if a.get("contradictory"):
         return "contradictory_signals"
+    if a.get("article_contradicts"):
+        return "article_disagrees"
+    if a.get("article_stale"):
+        return "stale_in_article"
     if a.get("priced_in"):
         return "already_moved"
     if not tickers:

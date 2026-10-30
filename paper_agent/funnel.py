@@ -101,6 +101,13 @@ def report(conn, hours: float = 24, now=None, samples: int = 3, cfg: Optional[di
            "candidates": sum(n for g, n in gates.items() if g.startswith("candidate")),
            "decisions": dec, "decisions_total": sum(dec.values()), "last_decision": one("SELECT MAX(created) FROM decisions"),
            "executed": one("SELECT COUNT(*) FROM positions WHERE opened>?", since), "mna": mna}
+    try:
+        rows = conn.execute("SELECT via,status,merge_note,domain FROM article_reads WHERE fetched_at>?", (since,)).fetchall()
+        blocked = [r["domain"] for r in conn.execute("SELECT domain FROM article_domains WHERE blocked_until>? ORDER BY domain", (iso(now),))]
+        rep["articles"] = {"read": len(rows), "page": sum(1 for r in rows if r["via"] == "page"), "snippet": sum(1 for r in rows if r["via"] != "page"), "changed": sum(1 for r in rows if r["merge_note"]),
+                           "left_alone": blocked[:12], "left_alone_n": len(blocked)}
+    except Exception:  # noqa: BLE001
+        rep["articles"] = {"read": 0, "page": 0, "snippet": 0, "changed": 0, "left_alone": [], "left_alone_n": 0}
     rep["findings"] = findings(conn, rep, now)
     return rep
 
@@ -154,6 +161,10 @@ def text(rep: dict) -> str:
     if rep.get("error_cycles_history"):
         L.append("(%d earlier cycle(s) with errors are from before this build / acknowledged: kept as history, not counted)" % rep["error_cycles_history"])
     L.append("cycles: %s | last cycle %s | last OK cycle %s" % (", ".join("%s=%d" % kv for kv in sorted(rep["cycles"].items())) or "none", to_nz(rep["last_cycle"]) if rep["last_cycle"] else "never", to_nz(rep["last_ok_cycle"]) if rep["last_ok_cycle"] else "never"))
+    ar = rep.get("articles") or {}
+    if ar.get("read"):
+        L.append("articles read: %d (full page %d, feed snippet only %d); the article changed the reading of %d%s" % (ar["read"], ar["page"], ar["snippet"], ar["changed"],
+                 ("; sites being left alone after refusing us: %s" % ", ".join(ar["left_alone"])) if ar.get("left_alone_n") else ""))
     if rep["died"]:
         L.append("!! %d cycle(s) STARTED BUT NEVER FINISHED; died in: %s" % (len(rep["died"]), ", ".join(sorted({d["stage"] for d in rep["died"]}))))
     if rep["stage_errors"]:

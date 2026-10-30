@@ -7,6 +7,7 @@ config/deploy-settings.json
 config/market-data.env
 config/market-data.env.example
 config/sources.json
+docs/ARTICLE_READER.md
 docs/BUGS_FIXED.md
 docs/DATABASE.md
 docs/INTELLIGENCE.md
@@ -44,6 +45,7 @@ paper_agent/gaps.py
 paper_agent/golden.py
 paper_agent/keys.py
 paper_agent/learning.py
+paper_agent/lens.py
 paper_agent/llm.py
 paper_agent/llm_client.py
 paper_agent/maintain.py
@@ -61,6 +63,7 @@ paper_agent/preflight.py
 paper_agent/pretrade.py
 paper_agent/prices.py
 paper_agent/quotes.py
+paper_agent/reader.py
 paper_agent/recall.py
 paper_agent/redteam.py
 paper_agent/regime.py
@@ -122,6 +125,7 @@ tests/test_guards.py
 tests/test_installer.py
 tests/test_intel.py
 tests/test_keys.py
+tests/test_lens.py
 tests/test_live_findings.py
 tests/test_maintain.py
 tests/test_open_blockers.py
@@ -131,14 +135,18 @@ tests/test_preflight.py
 tests/test_pretrade.py
 tests/test_prices.py
 tests/test_quote_health.py
+tests/test_reader.py
+tests/test_reader_display.py
 tests/test_recall.py
 tests/test_regressions.py
 tests/test_report.py
 tests/test_review_fixes.py
+tests/test_rotation.py
 tests/test_schema_drift.py
 tests/test_settings_page.py
 tests/test_settings_ui.py
 tests/test_swing.py
 tests/test_systemd.py
 tests/test_trade_lifecycle.py
+tests/test_trading_with_reader.py
 tests/test_world_events.py

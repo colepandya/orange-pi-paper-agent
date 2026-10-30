@@ -40,6 +40,7 @@ FIELDS: List[Field] = [
     F("risk.full_size_edge", "Edge needed for a FULL-size position (expected profit / typical move)", "float", "Risk limits", 0.1, 3.0, "Positions scale with the edge: at this value (0.5 = half a typical move) a position gets the maximum size; weaker ideas get proportionally less, never below 25% of the maximum."),
     F("risk.shock_min_sources", "Outlets needed to confirm a market-wide shock", "int", "Risk limits", 1, 5, "A crash / war / emergency-policy story must be reported by at least this many different sources before it freezes new BUYs."),
     F("risk.shock_market_drop_pct", "Market must also be down at least (fraction, 0 = headlines alone suffice)", "float", "Risk limits", 0.0, 0.2, "A confirmed crash / war / emergency story only freezes new BUYs if SPY is also down this much versus its previous close. 0.01 = 1%."),
+    F("risk.rotation_min_hold_hours", "Protect a new position from being rotated out for (hours)", "int", "Risk limits", 0, 72, "When capacity is full a better idea can replace the weakest holding. This stops a position bought minutes ago from being sold again right away (a pointless round trip). 0 = no protection."),
     F("risk.allow_add_to_position", "Allow a second position in a stock already held", "bool", "Risk limits", help="Off: if you already hold a stock, further BUYs on it are skipped (they would stack the same bet). The best-EV idea is processed first."),
     F("risk.veto_adverse_news", "Re-check queued BUYs against news that arrived after they were decided", "bool", "Risk limits", help="A later bearish story about the same company cancels the BUY; a market-wide shock holds it."),
     F("risk.veto_news_direction", "Later news counts as adverse at direction <=", "float", "Risk limits", -1.0, -0.1, "-1 = very bearish, 0 = neutral."),
@@ -115,6 +116,10 @@ FIELDS: List[Field] = [
     # ---------------------------------------------------------------- runtime
     F("runtime.require_password", "Require a password to use Settings", "bool", "System", help="Off (default): anyone on your network can open Settings. Turn on to be asked to create a password on your next visit."),
     F("runtime.allowed_hosts", "Allowed hostnames (only if you use a custom name or proxy)", "hostlist", "System", help="Comma-separated. Private IPs, localhost and names like orangepizero3 or pi.local are always allowed."),
+    F("reader.mode", "Read the full article (no LLM)", "choice", "Article reader", choices=["off", "shadow", "guard", "full"], help="off: headlines + snippets only. shadow: read articles and record what they say, change nothing. guard (recommended start): the article can CANCEL or WEAKEN a candidate (wrong company, old news, opinion, contradicts the headline) but never create or enlarge one. full: also lets the article confirm, strengthen, or rescue a candidate whose headline was too vague (e.g. 'X reports results')."),
+    F("reader.max_per_cycle", "Articles to download per cycle", "int", "Article reader", 0, 40, "The best-ranked news items are read first; the rest use the feed's snippet. Each download is capped at 1.5 MB."),
+    F("reader.time_budget_seconds", "Time budget for reading articles per cycle (seconds)", "int", "Article reader", 5, 120, "Reading stops when this is used up, so it can never delay trading."),
+    F("reader.timeout_seconds", "Give up on a slow page after (seconds)", "int", "Article reader", 3, 30, "A site that keeps failing or refusing is left alone for 24 hours."),
     F("maintenance.weekly_cleanup", "Weekly database clean-up (Saturdays, US market closed)", "bool", "Database", help="Expires news, events and run logs that nothing still points at. Never touches positions, the ledger, forecasts, evidence or portfolio history."),
     F("maintenance.news_days", "Keep news and events for (days)", "int", "Database", 7, 365, "Anything a decision, forecast or piece of evidence refers to is kept regardless."),
     F("maintenance.log_days", "Keep run logs and narrative history for (days)", "int", "Database", 7, 365, "The newest state of every thesis is always kept."),
@@ -126,7 +131,7 @@ FIELDS: List[Field] = [
     F("runtime.bind_port", "Dashboard port", "int", "System", 1024, 65535, "Takes effect after restarting the dashboard.", restart="dashboard"),
 ]
 BY_NAME = {f.name: f for f in FIELDS}
-GROUP_ORDER = ["Risk limits", "Swing strategy", "Execution", "Refresh times", "LLM analyst", "Database", "System"]
+GROUP_ORDER = ["Risk limits", "Swing strategy", "Execution", "Refresh times", "LLM analyst", "Article reader", "Database", "System"]
 TIERS = ("triage", "analyst")
 PROVIDERS = ("anthropic", "github")
 MODEL_RX = re.compile(r"^[A-Za-z0-9._:/-]{3,80}$")
@@ -199,6 +204,10 @@ def _parse(f: Field, raw: str):
     raw = (raw or "").strip()
     if f.kind == "bool":
         return raw.lower() in ("1", "true", "on", "yes")
+    if f.kind == "choice":
+        if raw not in (f.choices or []):
+            raise ValueError("choose one of: " + ", ".join(f.choices or []))
+        return raw
     if f.kind == "topic":
         if raw and not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", raw):
             raise ValueError("8-64 letters, digits, - or _ (or leave empty)")

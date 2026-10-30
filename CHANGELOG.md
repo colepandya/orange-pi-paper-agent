@@ -1,3 +1,19 @@
+# Build 33
+* **No more pointless round trips.** Replaying the owner's real open with their real settings showed a stock bought at 13:45 and sold at 13:50 for a "superior opportunity" (a later idea scored better per unit of risk): a 0.5% loss for nothing.
+  A position is now protected from being rotated out for 6 hours after it is bought (Settings -> Risk limits -> "Protect a new position from being rotated out for (hours)", 0 = off). Rotation had one assertion of test coverage; it now has real tests.
+* **Buys and sells verified end to end on the article-reader build**, in every reader mode (off / shadow / guard / full) and on a "every page fails to load" day, which must be identical to before: news -> article -> queued before the open -> bought at the open -> stop-loss / target / time-stop -> sold, with the ledger,
+  cash and equity reconciling to the cent. Plus a multi-session replay on the owner's real data (8 buys / 8 sells with defaults; 9 / 9 with their saved settings) and the fresh-arrival-during-the-session path (11 buys).
+* Everything in build 32 (the in-house article reader; see docs/ARTICLE_READER.md) is included.
+
+# Build 32
+* **The bot now reads the full article, not just the headline, with no LLM.** New `reader.py` (safe fetching, readable-text extraction) and `lens.py` (an in-house understanding engine): earnings vs the estimate, guidance, deals, contracts, buybacks,
+  analyst actions and adverse events, with negation / hedging / attribution / history handling, losses as negative numbers, opinion / sponsored / transcript / stale detection, and "who is this article actually about". See docs/ARTICLE_READER.md.
+  Settings -> Article reader: off / shadow / **guard** (default: the article can cancel or weaken a candidate, never create one) / full (it may also confirm and rescue). New funnel reasons `article_disagrees`, `stale_in_article`.
+* **Safe by construction:** public hosts only (every redirect re-checked), robots.txt honoured, size / time / count budgets per cycle, per-site back-off, social / video / SEC pages never fetched, paywalls not bypassed, only facts stored (never the text).
+* **Visible:** the decision's "Why?" page shows what the article said, with the source sentence; the Funnel shows articles read and sites left alone; preflight warns if no page ever loads.
+* Tested on realistic wire / press-release / opinion text AND on 2,350 real headlines and snippets from the owner's database, which exposed and fixed false alarms (military "strike" vs labour strike, software "upgrade" vs analyst upgrade, settling a lawsuit).
+* New setting type (a choice list) in the Settings page.
+
 # Build 31
 * **The System tab is fast again.** Since build 28 its Database card re-read ~70 source files and ran one text search per legacy table (44 tables = ~3,000 scans) on EVERY view: ~1.1 s cold on a fast machine, several seconds on the Pi.
   The code is now read once per process and all table names are looked up in a single pass whose answer is remembered: 1,135 ms -> 30 ms the first time, 99 ms -> 2 ms after (checked to give identical answers to the old method).

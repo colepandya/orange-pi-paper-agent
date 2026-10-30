@@ -105,6 +105,17 @@ def run(conn, cfg: dict, universe=None, config_dir: str = "", fetch: Callable = 
     sw = cfg.get("strategy") or {}
     chk("Earnings calendar loaded", PASS if n_er else (WARN if sw.get("swing_enabled") and sw.get("avoid_earnings", True) else PASS), "%d upcoming report(s) known" % n_er if n_er else "none loaded: swing trades are NOT protected from earnings gaps (needs the Finnhub key; refreshed every ~11 h)",
         "" if n_er else "Settings -> API keys -> Finnhub; then wait for the next cycle")
+    rc = cfg.get("reader") or {}
+    if rc.get("mode", "guard") != "off":
+        try:
+            ar = conn.execute("SELECT COUNT(*) n, SUM(CASE WHEN via='page' THEN 1 ELSE 0 END) p FROM article_reads WHERE fetched_at>?", (iso(now - dt.timedelta(hours=24)),)).fetchone()
+            n_read, n_page = int(ar["n"] or 0), int(ar["p"] or 0)
+        except Exception:  # noqa: BLE001
+            n_read = n_page = 0
+        starving = n_read >= 12 and n_page == 0
+        chk("Article reader (full text)", WARN if starving else PASS, "mode %s; last 24h: %d read, %d as full pages, %d from the feed snippet only%s" % (rc.get("mode"), n_read, n_page, n_read - n_page,
+            " (no page ever loaded: the publishers may be refusing us, or DNS / the network is blocking them)" if starving else ""),
+            "Funnel tab shows which sites are being left alone; Settings -> Article reader" if starving else "")
     # ---- 7. company recognition on the REAL watchlist
     if universe is not None and len(getattr(universe, "watch", {})) > 0:
         n = len(universe.watch)

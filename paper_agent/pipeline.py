@@ -24,7 +24,7 @@ from .timeutil import iso, market_state, utcnow
 class Deps:
     """Injectable I/O so the whole pipeline can be run offline in tests."""
 
-    def __init__(self, fetch=None, fetch_json=None, quote_fn=None, sleep=None, analyst=None, series_fetch=None, llm_transport=None):
+    def __init__(self, fetch=None, fetch_json=None, quote_fn=None, sleep=None, analyst=None, series_fetch=None, llm_transport=None, article_fetch=None):
         self.fetch = fetch or net.get
         self.fetch_json = fetch_json or net.get_json
         self.quote_fn = quote_fn
@@ -32,6 +32,7 @@ class Deps:
         self.analyst = analyst
         self.series_fetch = series_fetch   # None => real network for Yahoo bars
         self.llm_transport = llm_transport  # None => real HTTPS to the configured LLM provider
+        self.article_fetch = article_fetch  # None => the hardened real fetcher (public hosts only); tests inject a fake
 
 
 def resources_ok(cfg: dict) -> Optional[str]:
@@ -210,8 +211,9 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     report["collect"] = _stage(report, "collect", collect)
 
     # ---- event / evidence / thesis / narrative
-    ev = _stage(report, "evidence", evidence.process_new_news, conn, universe, cfg, now, analyst)
+    ev = _stage(report, "evidence", evidence.process_new_news, conn, universe, cfg, now, analyst, 600, deps.article_fetch)
     report["evidence"] = ev["stats"] if ev else {}
+    report["articles"] = {k: v for k, v in ((ev or {}).get("articles") or {}).items() if k != "notes"}
     cands = candqueue.load(conn, now, icfg["trade_event_max_age_hours"])          # durable: includes leftovers from a cycle that was killed before it reached entries
     report["queue"] = candqueue.counts(conn)
     _stage(report, "flows", flows.record_event_flows, conn, iso(now - dt.timedelta(days=3)))

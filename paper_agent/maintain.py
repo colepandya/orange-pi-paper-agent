@@ -110,6 +110,8 @@ def _retention(conn, news_days: int, log_days: int, now) -> Dict[str, Tuple[str,
         # "no SURVIVING event needs it": the same rule counts (plan) and deletes (apply), whatever order they run in
         w = "ingested<? AND uid NOT IN (SELECT news_uid FROM events WHERE news_uid IS NOT NULL AND NOT (created<? AND %s))%s" % (_event_free_clause(conn), extra)
         out["news"] = ("SELECT COUNT(*) FROM news WHERE " + w, "DELETE FROM news WHERE " + w, (nc, nc))
+    if "article_reads" in tabs:
+        out["article_reads"] = ("SELECT COUNT(*) FROM article_reads WHERE fetched_at<?", "DELETE FROM article_reads WHERE fetched_at<?", (nc,))
     if "narrative_states" in tabs:
         w = "ts<? AND id NOT IN (SELECT MAX(id) FROM narrative_states GROUP BY thesis_key)"          # the latest state per thesis is always kept
         out["narrative_states"] = ("SELECT COUNT(*) FROM narrative_states WHERE " + w, "DELETE FROM narrative_states WHERE " + w, (lc,))

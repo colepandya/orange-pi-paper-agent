@@ -95,6 +95,50 @@ def _json(s) -> dict:
         return {}
 
 
+def _money(v) -> str:
+    v = float(v or 0)
+    return "$%.2fB" % (v / 1e9) if abs(v) >= 1e9 else "$%.0fM" % (v / 1e6) if abs(v) >= 1e6 else "$%.2f" % v
+
+
+def describe_fact(f: dict) -> str:
+    """One plain-English line for a fact the article reader extracted."""
+    k = f.get("kind")
+    if k == "eps_surprise":
+        return "Earnings per share %s versus %s expected (%+.0f%%)" % (_money(f["actual"]), _money(f["estimate"]), f["surprise"] * 100)
+    if k == "revenue_surprise":
+        return "Revenue %s versus %s expected (%+.1f%%)" % (_money(f["actual"]), _money(f["estimate"]), f["surprise"] * 100)
+    if k == "growth":
+        return "%s %s %.0f%%" % (str(f.get("metric", "figure")).capitalize(), "rose" if f["pol"] > 0 else "fell", f.get("pct", 0))
+    if k == "contract":
+        return "Contract %s%s" % ("worth " + _money(f["amount"]) if f.get("amount") else "", " (%.1f%% of the company's value)" % f["pct_of_cap"] if f.get("pct_of_cap") else "") if f["pol"] > 0 else "A contract was lost or cancelled"
+    if k == "buyback":
+        return "Share buyback%s%s" % (" of " + _money(f["amount"]) if f.get("amount") else "", " (%.1f%% of the company's value)" % f["pct_of_cap"] if f.get("pct_of_cap") else "")
+    if k == "deal":
+        return "%s deal%s%s" % ("Agreed" if f.get("definitive") else "Rumoured / in talks", " worth " + _money(f["amount"]) if f.get("amount") else "", ", %.0f%% premium" % f["premium"] if f.get("premium") else "")
+    names = {"guidance_raise": "Raised its outlook", "guidance_cut": "Cut its outlook", "guidance_keep": "Kept its outlook", "beat_generic": "Beat expectations", "miss_generic": "Missed expectations", "dividend_raise": "Raised the dividend",
+             "dividend_cut": "Cut the dividend", "upgrade": "Analyst upgrade", "downgrade": "Analyst downgrade", "target_raise": "Price target raised", "target_cut": "Price target cut", "bankruptcy": "Bankruptcy / going-concern warning",
+             "delisting": "Delisting notice", "restatement": "Accounting restatement", "investigation": "Regulatory investigation", "lawsuit": "Lawsuit", "recall": "Product recall", "fda_reject": "Regulator rejected / trial failed",
+             "fda_approve": "Regulator approval / trial success", "short_report": "Short-seller report", "cyber": "Cyber incident", "exec_exit": "Executive departure", "layoffs": "Layoffs", "strike_outage": "Strike / outage / halted production",
+             "record": "Record results", "partnership": "New partnership", "insider_buy": "Insider buying", "insider_sell": "Insider selling", "product_launch": "Product launch"}
+    return names.get(k, str(k).replace("_", " ").capitalize())
+
+
+def article_section(conn, event_id) -> Optional[dict]:
+    """What the in-house article reader found for the story behind a decision (None if it never looked)."""
+    if not event_id:
+        return None
+    try:
+        row = conn.execute("SELECT r.* FROM article_reads r JOIN events e ON e.news_uid=r.uid WHERE e.id=?", (event_id,)).fetchone()
+    except Exception:  # noqa: BLE001
+        return None
+    if not row:
+        return None
+    a = _json(row["analysis_json"])
+    return {"via": row["via"], "status": row["status"], "domain": row["domain"], "type": a.get("type"), "direction": a.get("direction", 0.0), "confidence": a.get("confidence", 0.0), "mixed": a.get("mixed"),
+            "stale": a.get("stale_why") if a.get("stale") else "", "changed": row["merge_note"] or "",
+            "facts": [(f.get("pol", 0.0), describe_fact(f), f.get("text", "")) for f in (a.get("facts") or []) if f.get("kind") == "deal" or f.get("w", 0) >= 0.12][:6]}
+
+
 def explain(conn, cfg: dict, did: int, now=None) -> Optional[dict]:
     now = now or utcnow()
     d = conn.execute("SELECT * FROM decisions WHERE id=?", (did,)).fetchone()
@@ -239,7 +283,8 @@ def explain(conn, cfg: dict, did: int, now=None) -> Optional[dict]:
         if pos["status"] == "CLOSED":
             tl.append((to_nz(pos["closed"], "%d %b %H:%M"), "Sold at $%.2f: %s, P&L %s" % (pos["exit_price"] or 0, (pos["review_code"] or "").replace("_", " ").lower(), money(pos["pnl"]))))
     return {"id": did, "ticker": t, "status": st, "tone": TONE.get(st, "info"), "headline": head, "summary": summary, "trigger": trig, "numbers": nums, "scenarios": scen_rows,
-            "checks": checks, "plan": planrows, "next": nxt, "timeline": tl, "technical": {"gates_raw": r.get("gates"), "forecast": r.get("forecast"), "sizing": r.get("sizing"), "quote": r.get("quote")}}
+            "checks": checks, "plan": planrows, "next": nxt, "timeline": tl, "article": article_section(conn, d.get("event_id")),
+            "technical": {"gates_raw": r.get("gates"), "forecast": r.get("forecast"), "sizing": r.get("sizing"), "quote": r.get("quote")}}
 
 
 def one_line(conn, cfg: dict, did: int) -> str:
@@ -253,6 +298,14 @@ def render_html(ex: dict) -> str:
     if ex["trigger"]:
         t = ex["trigger"]
         o.append("<h3>What triggered it</h3><blockquote>&ldquo;%s&rdquo;<br><span class=mut>%s</span></blockquote><p>%s %s</p>" % (esc(t["headline"]), esc(t["source"]), esc(t["line"]), esc(t["match"])))
+    art = ex.get("article")
+    if art:
+        how = ("Read the full article page" if art["via"] == "page" else "Only the feed's short snippet was available (%s)" % art["status"].lower().replace("_", " "))
+        verdict = ("%s (%+.2f, confidence %.0f%%)" % ("good news" if art["direction"] > 0.15 else "bad news" if art["direction"] < -0.15 else "no clear direction", art["direction"], art["confidence"] * 100))
+        facts = "".join("<li>%s <b>%s</b><br><span class=mut>&ldquo;%s&rdquo;</span></li>" % (mark[True if pol > 0.05 else False if pol < -0.05 else None], esc(txt), esc(src)) for pol, txt, src in art["facts"]) or "<li class=mut>No hard facts (numbers, deals, ratings) found in the text.</li>"
+        o.append("<h3>What the full article says</h3><p>%s. Reads as <b>%s</b>%s.</p><ul class=checks>%s</ul>%s%s" % (
+            esc(how), esc(verdict), " &middot; %s" % esc(art["type"]) if art["type"] and art["type"] != "report" else "", facts,
+            ("<p class=bad>Old news: %s</p>" % esc(art["stale"])) if art["stale"] else "", ("<p><b>What this changed:</b> %s</p>" % esc(art["changed"])) if art["changed"] else ""))
     if ex["checks"]:
         o.append("<h3>The checks, in plain words</h3><ul class=checks>%s</ul>" % "".join("<li>%s %s</li>" % (mark[ok if ok in (True, False) else None], esc(txt)) for ok, txt in ex["checks"]))
     if ex["numbers"]:

@@ -337,6 +337,10 @@ def page_funnel(c, cfg, s, q):
     out = ["<p class=mut>Window: " + " ".join('<a href="?tab=funnel&hours=%d">%dh</a>' % (h, h) for h in (6, 24, 72)) + " &middot; US market now: <b>%s</b></p>" % E(r["market"])]
     out.append('<div class=grid>%s%s%s%s%s</div>' % (card("News ingested", r["news"]), card("Events", r["events"]), card("Trade candidates", r["candidates"]), card("Decisions", r["decisions_total"]), card("Trades opened", r["executed"])))
     out.append("<p class=mut>Cycles: %s &middot; last cycle %s &middot; last decision %s</p>" % (E(", ".join("%s=%d" % kv for kv in sorted(r["cycles"].items())) or "none"), E(to_nz(r["last_cycle"]) if r["last_cycle"] else "never"), E(to_nz(r["last_decision"]) if r["last_decision"] else "never")))
+    ar = r.get("articles") or {}
+    if ar.get("read"):
+        out.append("<p class=mut>Articles read: <b>%d</b> (full page %d, feed snippet only %d) &middot; the article changed the reading of <b>%d</b>%s</p>" % (
+            ar["read"], ar["page"], ar["snippet"], ar["changed"], (" &middot; sites left alone after refusing us: " + E(", ".join(ar["left_alone"]))) if ar.get("left_alone_n") else ""))
     for f in r["findings"]:
         out.append(settings_ui.flash_html(None, [f["text"] + (" Fix: " + f["fix"] if f["fix"] else "")] if f["severity"] == "HIGH" else None, [f["text"]] if f["severity"] == "MEDIUM" else None) if f["severity"] != "INFO" else "<p class=mut>%s</p>" % E(f["text"]))
     if r["pending"]:
