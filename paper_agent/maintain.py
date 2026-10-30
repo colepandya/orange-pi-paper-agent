@@ -112,6 +112,8 @@ def _retention(conn, news_days: int, log_days: int, now) -> Dict[str, Tuple[str,
         out["news"] = ("SELECT COUNT(*) FROM news WHERE " + w, "DELETE FROM news WHERE " + w, (nc, nc))
     if "article_reads" in tabs:
         out["article_reads"] = ("SELECT COUNT(*) FROM article_reads WHERE fetched_at<?", "DELETE FROM article_reads WHERE fetched_at<?", (nc,))
+    if "intraday_bars" in tabs:
+        out["intraday_bars"] = ("SELECT COUNT(*) FROM intraday_bars WHERE ts<?", "DELETE FROM intraday_bars WHERE ts<?", (lc,))
     if "narrative_states" in tabs:
         w = "ts<? AND id NOT IN (SELECT MAX(id) FROM narrative_states GROUP BY thesis_key)"          # the latest state per thesis is always kept
         out["narrative_states"] = ("SELECT COUNT(*) FROM narrative_states WHERE " + w, "DELETE FROM narrative_states WHERE " + w, (lc,))

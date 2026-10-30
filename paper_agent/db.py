@@ -133,6 +133,12 @@ CREATE TABLE IF NOT EXISTS exit_signals(
  id INTEGER PRIMARY KEY AUTOINCREMENT,position_id INTEGER NOT NULL,created TEXT NOT NULL,trigger TEXT NOT NULL,severity REAL NOT NULL,reason TEXT NOT NULL,
  status TEXT NOT NULL DEFAULT 'OPEN',consumed_at TEXT,UNIQUE(position_id,trigger,status));
 CREATE TABLE IF NOT EXISTS market_series(symbol TEXT NOT NULL,day TEXT NOT NULL,open REAL,high REAL,low REAL,close REAL NOT NULL,volume REAL,PRIMARY KEY(symbol,day));
+CREATE TABLE IF NOT EXISTS intraday_bars(symbol TEXT NOT NULL,ts TEXT NOT NULL,open REAL,high REAL NOT NULL,low REAL NOT NULL,close REAL NOT NULL,volume REAL,PRIMARY KEY(symbol,ts));
+CREATE TABLE IF NOT EXISTS intraday_state(symbol TEXT PRIMARY KEY,fetched_at TEXT NOT NULL,last_ts TEXT,status TEXT);
+CREATE TABLE IF NOT EXISTS whatif_results(decision_id INTEGER NOT NULL,assumptions TEXT NOT NULL,simulated_at TEXT NOT NULL,ticker TEXT NOT NULL,kind TEXT NOT NULL,origin TEXT,decision_status TEXT,gate TEXT,family TEXT,verdict TEXT,
+  event_type TEXT,strategy_version TEXT,strategy_fp TEXT,outcome TEXT NOT NULL,final INTEGER NOT NULL DEFAULT 0,note TEXT,entry_ts TEXT,entry_px REAL,exit_ts TEXT,exit_px REAL,exit_reason TEXT,held_sessions INTEGER,partial INTEGER,
+  ret_net REAL,mfe REAL,mae REAL,bars_n INTEGER,data_through TEXT,actual_ret REAL,actual_exit_reason TEXT,profile TEXT,PRIMARY KEY(decision_id,assumptions));
+CREATE INDEX IF NOT EXISTS ix_whatif_time ON whatif_results(simulated_at);
 CREATE TABLE IF NOT EXISTS series_state(symbol TEXT PRIMARY KEY,fetched_at TEXT NOT NULL,last_day TEXT);
 CREATE TABLE IF NOT EXISTS model_params(key TEXT PRIMARY KEY,value_json TEXT NOT NULL,updated TEXT NOT NULL,reason TEXT);
 CREATE TABLE IF NOT EXISTS source_stats(source TEXT NOT NULL,event_type TEXT NOT NULL,hits REAL NOT NULL DEFAULT 0,misses REAL NOT NULL DEFAULT 0,updated TEXT,PRIMARY KEY(source,event_type));

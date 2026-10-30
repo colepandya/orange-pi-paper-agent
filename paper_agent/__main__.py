@@ -32,6 +32,9 @@ def main(argv=None) -> int:
     pp2.add_argument("--offline", action="store_true")
     rp = sub.add_parser("recover", help="re-evaluate recent events whose candidates were lost when a cycle died")
     rp.add_argument("--hours", type=float, default=24)
+    wp = sub.add_parser("whatif", help="missed-trade analysis: what the ideas we did NOT take would have earned; --run fetches prices and simulates now")
+    wp.add_argument("--run", action="store_true")
+    wp.add_argument("--days", type=float, default=30)
     lp = sub.add_parser("learning", help="what the system has learned: status and proposals (observe mode); --promote shows what would go live, --promote --apply makes it live")
     lp.add_argument("--promote", action="store_true")
     lp.add_argument("--apply", action="store_true")
@@ -247,6 +250,13 @@ def main(argv=None) -> int:
             return 0 if r else 1
         res = golden.run(client, uni)
         return 0 if res["passed"] >= res["total"] * 0.8 else 1
+    if args.cmd == "whatif":
+        from . import whatif
+        conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+        if args.run:
+            print(json.dumps(whatif.run_stage(conn, cfg, utcnow()), indent=1))
+        print(whatif.format_report(whatif.report(conn, utcnow(), args.days)))
+        return 0
     if args.cmd == "learning":
         from . import learning, stamp
         conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])

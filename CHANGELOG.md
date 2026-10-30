@@ -1,3 +1,13 @@
+# Build 36
+* **Missed-trade analysis: what would the ideas we did NOT take have done?** After the US close the bot fetches 5-minute prices for every stock it looked at and replays each idea through the REAL exit code (`executor.run`) on a throw-away in-memory
+  book: same stop ratchet, partial exit and runner, target extension and time stop, so the simulation cannot drift from the real rules. Trades we did take are replayed too, from their real entry, so the engine's accuracy is measured. New `whatif.py`,
+  tables `intraday_bars` / `intraday_state` / `whatif_results`, Intelligence-tab section, `python3 -m paper_agent whatif`, Settings -> Missed-trade analysis. docs/MISSED_TRADES.md.
+* **Measurement only**: it reads decisions and writes its own tables, never runs in the session or in pre-market, has a time budget and a per-cycle fetch limit, and its settings are not part of the strategy stamp. No decision changed: verified with
+  tools/golden.py (open, full buy-to-sell lifecycles with and without the owner's settings, mid-session news and thesis ideas are identical to build 35).
+* Proven against production, not assumed: a real position opened by the real pipeline and exited by the real guard along a price path comes out the same in the engine fed that path (stop-out, partial target then runner, time stop, break-even ratchet).
+  Found on the way: the plan of a trade we took is built from the forecast re-made at execution, not the one stored on the decision; and a closed position keeps no cost of its own (the original buy is read from the ledger).
+* Everything in builds 32-35 is included.
+
 # Build 35
 * **A fair trial: the strategy no longer changes itself.** Found while planning the 2-4 week test: the app rewrote its own behaviour automatically through two paths: `recalibrate` (probability calibration, event-type power, move scales, thesis priors; fires at about
   40 resolved predictions, i.e. early November) and `resolve_due` (per-source hit/miss counts that move source credibility from the very FIRST resolved prediction). New setting `intelligence.learning_mode`, default **observe**: it keeps learning and records

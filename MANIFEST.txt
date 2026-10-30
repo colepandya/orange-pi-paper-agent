@@ -12,6 +12,7 @@ docs/BUGS_FIXED.md
 docs/DATABASE.md
 docs/INTELLIGENCE.md
 docs/LIMITS.md
+docs/MISSED_TRADES.md
 docs/OMEGA_MAPPING.md
 docs/OPERATIONS.md
 docs/REVIEW_FINDINGS.md
@@ -80,6 +81,7 @@ paper_agent/thesis.py
 paper_agent/timeutil.py
 paper_agent/trader.py
 paper_agent/universe.py
+paper_agent/whatif.py
 scripts/cleanup-ram.sh
 scripts/doctor.sh
 scripts/enable-llm.sh
@@ -154,5 +156,6 @@ tests/test_systemd.py
 tests/test_thesis_entries.py
 tests/test_trade_lifecycle.py
 tests/test_trading_with_reader.py
+tests/test_whatif.py
 tests/test_world_events.py
 tools/golden.py

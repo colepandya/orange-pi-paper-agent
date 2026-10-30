@@ -37,6 +37,7 @@ DEFAULTS: Dict[str, Any] = {
         "min_reward_risk": 1.0, "partial_exit_pct": 0.6, "min_daily_vol_pct": 0.008, "runner_cap_pct": 0.06, "breakeven_trigger_pct": 0.01, "breakeven_lock_pct": 0.0015, "trail_pct": 0.01,
         "avoid_earnings": True, "earnings_exit_minutes_before_close": 45, "flatten_at_close": False, "flatten_minutes_before_close": 10},
     "maintenance": {"weekly_cleanup": True, "news_days": 30, "log_days": 30},
+    "whatif": {"enabled": True, "lookback_days": 5, "max_symbols_per_cycle": 20, "time_budget_seconds": 40, "max_ideas_per_run": 150},
     "reader": {"mode": "guard", "max_per_cycle": 8, "time_budget_seconds": 25, "timeout_seconds": 8},
     "notifications": {"ntfy_topic": ""},
     "prices": {"refresh_closed_minutes": 10, "refresh_open_minutes": 5, "max_symbols": 25, "extended_hours": True},

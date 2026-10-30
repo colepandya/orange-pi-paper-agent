@@ -118,6 +118,10 @@ FIELDS: List[Field] = [
     # ---------------------------------------------------------------- runtime
     F("runtime.require_password", "Require a password to use Settings", "bool", "System", help="Off (default): anyone on your network can open Settings. Turn on to be asked to create a password on your next visit."),
     F("runtime.allowed_hosts", "Allowed hostnames (only if you use a custom name or proxy)", "hostlist", "System", help="Comma-separated. Private IPs, localhost and names like orangepizero3 or pi.local are always allowed."),
+    F("whatif.enabled", "Replay the ideas we did NOT take (after the US close)", "bool", "Missed-trade analysis", help="After the US session, fetches 5-minute prices for every stock the bot looked at and replays each idea through the real exit rules to see what it would have earned. Measurement only: it never changes a decision."),
+    F("whatif.lookback_days", "Look back this many days", "int", "Missed-trade analysis", 1, 20, "Ideas older than this are not simulated (5-minute history is only available for a limited period)."),
+    F("whatif.max_symbols_per_cycle", "Stocks whose prices are fetched per cycle", "int", "Missed-trade analysis", 0, 60, "The price source allows about 30 requests a minute; the rest wait for the next cycle."),
+    F("whatif.time_budget_seconds", "Time budget per run (seconds)", "int", "Missed-trade analysis", 5, 200, "Fetching and simulating stop when this is used up, so it can never delay trading."),
     F("reader.mode", "Read the full article (no LLM)", "choice", "Article reader", choices=["off", "shadow", "guard", "full"], help="off: headlines + snippets only. shadow: read articles and record what they say, change nothing. guard (recommended start): the article can CANCEL or WEAKEN a candidate (wrong company, old news, opinion, contradicts the headline) but never create or enlarge one. full: also lets the article confirm, strengthen, or rescue a candidate whose headline was too vague (e.g. 'X reports results')."),
     F("reader.max_per_cycle", "Articles to download per cycle", "int", "Article reader", 0, 40, "The best-ranked news items are read first; the rest use the feed's snippet. Each download is capped at 1.5 MB."),
     F("reader.time_budget_seconds", "Time budget for reading articles per cycle (seconds)", "int", "Article reader", 5, 120, "Reading stops when this is used up, so it can never delay trading."),
@@ -133,7 +137,7 @@ FIELDS: List[Field] = [
     F("runtime.bind_port", "Dashboard port", "int", "System", 1024, 65535, "Takes effect after restarting the dashboard.", restart="dashboard"),
 ]
 BY_NAME = {f.name: f for f in FIELDS}
-GROUP_ORDER = ["Risk limits", "Swing strategy", "Execution", "Refresh times", "LLM analyst", "Article reader", "Database", "System"]
+GROUP_ORDER = ["Risk limits", "Swing strategy", "Execution", "Refresh times", "LLM analyst", "Article reader", "Missed-trade analysis", "Database", "System"]
 TIERS = ("triage", "analyst")
 PROVIDERS = ("anthropic", "github")
 MODEL_RX = re.compile(r"^[A-Za-z0-9._:/-]{3,80}$")

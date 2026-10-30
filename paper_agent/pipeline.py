@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, List, Optional
 
-from . import (candqueue, config, earnings, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, marketdata as md, monitor, narrative, net, portfolio as pf,
+from . import (candqueue, config, earnings, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, whatif, marketdata as md, monitor, narrative, net, portfolio as pf,
                quotes, regime as regime_engine, sources, thesis, trader)
 from .config import load_json, CONFIG_DIR
 from .entities import Universe
@@ -296,6 +296,9 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
             db.mark_run(conn, "learning", "", now)
             anything = bool(rc and (rc["calibration"] or rc["event_types"] or rc["theses"]))
             report["learning"] = {"resolved": lr, "mode": "observe" if learning.observing(cfg) else "apply", "recalibrated": anything and not learning.observing(cfg), "proposed": anything and learning.observing(cfg)}
+        if (cfg.get("whatif") or {}).get("enabled", True) and market_state(now)["session"] in ("AFTER_HOURS", "CLOSED") and db.due(conn, "whatif", 1, now):
+            report["whatif"] = _stage(report, "whatif", whatif.run_stage, conn, cfg, now, deps.series_fetch)          # measurement only: reads decisions, writes its own tables, never a decision
+            db.mark_run(conn, "whatif", "", now)
         _stage(report, "gaps", gaps.scan, conn, cfg, now)
         _stage(report, "gaps_resolve", gaps.resolve_auto, conn, cfg, universe, deps.fetch_json, deps.fetch, now)
     if intel:

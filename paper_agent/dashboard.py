@@ -16,7 +16,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List, Optional
 
-from . import auth as auth_mod, config, control, explain, maintain, performance, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, stamp, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui, sources
+from . import auth as auth_mod, config, control, explain, maintain, performance, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, stamp, whatif, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui, sources
 from .config import DB_PATH, load_config
 from .timeutil import market_state, parse_ts, to_nz, utcnow, iso, SESSION_LABEL
 
@@ -399,6 +399,7 @@ def page_intel(c, cfg, s):
     out.append("<p>Strategy <b>%s</b> &middot; settings fingerprint <code>%s</code> &middot; in force since %s &middot; %d change(s) recorded &middot; learning: <b>%s</b>%s</p>" % (
         E(stamp.STRATEGY_VERSION), E(cur["fingerprint"]) if cur else "-", to_nz(cur["at"], "%d %b %H:%M") if cur else "-", len(stamp.history(c)), "observe only" if learning.observing(cfg) else "APPLYING",
         (" &middot; <b>%d</b> proposal(s) and <b>%d</b> source record(s) waiting for your review (not used by decisions)" % (len(props), len(obs))) if (props or obs) else ""))
+    out.append(whatif.html_section(c, cfg, s["now"] if isinstance(s, dict) and s.get("now") else None))
     out.append("<h2>Learned parameters</h2>" + table(["Key", "Value", "Why", "Updated"], [[r["key"], r["value_json"][:80], r["reason"] or "", to_nz(r["updated"], "%d %b")] for r in c.execute("SELECT * FROM model_params ORDER BY updated DESC LIMIT 30")]))
     return "".join(out)
 

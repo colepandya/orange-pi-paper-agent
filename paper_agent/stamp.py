@@ -18,7 +18,7 @@ STRATEGY_VERSION = "S1"                    # S1 = builds 25-35: news + thesis id
 HISTORY_KEY = "strategy_history"
 SNAPSHOT_KEY = "strategy_snapshot"
 MAX_HISTORY = 200
-NOT_STRATEGY_SECTIONS = {"runtime", "schedule", "maintenance", "notifications", "prices", "source_overrides"}
+NOT_STRATEGY_SECTIONS = {"runtime", "schedule", "maintenance", "notifications", "prices", "source_overrides", "whatif"}      # whatif = measurement only
 NOT_STRATEGY_KEYS = {
     "quotes": {"probe_minutes"},
     "intelligence": {"company_refresh_hours", "contradiction_hours", "regime_refresh_hours", "finnhub_company_news_max", "max_company_refresh_per_cycle", "max_knowledge_refresh_per_cycle",
