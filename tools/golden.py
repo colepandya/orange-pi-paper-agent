@@ -55,6 +55,7 @@ def owner_settings(cfg):
 # ------------------------------------------------------------------------------------------------------ helpers
 def legacy_mode(cfg):
     """Build 39's new behaviour, all off: no shorts, no options, no relationship graph, the old (larger) edge claim, no opening delay, no correlation gate."""
+    cfg["intelligence"]["engine"] = "llm"
     cfg["instruments"]["shorts_enabled"] = False
     cfg["instruments"]["options_enabled"] = False
     cfg["graph"]["enabled"] = False

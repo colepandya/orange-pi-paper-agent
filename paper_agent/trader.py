@@ -9,7 +9,7 @@ import math
 import os
 from typing import Callable, Dict, List, Optional
 
-from . import options, pretrade, candqueue, company, db, ev, graph, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
+from . import options, reasoning, pretrade, candqueue, company, db, ev, graph, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
 from .timeutil import market_hours_between, add_trading_days, iso, market_state, minutes_since_open, parse_ts, utcnow
 
 PENDING = ("AWAITING_MARKET", "AWAITING_QUOTE", "AWAITING_CAPACITY", "HELD")
@@ -213,8 +213,10 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     # ---- red team: a separate LLM pass tries to prove the idea wrong; the deterministic gate decides what to do with it
     rt, size_mult = None, 1.0
     client = (intel or {}).get("client")
-    if cfg["intelligence"]["redteam_enabled"] and client is not None:
-        rt = redteam.review(conn, cfg, client, c, f, comp, {"primary": f["thesis_key"], "state": th["state"], "p": th["p"]}, regime, now, did)
+    use_rules = str(cfg["intelligence"].get("engine", "rules")) == "rules"
+    if cfg["intelligence"]["redteam_enabled"] and (use_rules or client is not None):
+        th_ = {"primary": f["thesis_key"], "state": th["state"], "p": th["p"]}
+        rt = reasoning.review(conn, cfg, None, c, f, comp, th_, regime, now, did) if use_rules else redteam.review(conn, cfg, client, c, f, comp, th_, regime, now, did)
         if rt:
             g = redteam.gate(rt, cfg)
             reason["redteam"] = {"net_conviction": rt["net_conviction"], "valuation": rt["valuation_view"], "fatal": rt["fatal_flaw"], "gate": g, "bear": [b["point"] for b in rt["bear_points"][:3]], "bull": [b["point"] for b in rt["bull_points"][:3]]}
@@ -222,7 +224,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
             if not g["ok"]:
                 return finish("RISK_REJECTED", "red team: " + "; ".join(g["reasons"]))
             size_mult = g["size_mult"]
-        elif cfg["intelligence"]["redteam_required"] and client.enabled("analyst"):
+        elif cfg["intelligence"]["redteam_required"] and client is not None and client.enabled("analyst"):
             return finish("RISK_REJECTED", "red-team review required but unavailable")
     if size_mult < 1.0:
         sz["amount"] *= size_mult

@@ -69,7 +69,7 @@ DEFAULTS: Dict[str, Any] = {
         "llm_prices": {"claude-haiku-5-5": [0.10, 0.50], "claude-sonnet-5-5": [2.0, 10.0], "claude-opus-5-5": [4.0, 20.0]},   # USD per million tokens in/out (verify on Anthropic's pricing page)
         "llm_daily_budget_usd": 0.75, "llm_monthly_budget_usd": 15.0, "llm_daily_max_calls": {"triage": 150, "analyst": 40},
         "max_trade_order": 1, "chain_decay": 0.55, "chain_order_prior": {"1": 0.60, "2": 0.45, "3": 0.30},
-        "max_knowledge_refresh_per_cycle": 2, "redteam_enabled": True, "redteam_min_conviction": 0.45, "redteam_required": False,
+        "max_knowledge_refresh_per_cycle": 2, "engine": "rules", "engine_max_per_cycle": 80, "redteam_enabled": True, "redteam_min_conviction": 0.45, "redteam_required": False,
     },
 }
 

@@ -29,6 +29,14 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("migrate", "cycle", "guard", "serve", "learn", "probe", "universe", "backup", "status", "keys", "llm-test", "llm-eval"):
         sub.add_parser(name)
+    cl = sub.add_parser("cleanup", help="remove what old builds left behind: `plan` (default) shows it, `apply` does it (archives first)")
+    cl.add_argument("mode", nargs="?", default="plan", choices=["plan", "apply"])
+    cl.add_argument("--scope", default="db,files,config", help="comma list of: db, files, config")
+    cl.add_argument("--user", default="", help="the login user whose home folder holds old unpacked builds")
+    gp = sub.add_parser("graph", help="show a stock's relationship graph and what an event there would do")
+    gp.add_argument("ticker", nargs="?", default="NVDA")
+    ap2 = sub.add_parser("ask", help="ask the reasoning engine a question, e.g.  ask why NVDA   /   ask what if TSM cuts guidance   /   ask help")
+    ap2.add_argument("question", nargs="+")
     op = sub.add_parser("optionsprobe", help="test the four free options feeds for one stock and show the contract the bot would pick")
     op.add_argument("ticker", nargs="?", default="SPY")
     pp2 = sub.add_parser("preflight", help="pre-open checklist: READY or the exact blockers")
@@ -234,6 +242,23 @@ def main(argv=None) -> int:
         last = conn.execute("SELECT started,status FROM cycle_runs ORDER BY id DESC LIMIT 1").fetchone()
         print(json.dumps({"equity": round(eq["equity"], 2), "cash": round(eq["cash"], 2), "regime": regime.current(conn)["regime"], "last_cycle": dict(last) if last else None,
                           "open_positions": conn.execute("SELECT COUNT(*) FROM positions WHERE status='OPEN'").fetchone()[0], "paused": os.path.exists(cfg["runtime"]["pause_file"])}, indent=1))
+        return 0
+    if args.cmd == "cleanup":
+        from . import cleanup as _cl
+        scope = tuple(x.strip() for x in args.scope.split(",") if x.strip())
+        home = os.path.expanduser("~" + args.user) if args.user else None
+        paths = _cl.Paths(home=home if home and os.path.isdir(home) else None)
+        if args.mode == "plan":
+            print(_cl.format_plan(_cl.plan(conn if "db" in scope else None, paths, utcnow(), scope)))
+            return 0
+        rep = _cl.apply(conn if "db" in scope else None, paths, utcnow(), scope)
+        print(json.dumps(rep, indent=2, default=str))
+        return 0
+    if args.cmd in ("ask", "graph"):
+        from . import graph as _g, reasoning as _rs
+        _g.ensure_edges(conn, cfg, utcnow())
+        q = " ".join(args.question) if args.cmd == "ask" else "related " + args.ticker
+        print(_rs.ask(conn, cfg, q, None, utcnow())["text"])
         return 0
     if args.cmd == "optionsprobe":
         from . import optionsdata as OD, options as OP

@@ -422,9 +422,59 @@ def page_risk(c, cfg, s):
     return "".join(out)
 
 
-def page_intel(c, cfg, s):
+def _qv(q, key: str) -> str:
+    v = (q or {}).get(key, "")
+    v = v[0] if isinstance(v, (list, tuple)) and v else v
+    return str(v or "").strip()
+
+
+def reasoning_panel(c, cfg, q) -> str:
+    """Ask the bot's own reasoning engine, and see the relationship graph: what is in it, when it was refreshed, any stock's neighbours and what an event there would do, and every idea it has produced."""
+    from . import graph as G, reasoning as RS
+    ask_q, gq = _qv(q, "ask"), _qv(q, "graph").upper()
+    h = ["<h2>Ask the reasoning engine</h2><p class=mut>The bot's own rules-and-data engine (no language model, no key, no cost) answers from its own records. Try: <i>why NVDA</i> &middot; <i>news NVDA</i> &middot; <i>related NVDA</i> &middot; <i>what if TSM cuts guidance</i> &middot; "
+         "<i>compare NVDA AMD</i> &middot; <i>theme ai infrastructure</i> &middot; <i>what could hurt us</i> &middot; <i>today</i>. It says so when it cannot answer.</p>",
+         "<form method=get><input type=hidden name=tab value=intelligence><input name=ask size=62 value='%s' placeholder='why NVDA'> <button>Ask</button></form>" % E(ask_q)]
+    if ask_q:
+        a = RS.ask(c, cfg, ask_q, None)
+        h.append("<div class=card><b>%s</b>%s</div>" % (E(a["title"]), "".join("<h3>%s</h3><pre style='white-space:pre-wrap'>%s</pre>" % (E(sec["heading"]), E("\n".join(sec["lines"]))) for sec in a["sections"])))
+    n = {r["source"]: r for r in c.execute("SELECT source,COUNT(*) n,MAX(updated) u FROM relations GROUP BY source")}
+    ics = c.execute("SELECT status,COUNT(*) n FROM decisions WHERE origin='graph' GROUP BY status ORDER BY n DESC").fetchall()
+    h.append("<h2>Relationship graph</h2>")
+    if not n:
+        h.append("<p class=mut>The graph is empty: it is loaded on the first cycle after install (if Settings -> Relationship graph is on), so check back in a few minutes.</p>")
+    else:
+        h.append("<p class=mut>Hand-written map (%d links, loaded %s) from /etc/paper-agent/relations.json, plus %d measured co-movement links from your own price history (refreshed daily, %s). "
+                 "An idea appears below when a strong company event reaches a related company.</p>" % (n["seed"]["n"] if "seed" in n else 0, to_nz(n["seed"]["u"], "%d %b %H:%M") if "seed" in n else "never", n["data"]["n"] if "data" in n else 0, ("last " + to_nz(n["data"]["u"], "%d %b %H:%M")) if "data" in n else "needs about 40 days of prices per stock"))
+    h.append("<form method=get><input type=hidden name=tab value=intelligence>Look up a stock: <input name=graph size=8 value='%s'> <button>Show</button></form>" % E(gq))
+    if gq:
+        nb = sorted(G.related(c, gq), key=lambda e: (e["role"], -e["weight"]))
+        rows = [[e["ticker"], e["role"], "%.2f" % e["weight"], "hand-written" if e["source"] == "seed" else "measured", e["note"][:70]] for e in nb]
+        h.append(table(["Related stock", "Relationship to %s" % gq, "Strength", "From", "Why"], rows) if rows else "<p class=mut>%s has no recorded relationships.</p>" % E(gq))
+        ev_rows = []
+        for et in ("earnings_beat", "guidance_cut", "production_disruption", "regulatory_action", "contract_win"):
+            eff = [("%s %s" % (e["ticker"], "up" if G.factor(et, e["role"]) * (1 if et not in ("guidance_cut", "production_disruption", "regulatory_action") else -1) > 0 else "down")) for e in nb if G.factor(et, e["role"]) != 0 and e["weight"] >= 0.2][:6]
+            ev_rows.append([et.replace("_", " "), ", ".join(eff) or "nothing spreads"])
+        h.append("<h3>What an event at %s would do to its neighbours</h3>" % E(gq) + table(["Event at " + gq, "Effect on related stocks (before decay and the usual gates)"], ev_rows))
+    if ics:
+        h.append("<p>Ideas generated from the graph so far: " + ", ".join("%s %d" % (E(r["status"]), r["n"]) for r in ics) + " (Decisions tab -> 'related companies').</p>")
+        last = c.execute("SELECT created,ticker,status,reason FROM decisions WHERE origin='graph' ORDER BY id DESC LIMIT 8").fetchall()
+        rows = []
+        for r in last:
+            try:
+                mech = (json.loads(r["reason"] or "{}").get("candidate") or {}).get("mechanism", "")
+            except ValueError:
+                mech = ""
+            rows.append([to_nz(r["created"], "%d %b %H:%M"), r["ticker"], r["status"], mech[:90]])
+        h.append(table(["When", "Stock", "Status", "Why it was considered"], rows))
+    else:
+        h.append("<p class=mut>No ideas have come from the graph yet: it needs a strong company event (magnitude 0.45+, confidence 0.6+) whose company has recorded relationships.</p>")
+    return "".join(h)
+
+
+def page_intel(c, cfg, s, q=None):
     m = learning.metrics(c)
-    out = ["<div class=grid>", card("Scored predictions", m["n"]), card("Brier score", "%.3f" % m["brier"] if m["brier"] is not None else "n/a"), card("Naive baseline", "%.3f" % m["baseline_brier"] if m["baseline_brier"] is not None else "n/a"), "</div>"]
+    out = [reasoning_panel(c, cfg, q or {}), "<div class=grid>", card("Scored predictions", m["n"]), card("Brier score", "%.3f" % m["brier"] if m["brier"] is not None else "n/a"), card("Naive baseline", "%.3f" % m["baseline_brier"] if m["baseline_brier"] is not None else "n/a"), "</div>"]
     out.append("<p class=mut>Brier lower is better; learning only recalibrates after %d samples.</p>" % cfg["intelligence"]["learning_min_samples"])
     out.append("<h2>Calibration</h2>" + table(["Predicted range", "N", "Predicted", "Actual"], [[b["range"], b["n"], pct(b["predicted"], 0), pct(b["actual"], 0)] for b in m["bins"]]))
     for key, label in (("event_types", "Event-type accuracy"), ("sources", "Source accuracy"), ("theses", "Thesis accuracy")):
@@ -549,7 +599,7 @@ def render(c, cfg, tab: str, q: Dict, ctx: Optional[dict] = None) -> str:
             inner = settings_ui.page_settings(cfg, base, ctx, pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status(), health)
         return layout(inner, tab, cfg, ctx)
     fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q), "reports": lambda: page_reports(c, cfg, s, q), "performance": lambda: page_performance(c, cfg, s, q),
-          "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s), "system": lambda: page_system(c, cfg, s, q)}.get(tab, lambda: page_overview(c, cfg, s))
+          "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s, q), "system": lambda: page_system(c, cfg, s, q)}.get(tab, lambda: page_overview(c, cfg, s))
     return layout((settings_ui.flash_html(ctx.get("flash")) if ctx.get("flash") else "") + fn(), tab, cfg, ctx)
 
 

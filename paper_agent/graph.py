@@ -29,6 +29,8 @@ OVERRIDES = {
     "production_disruption": {"supplier": 0.50, "customer": 0.50, "competitor": -0.30, "peer": 0.15, "corr": 0.2},        # a plant outage hurts its suppliers' volumes AND its customers' supply
     "regulatory_action": {"supplier": 0.0, "competitor": -0.10, "peer": 0.60, "corr": 0.35},                             # a rule aimed at one usually applies to the sector
     "regulatory_approval": {"supplier": 0.0, "competitor": -0.15, "peer": 0.40, "corr": 0.25},
+    "guidance_cut": {"supplier": 0.60, "customer": 0.30, "competitor": -0.35, "peer": 0.35, "corr": 0.30},          # a supplier's weak outlook is a warning about the demand (or supply) its customers face
+    "guidance_raise": {"supplier": 0.60, "customer": 0.30, "competitor": -0.35, "peer": 0.35, "corr": 0.30},
     "contract_win": {"supplier": 0.40, "competitor": -0.40, "peer": 0.15, "corr": 0.2},
     "contract_loss": {"supplier": 0.40, "competitor": -0.40, "peer": 0.15, "corr": 0.2},
     "merger_acquisition": {"supplier": 0.0, "competitor": 0.0, "peer": 0.40, "corr": 0.25},                              # a takeover re-rates the whole group

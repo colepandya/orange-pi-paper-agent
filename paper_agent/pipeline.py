@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, List, Optional
 
-from . import (candqueue, config, earnings, graph, options, optionsdata, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, whatif, marketdata as md, monitor, narrative, net, portfolio as pf,
+from . import (candqueue, config, earnings, graph, options, optionsdata, reasoning, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, whatif, marketdata as md, monitor, narrative, net, portfolio as pf,
                quotes, regime as regime_engine, sources, thesis, trader)
 from .config import load_json, CONFIG_DIR
 from .entities import Universe
@@ -160,9 +160,10 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     report["strategy"] = _stage(report, "strategy", stamp.record, conn, cfg, now)
     icfg = cfg["intelligence"]
     client = llm_client.LLMClient(conn, cfg, deps.llm_transport)
-    analyst = deps.analyst or event_intel.make_analyst(conn, cfg, universe, deps.llm_transport)
-    intel = {"client": client} if client.enabled("triage") else None
-    report["llm"] = {"enabled": bool(intel)}
+    rules = str(icfg.get("engine", "rules")) == "rules"                                                 # the default: the bot's own reasoning engine. "llm" must be chosen on purpose
+    analyst = deps.analyst or (reasoning.make_analyst(conn, cfg, universe) if rules else event_intel.make_analyst(conn, cfg, universe, deps.llm_transport))
+    intel = {"engine": "rules"} if rules else ({"client": client, "engine": "llm"} if client.enabled("triage") else None)
+    report["llm"] = {"enabled": bool(intel and intel.get("client")), "engine": "rules" if rules else "llm"}
 
     def heal_schedule():
         from . import control
@@ -258,8 +259,8 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     # ---- company knowledge base (SEC filings read by the LLM; skipped when the LLM is off)
     def refresh_knowledge():
         from . import filings
-        if not intel:
-            return {"skipped": "llm off"}
+        if not (intel and intel.get("client")):
+            return {"skipped": "no LLM (the rules engine does not read filings with a language model)"}
         done = {}
         for t in filings.due_tickers(conn, cfg, held, [c["ticker"] for c in cands], now):
             if over_budget(0.5):
@@ -312,7 +313,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
             db.mark_run(conn, "whatif", "", now)
         _stage(report, "gaps", gaps.scan, conn, cfg, now)
         _stage(report, "gaps_resolve", gaps.resolve_auto, conn, cfg, universe, deps.fetch_json, deps.fetch, now)
-    if intel:
+    if intel and intel.get("client"):
         report["llm"] = client.usage_summary()
     report["finished"] = iso()
     report["current"] = None

@@ -4,12 +4,14 @@ CHANGELOG.md
 README.md
 config/config.example.json
 config/deploy-settings.json
+config/exposures.json
 config/market-data.env
 config/market-data.env.example
 config/relations.json
 config/sources.json
 docs/ARTICLE_READER.md
 docs/BUGS_FIXED.md
+docs/CLEANUP.md
 docs/DATABASE.md
 docs/INSTRUMENTS.md
 docs/INTELLIGENCE.md
@@ -19,6 +21,7 @@ docs/OMEGA_MAPPING.md
 docs/OPERATIONS.md
 docs/OPTIONS_FEEDS.md
 docs/PARALLEL.md
+docs/REASONING_ENGINE.md
 docs/RELATIONSHIP_GRAPH.md
 docs/REVIEW_FINDINGS.md
 docs/SETTINGS.md
@@ -29,6 +32,7 @@ paper_agent/__main__.py
 paper_agent/auth.py
 paper_agent/backup.py
 paper_agent/candqueue.py
+paper_agent/cleanup.py
 paper_agent/company.py
 paper_agent/config.py
 paper_agent/contradiction.py
@@ -75,6 +79,7 @@ paper_agent/pretrade.py
 paper_agent/prices.py
 paper_agent/quotes.py
 paper_agent/reader.py
+paper_agent/reasoning.py
 paper_agent/recall.py
 paper_agent/redteam.py
 paper_agent/regime.py
@@ -91,6 +96,7 @@ paper_agent/timeutil.py
 paper_agent/trader.py
 paper_agent/universe.py
 paper_agent/whatif.py
+scripts/cleanup-legacy.sh
 scripts/cleanup-ram.sh
 scripts/doctor.sh
 scripts/enable-llm.sh
@@ -125,6 +131,7 @@ tests/helpers.py
 tests/soak_twenty_days.py
 tests/test_build38.py
 tests/test_build39.py
+tests/test_cleanup.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py
 tests/test_disabled_feeds.py
@@ -161,6 +168,7 @@ tests/test_prices.py
 tests/test_quote_health.py
 tests/test_reader.py
 tests/test_reader_display.py
+tests/test_reasoning.py
 tests/test_recall.py
 tests/test_regressions.py
 tests/test_report.py

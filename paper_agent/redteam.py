@@ -44,8 +44,12 @@ def validate(obj: dict) -> Optional[dict]:
                 lv = _clip(f.get("level_pct"), -25, -1, 0)
                 if lv < 0:
                     fal.append({"kind": "price_below", "level_pct": lv, "description": str(f.get("description", ""))[:200]})
+            elif f.get("kind") == "price_above":                                                          # a SHORT is proven wrong by a rise
+                lv = _clip(f.get("level_pct"), 1, 25, 0)
+                if lv > 0:
+                    fal.append({"kind": "price_above", "level_pct": lv, "description": str(f.get("description", ""))[:200]})
             elif f.get("kind") == "event" and f.get("event_type") in nlp.BY_NAME:
-                fal.append({"kind": "event", "event_type": f["event_type"], "description": str(f.get("description", ""))[:200]})
+                fal.append({"kind": "event", "event_type": f["event_type"], "against": "up" if f.get("against") == "up" else "down", "description": str(f.get("description", ""))[:200]})
         view = obj.get("valuation_view") if obj.get("valuation_view") in ("cheap", "fair", "rich", "unknown") else "unknown"
         conviction = _clip(obj.get("conviction"), 0, 1, 0.5)
         fatal = bool(obj.get("fatal_flaw"))
@@ -124,10 +128,12 @@ def store_tripwires(conn, position_id: int, entry: float, rv: Optional[dict], no
     conn.execute("UPDATE redteam_reviews SET position_id=? WHERE id=(SELECT id FROM redteam_reviews WHERE ticker=(SELECT ticker FROM positions WHERE id=?) ORDER BY id DESC LIMIT 1)", (position_id, position_id))
     n = 0
     for fa in rv["falsifiers"]:
-        if fa["kind"] == "price_below":
+        if fa["kind"] == "price_above":
+            conn.execute("INSERT INTO tripwires(position_id,created,kind,threshold,description) VALUES(?,?,?,?,?)", (position_id, iso(now), "price_above", entry * (1 + fa["level_pct"] / 100.0), fa["description"] or "price above"))
+        elif fa["kind"] == "price_below":
             conn.execute("INSERT INTO tripwires(position_id,created,kind,threshold,description) VALUES(?,?,?,?,?)", (position_id, iso(now), "price", entry * (1 + fa["level_pct"] / 100.0), fa["description"] or "price below %.1f%%" % fa["level_pct"]))
         else:
-            conn.execute("INSERT INTO tripwires(position_id,created,kind,event_type,description) VALUES(?,?,?,?,?)", (position_id, iso(now), "event", fa["event_type"], fa["description"] or fa["event_type"]))
+            conn.execute("INSERT INTO tripwires(position_id,created,kind,event_type,description) VALUES(?,?,?,?,?)", (position_id, iso(now), "event_up" if fa.get("against") == "up" else "event", fa["event_type"], fa["description"] or fa["event_type"]))
         n += 1
     return n
 
@@ -139,12 +145,14 @@ def check_tripwires(conn, now) -> List[dict]:
             conn.execute("UPDATE tripwires SET status='CLEARED' WHERE id=?", (tw["id"],))
             continue
         hit, why = False, ""
-        if tw["kind"] == "price":
+        if tw["kind"] in ("price", "price_above"):
             q = quotes.valuation_price(conn, tw["ticker"], now, max_age_hours=24)
-            if q and q["price"] <= tw["threshold"]:
+            if q and tw["kind"] == "price" and q["price"] <= tw["threshold"]:
                 hit, why = True, "price %.2f <= tripwire %.2f" % (q["price"], tw["threshold"])
+            elif q and tw["kind"] == "price_above" and q["price"] >= tw["threshold"]:
+                hit, why = True, "price %.2f >= tripwire %.2f" % (q["price"], tw["threshold"])
         else:
-            e = conn.execute("SELECT headline FROM events WHERE event_type=? AND direction<0 AND stale=0 AND novelty>=0.9 AND created>? AND tickers_json LIKE ? ORDER BY id DESC LIMIT 1",
+            e = conn.execute("SELECT headline FROM events WHERE event_type=? AND direction" + (">0" if tw["kind"] == "event_up" else "<0") + " AND stale=0 AND novelty>=0.9 AND created>? AND tickers_json LIKE ? ORDER BY id DESC LIMIT 1",
                              (tw["event_type"], tw["created"], '%"' + tw["ticker"] + '"%')).fetchone()
             if e:
                 hit, why = True, "event %s: %s" % (tw["event_type"], e["headline"][:100])

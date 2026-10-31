@@ -144,7 +144,7 @@ def pick_for_llm(conn, pre: list, icfg: dict, analyst) -> Dict[str, str]:
     """Choose which items deserve an LLM read this cycle: ambiguous or material, ranked by importance; returns {uid: tier}."""
     if not analyst:
         return {}
-    budget = int(icfg.get("llm_max_per_cycle", 0))
+    budget = int(icfg.get("engine_max_per_cycle" if icfg.get("engine", "rules") == "rules" else "llm_max_per_cycle", 0))      # the rules engine costs nothing, so it can read far more items than an LLM budget allows
     if budget <= 0:
         return {}
     held = {r[0] for r in conn.execute("SELECT ticker FROM positions WHERE status='OPEN'")}
@@ -168,6 +168,7 @@ def pick_for_llm(conn, pre: list, icfg: dict, analyst) -> Dict[str, str]:
 def apply(conn, cfg: dict, eid: int, a: dict, intel: dict, pub, cluster: int, novelty: float, now, stats: dict, source_cred: Callable, power: float) -> List[dict]:
     """Persist the analysis and its evidence. Returns the ticker effects (for trading candidates / suppressing duplicate deterministic evidence)."""
     icfg = cfg["intelligence"]
+    tag = intel.get("tag") or "LLM-analyst"                                                       # whose analysis this is: the rules engine's learned reliability is kept apart from the LLM's
     decay = float(icfg["chain_decay"])
     prior = icfg["chain_order_prior"]
     dd = HORIZON_DECAY_DAYS[intel["horizon"]]
@@ -179,20 +180,20 @@ def apply(conn, cfg: dict, eid: int, a: dict, intel: dict, pub, cluster: int, no
         for e in intel[role]:
             o = e["order"]
             eff = e["confidence"] * (decay ** (o - 1)) * intel["certainty"]
-            cred = source_cred("LLM-analyst:o%d" % o, etype, float(prior.get(str(o), 0.3)))
+            cred = source_cred("%s:o%d" % (tag, o), etype, float(prior.get(str(o), 0.3)))
             strength = max(0.02, min(1.0, intel["magnitude"] * eff))
             conn.execute("INSERT INTO evidence(event_id,thesis_key,ticker,created,source,credibility,strength,novelty,predictive_power,direction,cluster_id,event_type,decay_days,expiry_date,note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                         (eid, None, e["ticker"], iso(pub), "LLM-analyst:o%d" % o, cred, strength, novelty, power, sign, cluster, etype, dd, expiry, ("o%d %s" % (o, e["mechanism"]))[:180]))
+                         (eid, None, e["ticker"], iso(pub), "%s:o%d" % (tag, o), cred, strength, novelty, power, sign, cluster, etype, dd, expiry, ("o%d %s" % (o, e["mechanism"]))[:180]))
             stats["evidence"] += 1
             if o <= 2 and novelty >= 0.9:
                 learning.record_chain_prediction(conn, e["ticker"], "abnormal_up" if sign > 0 else "abnormal_down", min(0.9, 0.5 + 0.35 * eff), HORIZON_TRADING_DAYS[intel["horizon"]],
-                                                 etype, "LLM-analyst:o%d" % o, now)
+                                                 etype, "%s:o%d" % (tag, o), now)
             out.append({"ticker": e["ticker"], "sign": sign, "order": o, "confidence": e["confidence"], "eff": eff, "mechanism": e["mechanism"]})
     for nr in intel["narratives"]:
         d = 1.0 if nr["stance"] == "support" else -1.0
-        cred = source_cred("LLM-analyst:narr", etype, 0.55)
+        cred = source_cred(tag + ":narr", etype, 0.55)
         conn.execute("INSERT OR IGNORE INTO evidence(event_id,thesis_key,ticker,created,source,credibility,strength,novelty,predictive_power,direction,cluster_id,event_type,decay_days,expiry_date,note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                     (eid, nr["key"], None, iso(pub), "LLM-analyst:narr", cred, max(0.05, min(1.0, intel["magnitude"] * nr["strength"] * intel["certainty"])), novelty, power, d, cluster, etype, dd, expiry, nr["why"][:180]))
+                     (eid, nr["key"], None, iso(pub), tag + ":narr", cred, max(0.05, min(1.0, intel["magnitude"] * nr["strength"] * intel["certainty"])), novelty, power, d, cluster, etype, dd, expiry, nr["why"][:180]))
         stats["evidence"] += 1
     for pn in intel["proposed_narratives"]:
         conn.execute("INSERT INTO proposed_narratives(key,name,first_seen,last_seen,mentions,sample_event_id) VALUES(?,?,?,?,1,?) ON CONFLICT(key) DO UPDATE SET mentions=mentions+1,last_seen=excluded.last_seen",
@@ -210,7 +211,7 @@ def candidates_from(effects: List[dict], intel: dict, a: dict, n, eid: int, age_
         if e["sign"] > 0 and e["order"] <= int(icfg["max_trade_order"]) and e["confidence"] >= 0.6 and e["ticker"] not in already:
             et = intel["event_type"] if intel["event_type"] in nlp.BY_NAME else a["event_type"]
             out.append({"event_id": eid, "ticker": e["ticker"], "conf": 0.7, "direction": min(1.0, 0.3 + 0.7 * e["confidence"] * intel["certainty"]), "magnitude": intel["magnitude"],
-                        "event_type": et, "age_hours": age_h, "headline": n["title"], "source": "LLM-analyst:o%d" % e["order"], "news_uid": n["uid"], "amount_usd": a.get("amount_usd"),
+                        "event_type": et, "age_hours": age_h, "headline": n["title"], "source": "%s:o%d" % (intel.get("tag") or "LLM-analyst", e["order"]), "news_uid": n["uid"], "amount_usd": a.get("amount_usd"),
                         "credibility": cred, "horizon": min(15, max(3, HORIZON_TRADING_DAYS[intel["horizon"]] // 3)), "decay_days": HORIZON_DECAY_DAYS[intel["horizon"]],
                         "origin": "intel", "mechanism": e["mechanism"], "chain_order": e["order"]})
     return out

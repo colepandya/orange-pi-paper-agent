@@ -88,6 +88,7 @@ def cfg():
     c["runtime"]["pause_file"] = "/nonexistent/pause"
     c["runtime"]["min_available_memory_mb"] = 0
     c["intelligence"]["allow_thesis_entries"] = False                      # the news-path tests must not be joined by thesis ideas: the thesis path has its own tests
+    c["intelligence"]["engine"] = "llm"                                       # the shared tests keep the OLD behaviour (no analyst or red team without an LLM key); the rules engine has its own tests that switch it on
     c["instruments"]["shorts_enabled"] = False                                # the shared tests are about the long-only book; shorts, options and the graph have their own tests that switch them on
     c["instruments"]["options_enabled"] = False
     c["graph"]["enabled"] = False
