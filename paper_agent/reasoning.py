@@ -22,11 +22,11 @@ import re
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import db, graph, lens, nlp
+from . import db, facts as facts_mod, graph, lens, nlp
 from .theses_seed import SEED_THESES
 from .timeutil import iso, parse_ts, utcnow
 
-ENGINE_VERSION = "R1"
+ENGINE_VERSION = "R2"
 TAG = "RULES-analyst"
 MAG_LABEL = ((0.35, "low"), (0.65, "medium"), (9.0, "high"))
 HORIZON = {"guidance_cut": "weeks", "guidance_raise": "weeks", "earnings_beat": "weeks", "earnings_miss": "weeks", "contract_win": "weeks", "contract_loss": "weeks", "product_launch": "weeks",
@@ -44,17 +44,68 @@ SUE = re.compile(r"\b(sues|suing|files? (?:a )?(?:lawsuit|complaint|suit) agains
 UP = re.compile(r"\b(surge[sd]?|jump(?:s|ed)?|soar(?:s|ed)?|rall(?:y|ies|ied)|climb(?:s|ed)?|ris(?:e|es|en)|rose|higher|hike[sd]?|spik(?:e|es|ed)|tighten\w*|restrict\w*|ban(?:s|ned)?|curbs?)\b", re.I)
 DOWN = re.compile(r"\b(fall(?:s|en)?|fell|plunge[sd]?|drop(?:s|ped)?|slump(?:s|ed)?|tumbl\w+|declin\w+|lower|cut(?:s)?|slid\w*|eas(?:e|es|ed)|lift(?:s|ed)?|slash\w*)\b", re.I)
 
-# ---- macro exposures: (what the text is about) -> {relationship-map group: how that group moves when the driver RISES}
-MACRO = [
-    (re.compile(r"\b(oil|crude|brent|wti)\b", re.I), "oil price", {"oil majors": 1.0, "oil services": 0.9, "refiners": -0.2, "airlines": -0.9, "cruise lines": -0.8, "parcel delivery": -0.4}),
-    (re.compile(r"\b(gold|bullion)\b", re.I), "gold price", {"gold miners": 1.0}),
-    (re.compile(r"\bcopper\b", re.I), "copper price", {"copper and industrial metals": 1.0}),
-    (re.compile(r"\buranium\b", re.I), "uranium price", {"uranium and nuclear fuel": 1.0}),
-    (re.compile(r"\b(interest rates?|treasury yields?|bond yields?|10-year yield|mortgage rates?)\b", re.I), "interest rates", {"homebuilders": -1.0, "REIT: industrial and retail": -0.8, "REIT: data centre and towers": -0.6, "solar": -0.7, "US big banks": 0.3}),
-    (re.compile(r"\b(chip|semiconductor)\b.{0,40}\b(export|controls?|restrictions?|ban)\b", re.I), "chip export curbs", {"AI accelerators and compute": -1.0, "foundry and semicap": -0.9, "memory and storage": -0.5}),
-    (re.compile(r"\b(war|missile|airstrike|invasion|escalat\w+|military strike)\b", re.I), "geopolitical conflict", {"defence primes": 1.0, "oil majors": 0.5, "airlines": -0.5, "cruise lines": -0.5}),
-]
-FIXED_DRIVERS = {"geopolitical conflict"}          # the driver itself is "up" whenever it is in the news
+# ---- macro exposures: data, not code (config/macro_exposures.json): each driver has CHANNELS (group, sign, confidence, mechanism, lag, horizon); channels for one group are netted
+_MACRO_CACHE: Dict[str, object] = {}
+
+
+def _macro_paths() -> List[str]:
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        from . import config as _cfg
+        base = _cfg.CONFIG_DIR
+    except Exception:  # noqa: BLE001
+        base = "/etc/paper-agent"
+    return [os.path.join(base, "macro_exposures.json"), os.path.join(base, "macro_exposures.default.json"), os.path.join(os.path.dirname(here), "config", "macro_exposures.json")]
+
+
+def macro_drivers(path: Optional[str] = None) -> Tuple[str, List[dict]]:
+    """(version, drivers with their patterns compiled). Re-read only when the file changes."""
+    import os
+    for p in ([path] if path else _macro_paths()):
+        try:
+            mt = os.stat(p).st_mtime
+        except OSError:
+            continue
+        if _MACRO_CACHE.get("p") == p and _MACRO_CACHE.get("mt") == mt:
+            return _MACRO_CACHE["v"], _MACRO_CACHE["d"]
+        try:
+            with open(p) as fh:
+                data = json.load(fh)
+            drv = []
+            for d in data.get("drivers", []):
+                drv.append(dict(d, rx=[re.compile(x, re.I) for x in d.get("patterns", [])]))
+            _MACRO_CACHE.update({"p": p, "mt": mt, "v": str(data.get("version", "?")), "d": drv})
+            return _MACRO_CACHE["v"], _MACRO_CACHE["d"]
+        except (OSError, ValueError, re.error):
+            continue
+    return "none", []
+
+
+def macro_effects(text: str, grp: Dict[str, List[str]]) -> List[dict]:
+    """Which groups does an outside driver in this text reach, in which direction, and how sure are we? Channels for the same group are NETTED: if they cancel, the effect is MIXED and nothing is said."""
+    out = []
+    for drv in macro_drivers()[1]:
+        m = next((rx.search(text) for rx in drv["rx"] if rx.search(text)), None)
+        if not m:
+            continue
+        d = 1 if drv.get("fixed") else _word_dir(text, m.start())
+        if d == 0:
+            continue
+        by: Dict[str, List[dict]] = {}
+        for ch in drv.get("channels", []):
+            by.setdefault(ch["group"], []).append(ch)
+        for g, chs in by.items():
+            net = sum(c["sign"] * c["confidence"] for c in chs)
+            tot = sum(c["confidence"] for c in chs)
+            if abs(net) < 0.15:
+                out.append({"driver": drv["name"], "group": g, "mixed": True, "channels": [c["channel"] for c in chs], "tickers": grp.get(g, [])})
+                continue
+            top = max(chs, key=lambda c: c["confidence"])
+            out.append({"driver": drv["name"], "group": g, "mixed": False, "sign": d * (1.0 if net > 0 else -1.0), "confidence": min(0.6, 0.6 * (abs(net) / max(tot, 1e-9)) * top["confidence"] / 0.8),
+                        "channels": ["%s (%s%s)" % (c["channel"], "+" if c["sign"] > 0 else "-", ", lag ~%dd" % c["lag_days"] if c.get("lag_days") else "") for c in chs], "lag_days": max(c.get("lag_days", 0) for c in chs),
+                        "horizon": top.get("horizon", "short"), "tickers": grp.get(g, []), "rising": d > 0})
+    return out
 
 
 def _clip(x, lo, hi, d=0.0):
@@ -69,6 +120,69 @@ def _label(m: float) -> str:
         if m < lim:
             return name
     return "high"
+
+
+
+# ---- the canonical record: what STATE the event is in, how NEW it is, how MATERIAL, how many INDEPENDENT sources, and which time horizons it acts over
+STATE_RX = [("denied", DENIAL), ("rumored", RUMOR), ("rejected", re.compile(r"\b(rejects?|rejected|blocks?|blocked|vetoed|turned down)\b", re.I)), ("completed", re.compile(r"\b(completes?|completed|closes?|closed|finali[sz]es?|finali[sz]ed)\b", re.I)),
+            ("approved", re.compile(r"\b(approves?|approved|clears?|cleared|green-?lights?)\b", re.I)), ("pending", re.compile(r"\b(pending|awaiting|subject to (?:regulatory )?approval)\b", re.I)),
+            ("agreed", re.compile(r"\b(agrees?|agreed|signs?|signed|definitive agreement)\b", re.I)), ("proposed", re.compile(r"\b(proposes?|proposal|plans? to|offers? to|bids? for|to acquire|to buy)\b", re.I))]
+NOVELTY_RX = [("correction", re.compile(r"\b(correction|corrects?|corrected|amended|amends|restates?|restated|revised|updates? (?:earlier|previous))\b", re.I)),
+              ("recap", re.compile(r"\b(recap|wrap|round-?up|stocks to watch|what to know|how (?:\w+ ){0,3}(?:stocks|shares) (?:fared|moved))\b", re.I)), ("update", re.compile(r"\b(update[sd]?|follow-?up|after earlier)\b", re.I))]
+ORIGIN = re.compile(r"\((Reuters|AP|Bloomberg|PRNewswire|GlobeNewswire|Business Wire|Dow Jones)\)|\b(Reuters|Associated Press|Bloomberg)\b\s*[-:\u2013\u2014]", re.I)
+PRIMARY = re.compile(r"(sec\.gov|business ?wire|prnewswire|globenewswire|investor\.|ir\.|8-k)", re.I)
+HORIZON_PROFILE = {"earnings_beat": {"immediate": .55, "short": .30, "medium": .12, "long": .03}, "earnings_miss": {"immediate": .55, "short": .30, "medium": .12, "long": .03},
+                   "guidance_raise": {"immediate": .40, "short": .30, "medium": .22, "long": .08}, "guidance_cut": {"immediate": .40, "short": .30, "medium": .22, "long": .08},
+                   "contract_win": {"immediate": .20, "short": .25, "medium": .30, "long": .25}, "contract_loss": {"immediate": .20, "short": .25, "medium": .30, "long": .25},
+                   "product_launch": {"immediate": .20, "short": .30, "medium": .30, "long": .20}, "merger_acquisition": {"immediate": .45, "short": .25, "medium": .20, "long": .10},
+                   "regulatory_action": {"immediate": .15, "short": .20, "medium": .30, "long": .35}, "regulatory_approval": {"immediate": .30, "short": .25, "medium": .25, "long": .20},
+                   "litigation": {"immediate": .15, "short": .15, "medium": .30, "long": .40}, "production_disruption": {"immediate": .45, "short": .35, "medium": .15, "long": .05},
+                   "recall": {"immediate": .45, "short": .30, "medium": .18, "long": .07}, "cyber_incident": {"immediate": .50, "short": .30, "medium": .15, "long": .05},
+                   "bankruptcy_distress": {"immediate": .40, "short": .30, "medium": .20, "long": .10}, "war_escalation": {"immediate": .50, "short": .30, "medium": .15, "long": .05}}
+
+
+def event_state(text: str) -> str:
+    for name, rx in STATE_RX:
+        if rx.search(text):
+            return name
+    return "reported"
+
+
+def novelty_of(text: str) -> str:
+    for name, rx in NOVELTY_RX:
+        if rx.search(text):
+            return name
+    return "new"
+
+
+def materiality(magnitude: float, amount, mcap, etype: str) -> str:
+    ratio = (float(amount) / float(mcap)) if amount and mcap else 0.0
+    if ratio >= 0.15 or (etype == "merger_acquisition" and magnitude >= 0.7):
+        return "transformative"
+    if magnitude >= 0.55 or ratio >= 0.03:
+        return "material"
+    return "moderate" if magnitude >= 0.30 else "immaterial"
+
+
+def independent_sources(conn, item: dict, now) -> Tuple[int, bool]:
+    """How many INDEPENDENT origins carry this story? Outlets that repeat one wire story are one source, not corroboration. -> (count, whether a primary source (a filing or the company's own release) is among them)."""
+    from .skeptic import same_story
+    title = item.get("title") or ""
+    rows = conn.execute("SELECT uid,source,title,summary,url FROM news WHERE published>=? AND published<=? ORDER BY id DESC LIMIT 400", (iso(now - dt.timedelta(hours=36)), iso(now + dt.timedelta(minutes=1)))).fetchall()
+    origins, primary = set(), False
+    for r in rows:
+        if r["uid"] != item.get("uid") and not same_story(title, r["title"] or "", 0.55):
+            continue
+        blob = "%s %s" % (r["title"] or "", (r["summary"] or "")[:300])
+        m = ORIGIN.search(blob)
+        origins.add((m.group(1) or m.group(2)).lower() if m else re.sub(r"[^a-z0-9]", "", (r["source"] or "").lower()) or "unknown")
+        primary = primary or bool(PRIMARY.search("%s %s" % (r["source"] or "", r["url"] or "")))
+    return max(1, len(origins)), primary
+
+
+def ref_version(conn) -> str:
+    import hashlib
+    return hashlib.sha1(("%s|%s|%s" % (db.param(conn, "relations_hash") or "", macro_drivers()[0], ENGINE_VERSION)).encode()).hexdigest()[:10]
 
 
 # ------------------------------------------------------------------------------------------------ small readers
@@ -267,26 +381,22 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
             trace.append("propagated %d effect(s) at order %d through the relationship graph" % (len(nxt), order))
         frontier = sorted(nxt, key=lambda x: -x[2])[:4] if order == 2 else []
 
-    # macro exposures: oil, gold, copper, uranium, rates, chip curbs, conflict ------------------------------
+    # macro exposures: oil, gold, copper, uranium, rates, the dollar, chip export curbs, conflict, AI capital spending (config/macro_exposures.json)
     grp = groups()
-    for rx, name, exp in MACRO:
-        m = rx.search(text)
-        if not m:
-            continue
-        d = 1 if name in FIXED_DRIVERS else _word_dir(text, m.start())
-        if d == 0:
+    for fx in macro_effects(text, grp):
+        if fx["mixed"]:
+            trace.append("macro: %s reaches '%s' through channels that pull both ways (%s): mixed, so nothing is claimed" % (fx["driver"], fx["group"], "; ".join(fx["channels"][:3])))
             continue
         hit = []
-        for gname, w in exp.items():
-            for t in grp.get(gname, []):
-                if (universe is None or t in universe) and t not in tickers:
-                    put(t, d * (1.0 if w > 0 else -1.0), min(0.6, 0.55 * abs(w)), 2, "%s group '%s' when %s %s" % ("gains" if d * w > 0 else "loses", gname, name, "rises" if d > 0 else "falls"))
-                    hit.append(t)
+        for t in fx["tickers"]:
+            if (universe is None or t in universe) and t not in tickers:
+                put(t, fx["sign"], fx["confidence"], 2, "%s group '%s' when %s %s: %s" % ("gains" if fx["sign"] > 0 else "loses", fx["group"], fx["driver"], "rises" if fx["rising"] else "falls", "; ".join(fx["channels"][:2])))
+                hit.append(t)
         if hit:
-            trace.append("macro rule: %s %s -> groups %s" % (name, "up" if d > 0 else "down", ", ".join(exp)))
-            chain.append({"order": 2, "effect": "%s %s: %s" % (name, "rises" if d > 0 else "falls", ", ".join("%s %s" % (g, "up" if d * w > 0 else "down") for g, w in exp.items())), "confidence": 0.5, "tickers": hit[:5], "sector": ""})
+            trace.append("macro rule: %s %s -> '%s' (%s)" % (fx["driver"], "up" if fx["rising"] else "down", fx["group"], "; ".join(fx["channels"][:2])))
+            chain.append({"order": 2, "effect": "%s %s: %s %s over ~%s" % (fx["driver"], "rises" if fx["rising"] else "falls", fx["group"], "up" if fx["sign"] > 0 else "down", fx["horizon"]), "confidence": round(fx["confidence"], 2), "tickers": hit[:5], "sector": ""})
             if scope in ("macro", "sector") or not tickers:
-                direction = direction or d * 0.4
+                direction = direction or fx["sign"] * 0.4
 
     # 5. THEMES ------------------------------------------------------------------------------------------------
     narratives = []
@@ -316,6 +426,8 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
         abstain = "no direction could be read"
     if abstain:
         trace.append("abstained: " + abstain)
+        item["_why_not"] = abstain
+        item["_trace"] = trace[:14]
         return None
 
     surprise = None
@@ -328,17 +440,66 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
     ben = sorted(beneficiaries.values(), key=lambda e: (e["order"], -e["confidence"]))[:6]
     los = sorted(losers.values(), key=lambda e: (e["order"], -e["confidence"]))[:6]
     why = "%s%s" % (etype.replace("_", " "), (" (" + status + ")") if status != "unclear" else "")
-    return {"event_type": etype if etype in nlp.BY_NAME else "other", "summary": (title or text)[:300], "why": ("Rules read this as a %s. %s" % (why, "; ".join(contradictions)))[:300], "certainty": round(certainty, 3), "grounded": bool(quotes),
+    out = {"event_type": etype if etype in nlp.BY_NAME else "other", "summary": (title or text)[:300], "why": ("Rules read this as a %s. %s" % (why, "; ".join(contradictions)))[:300], "certainty": round(certainty, 3), "grounded": bool(quotes),
             "surprise": surprise, "horizon": HORIZON.get(etype, "days" if scope == "macro" else "weeks"), "magnitude": max(0.25, min(0.85, magnitude)) if magnitude else 0.25, "magnitude_label": _label(magnitude),
             "direction_market": _clip(direction, -1, 1), "beneficiaries": ben, "losers": los, "chain": chain[:6], "narratives": narratives, "proposed_narratives": [], "bull_case": " ".join(bull)[:400], "bear_case": " ".join(bear)[:400],
             "quotes": quotes, "contradictions": contradictions, "status": status, "engine": ENGINE_VERSION, "tag": TAG, "trace": trace[:14]}
+    n_ind, primary = independent_sources(conn, item, now)
+    roles = {t: round(c, 2) for t, _, c in first}
+    prof = HORIZON_PROFILE.get(etype) or {"immediate": .3, "short": .3, "medium": .25, "long": .15}
+    comp_row = conn.execute("SELECT market_cap FROM companies WHERE ticker=?", (first[0][0],)).fetchone() if first else None
+    classification = float(a.get("confidence") or 0.6)
+    truth = min(1.0, factor * (1.0 if (n_ind >= 2 or primary) else 0.92))
+    role_conf = min(roles.values()) if roles else 0.0
+    out.update({"state": event_state(text), "novelty": novelty_of(text), "evidence_status": "primary" if primary else "corroborated" if n_ind >= 2 else "single_source", "independent_sources": n_ind, "primary_source": primary,
+                "materiality": materiality(magnitude, a.get("amount_usd"), comp_row["market_cap"] if comp_row else None, etype), "horizons": prof, "roles": roles,
+                "components": {"entity": 0.8 if tickers else 0.4, "classification": round(classification, 2), "truth": round(truth, 2), "role": round(role_conf, 2), "causal": round(max([e["confidence"] for e in ben + los if e["order"] >= 2] or [0.0]), 2),
+                               "direction_p": round(0.5 + 0.45 * min(1.0, abs(direction)) * min(truth, classification), 3), "magnitude": round(float(lz.get("confidence") or 0.5), 2), "timing": round(max(prof.values()), 2),
+                               "completeness": round(sum(1 for x in (tickers, abs(direction) > 0.05, magnitude, quotes, lz.get("facts")) if x) / 5.0, 2)},
+                "ref_version": ref_version(conn)})
+    return out
+
+
+def log_record(conn, cfg: dict, item: dict, intel: Optional[dict], mode: str, now) -> None:
+    """Every analysis, including the ones it abstained on, is kept with the rules that produced it: the reasoning can be audited and replayed, and the scorecards can judge it."""
+    row = intel or {}
+    conn.execute("INSERT INTO reasoning_events(created,news_uid,mode,engine,ref_version,event_type,state,novelty,evidence_status,materiality,independent_sources,abstained,abstain_reason,direction,magnitude,certainty,components_json,horizons_json,roles_json,tickers_json,analysis_json,trace_json) "
+                 "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                 (iso(now), item.get("uid"), mode, ENGINE_VERSION, row.get("ref_version") or ref_version(conn), row.get("event_type") or (item.get("analysis") or {}).get("event_type"), row.get("state"), row.get("novelty"), row.get("evidence_status"),
+                  row.get("materiality"), row.get("independent_sources"), 0 if intel else 1, item.get("_why_not") if not intel else None, row.get("direction_market"), row.get("magnitude"), row.get("certainty"),
+                  json.dumps(row.get("components") or {}), json.dumps(row.get("horizons") or {}), json.dumps(row.get("roles") or {}), json.dumps(item.get("tickers") or []), json.dumps(row, sort_keys=True, default=str) if intel else None,
+                  json.dumps(row.get("trace") or item.get("_trace") or [])))
+
+
+def supersede(conn, tickers: List[str], etype: str, now, factor: float = 0.3) -> int:
+    """A correction, denial or withdrawal REPLACES earlier evidence about the same subject: its credibility is cut, not just argued with."""
+    fam = [k for k, v in __import__("paper_agent.skeptic", fromlist=["FAMILY"]).FAMILY.items() if v == __import__("paper_agent.skeptic", fromlist=["FAMILY"]).FAMILY.get(etype)] or [etype]
+    n = 0
+    for t in tickers:
+        n += conn.execute("UPDATE evidence SET credibility=credibility*?, note=COALESCE(note,'')||' [superseded]' WHERE ticker=? AND event_type IN (%s) AND created>=? AND COALESCE(note,'') NOT LIKE '%%[superseded]%%'" % ",".join("?" * len(fam)),
+                          (factor, t, *fam, iso(now - dt.timedelta(hours=72)))).rowcount
+    return n
 
 
 def make_analyst(conn, cfg: dict, universe=None) -> Callable:
-    """Drop-in for event_intel.make_analyst, but always available and free."""
+    """The analyst the pipeline calls for each news item. It ALWAYS reasons and logs; only in `active` influence does its analysis become evidence and candidates (observe and guard record it and change nothing)."""
+    mode = str(cfg["intelligence"].get("influence", "guard"))
+
     def analyst(item: dict) -> Optional[dict]:
-        intel = analyze_item(conn, cfg, universe, item)
-        if not intel:
+        now = item.get("now") or utcnow()                                                                 # the cycle's own clock (so a replay or a test is reproducible)
+        intel = analyze_item(conn, cfg, universe, item, now)
+        if mode == "active":                                                                              # a denial or correction REPLACES earlier evidence, and it is usually too weak to be analysed on its own, so this happens first
+            txt = ((item.get("title") or "") + ". " + (item.get("summary") or ""))
+            if (novelty_of(txt) == "correction" or event_state(txt) in ("denied", "rejected")) and item.get("tickers"):
+                try:
+                    supersede(conn, list(item["tickers"]), (item.get("analysis") or {}).get("event_type") or "general_news", now)
+                except Exception:  # noqa: BLE001
+                    pass
+        try:
+            log_record(conn, cfg, item, intel, mode, now)
+        except Exception:  # noqa: BLE001 - the audit log must never stop the cycle
+            pass
+        if not intel or mode != "active":
             return None
         a = item.get("analysis") or {}
         first = [e for e in intel["beneficiaries"] + intel["losers"] if e["order"] == 1]
@@ -368,86 +529,14 @@ def _recent_opposite(conn, ticker: str, sign: float, now, hours: int = 48) -> Li
 
 
 def review(conn, cfg: dict, client, cand: dict, f: dict, comp: dict, th: dict, regime: dict, now, decision_id: Optional[int] = None) -> Optional[dict]:
-    """The strongest case AGAINST this trade, in the red-team schema (so redteam.gate decides what to do with it). `client` is ignored: there is no LLM."""
-    from . import redteam
-    if decision_id:
-        r = conn.execute("SELECT review_json,created FROM redteam_reviews WHERE decision_id=? ORDER BY id DESC LIMIT 1", (decision_id,)).fetchone()
-        if r and (now - parse_ts(r["created"])).total_seconds() < 12 * 3600:
-            return json.loads(r["review_json"])
-    side = -1.0 if f.get("verdict") == "SHORT" else 1.0
-    inp = f.get("inputs") or {}
-    bears: List[dict] = []
-    bulls: List[dict] = []
+    """The case against a trade (see skeptic.py). `client` is ignored: there is no LLM."""
+    from . import skeptic
+    return skeptic.review(conn, cfg, cand, f, comp, th, regime, now, decision_id)
 
-    def bear(point, sev, evidence=""):
-        bears.append({"point": point, "severity": round(_clip(sev, 0, 1), 2), "evidence": evidence})
 
-    pi = float(inp.get("priced_in") or 0.0)
-    if pi >= 0.03:
-        bear("a good part of the move has already happened", min(0.85, pi * 6), "the stock already moved %.1f%% in the event's direction over 5 days" % (pi / 0.8 * 100))
-    fatal, fatal_reason = False, ""
-    if pi >= 0.10:
-        fatal, fatal_reason = True, "the move is already %.0f%%: the news is fully priced in" % (pi / 0.8 * 100)
-    opp = _recent_opposite(conn, cand["ticker"], side, now)
-    for o in opp[:2]:
-        sev = min(0.9, 0.2 + o["magnitude"] * o["credibility"])
-        bear("contradicting news in the last 48 hours: %s" % o["event_type"].replace("_", " "), sev, (o["headline"] or "")[:120])
-        if sev >= 0.8:
-            fatal, fatal_reason = True, "a strong, credible contradicting event: %s" % (o["headline"] or "")[:90]
-    text = (cand.get("headline") or "")
-    st, _, hits = report_status(text)
-    if st == "rumor":
-        bear("the report is unconfirmed", 0.55, hits[0] if hits else "rumour wording")
-    elif st == "denied":
-        bear("the report is being denied", 0.7, hits[0])
-        fatal, fatal_reason = True, "the company denies it"
-    age = float(cand.get("age_hours") or 0)
-    if age > 12:
-        bear("the news is %.0f hours old; the market has had time to react" % age, min(0.6, 0.2 + age / 80.0))
-        if age > 36:
-            fatal, fatal_reason = True, "the news is %.0f hours old" % age
-    state = (th or {}).get("state")
-    if side > 0 and state in ("Overcrowded", "Weakening"):
-        bear("the theme is %s" % state.lower(), 0.5 if state == "Overcrowded" else 0.4, "thesis state %s" % state)
-    if side < 0 and state in ("Strong", "Active"):
-        bear("shorting against a %s theme" % state.lower(), 0.5, "thesis state %s" % state)
-    if (cand.get("credibility") or 1.0) < 0.5:
-        bear("the source is not very credible", 0.4, "credibility %.2f" % cand["credibility"])
-    reg = (regime or {}).get("regime")
-    if (reg == "risk_off" and side > 0) or (reg == "risk_on" and side < 0):
-        bear("the market regime works against the position", 0.35, "regime %s" % reg)
-    stop, vol = abs(float(f.get("stop_return") or 0)), float(inp.get("vol_daily") or 0)
-    if vol and stop and stop < 1.2 * vol:
-        bear("the stop is inside a normal day's move", 0.45, "stop %.1f%% vs a typical daily move of %.1f%%" % (stop * 100, vol * 100))
-    if float(f.get("ev_net") or 0) < 0.012:
-        bear("the edge after costs is thin", 0.3, "expected %.1f%%" % (float(f.get("ev_net") or 0) * 100))
-    adv = (comp or {}).get("adv_usd")
-    if adv and adv < 5e7:
-        bear("trading volume is thin", 0.3, "$%.0fM a day" % (adv / 1e6))
-    if not bears:
-        bear("no specific objection found; the residual risk is the model being wrong", 0.15)
-    sc = f.get("scenarios") or {}
-    if sc and sc.get("bull", {}).get("ret", 0) > 2.0 * abs(sc.get("bear", {}).get("ret", 0) or 1e-9):
-        bulls.append({"point": "the upside case is more than twice the downside case", "strength": 0.5})
-    if state in ("Strong", "Active") and side > 0:
-        bulls.append({"point": "the theme is %s" % state.lower(), "strength": 0.45})
-    if (cand.get("credibility") or 0) >= 0.75:
-        bulls.append({"point": "the source is credible", "strength": 0.4})
-    if st == "confirmed":
-        bulls.append({"point": "the event is confirmed, not a rumour", "strength": 0.45})
-    falsifiers = []
-    if stop:
-        falsifiers.append({"kind": "price_above" if side < 0 else "price_below", "level_pct": (1 if side < 0 else -1) * round(_clip(stop * 100, 1, 25), 1), "description": "the stock moves %.1f%% against the position: the idea is wrong" % (stop * 100)})
-    wanted = SHORT_FALSIFIERS if side < 0 else (OPPOSITE_EVENTS.get(cand.get("event_type"), []) + LONG_FALSIFIERS)
-    for et in [e for e in dict.fromkeys(wanted) if e in nlp.BY_NAME][:3]:
-        falsifiers.append({"kind": "event", "event_type": et, "against": "up" if side < 0 else "down", "description": "a %s event on this company contradicts the idea" % et.replace("_", " ")})
-    conviction = _clip(float(f.get("confidence") or 0.5) * (1.0 - 0.5 * max((b["severity"] for b in bears), default=0)) + 0.1 * len(bulls), 0, 1)
-    obj = {"bear_points": bears, "bull_points": bulls, "fatal_flaw": fatal, "fatal_reason": fatal_reason, "valuation_view": "unknown", "conviction": conviction, "falsifiers": falsifiers, "review_in_days": int(f.get("horizon_days") or 10)}
-    rv = redteam.validate(obj)
-    if rv:
-        conn.execute("INSERT INTO redteam_reviews(created,ticker,decision_id,net_conviction,fatal_flaw,valuation_view,gate,review_json) VALUES(?,?,?,?,?,?,?,?)",
-                     (iso(now), cand["ticker"], decision_id, rv["net_conviction"], int(rv["fatal_flaw"]), rv["valuation_view"], "", json.dumps(rv, sort_keys=True)))
-    return rv
+def gate(rv: dict, cfg: dict, mode: str = "guard") -> dict:
+    from . import skeptic
+    return skeptic.gate(rv, cfg, mode)
 
 
 # ------------------------------------------------------------------------------------------------ questions
@@ -561,6 +650,23 @@ def _why(conn, cfg, q, ts, universe, now):
     sections.append(_sec("themes", ["%s: %s" % (v["name"], (rows[k]["state"] + (" (%.0f%%)" % (rows[k]["probability"] * 100) if rows[k]["probability"] is not None else "")) if k in rows else "no state yet") for k, v in th[:4]] or ["not in any tracked theme"]))
     nb = sorted(graph.related(conn, t), key=lambda e: -e["weight"])[:6]
     sections.append(_sec("relationships", ["%s of %s (%.2f)%s" % (e["role"], t, e["weight"], (": " + e["note"]) if e["note"] else "") for e in nb] or ["no relationships recorded"]))
+    fx = facts_mod.get(conn, t)
+    if fx:
+        L = []
+        if fx.get("revenue_ttm"):
+            L.append("revenue $%.1fB (%s)%s" % (fx["revenue_ttm"] / 1e9, fx["basis"].get("revenue", ""), ", %+.0f%% on a year earlier" % (fx["revenue_growth"] * 100) if fx.get("revenue_growth") is not None else ""))
+        if fx.get("net_margin") is not None:
+            L.append("net margin %.1f%%%s" % (fx["net_margin"] * 100, ", operating margin %.1f%%" % (fx["op_margin"] * 100) if fx.get("op_margin") is not None else ""))
+        if fx.get("cash") is not None:
+            L.append("cash $%.1fB%s" % (fx["cash"] / 1e9, ", debt $%.1fB" % (fx["debt"] / 1e9) if fx.get("debt") is not None else ""))
+        if fx.get("share_growth") is not None:
+            L.append("share count %+.1f%% in a year" % (fx["share_growth"] * 100))
+        L += ["FLAG: " + f["text"] for f in fx.get("flags", []) if f["severity"] > 0]
+        sections.append(_sec("reported financials (SEC data, as of %s)" % (fx.get("asof") or "?"), L or ["no usable figures"]))
+    rr = conn.execute("SELECT created,state,novelty,evidence_status,materiality,certainty,abstained,abstain_reason FROM reasoning_events WHERE tickers_json LIKE ? ORDER BY id DESC LIMIT 1", ('%"' + t + '"%',)).fetchone() if conn.execute("SELECT 1 FROM sqlite_master WHERE name='reasoning_events'").fetchone() else None
+    if rr:
+        sections.append(_sec("the engine's latest reading of news about it", ["%s: state %s, %s, %s evidence, %s materiality, certainty %s%s" % ((rr["created"] or "")[5:16], rr["state"], rr["novelty"], (rr["evidence_status"] or "?").replace("_", " "), rr["materiality"] or "?",
+                                                                                                               ("%.2f" % rr["certainty"]) if rr["certainty"] is not None else "n/a", ("; abstained: " + (rr["abstain_reason"] or "")) if rr["abstained"] else "")]))
     against = []
     if fc and cand.get("direction") is not None:
         f = {"verdict": fc["verdict"], "inputs": json.loads(fc["inputs_json"] or "{}"), "stop_return": fc["stop_return"], "ev_net": fc["ev_net"], "scenarios": json.loads(fc["scenarios_json"] or "{}"), "confidence": fc["confidence"], "horizon_days": fc["horizon_days"]}

@@ -5,6 +5,7 @@ README.md
 config/config.example.json
 config/deploy-settings.json
 config/exposures.json
+config/macro_exposures.json
 config/market-data.env
 config/market-data.env.example
 config/relations.json
@@ -49,6 +50,7 @@ paper_agent/event_intel.py
 paper_agent/evidence.py
 paper_agent/executor.py
 paper_agent/explain.py
+paper_agent/facts.py
 paper_agent/filings.py
 paper_agent/flows.py
 paper_agent/funnel.py
@@ -71,6 +73,7 @@ paper_agent/opportunity.py
 paper_agent/options.py
 paper_agent/optionsdata.py
 paper_agent/parallel.py
+paper_agent/pathways.py
 paper_agent/performance.py
 paper_agent/pipeline.py
 paper_agent/portfolio.py
@@ -88,6 +91,7 @@ paper_agent/revisions.py
 paper_agent/settings.py
 paper_agent/settings_ui.py
 paper_agent/sizing.py
+paper_agent/skeptic.py
 paper_agent/sources.py
 paper_agent/stamp.py
 paper_agent/theses_seed.py
@@ -131,6 +135,8 @@ tests/helpers.py
 tests/soak_twenty_days.py
 tests/test_build38.py
 tests/test_build39.py
+tests/test_build42.py
+tests/test_build42b.py
 tests/test_cleanup.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py

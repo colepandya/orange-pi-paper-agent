@@ -46,7 +46,7 @@ DEFAULTS: Dict[str, Any] = {
                     "options_use_real_quotes": True, "options_allow_model_fallback": True, "options_max_spread_pct": 0.15, "options_min_open_interest": 100, "options_quote_max_age_minutes": 45, "options_max_iv_rank": 80,
                     "options_feed_cboe": True, "options_feed_alpaca": True, "options_feed_nasdaq": True, "options_feed_yahoo": True},
     # Relationship graph: an event at one company becomes a smaller, discounted idea at its suppliers, customers, competitors and peers (rules + data, no LLM).
-    "graph": {"enabled": True, "max_derived_per_event": 4, "min_event_magnitude": 0.45, "min_event_conf": 0.60, "min_edge_weight": 0.20, "peer_min_corr": 0.75, "derived_discount": 0.75},
+    "graph": {"enabled": True, "max_derived_per_event": 4, "min_event_magnitude": 0.45, "min_event_conf": 0.60, "min_edge_weight": 0.20, "peer_min_corr": 0.75, "derived_discount": 0.75, "trade_on_correlation": False},
     "maintenance": {"weekly_cleanup": True, "news_days": 30, "log_days": 30},
     "whatif": {"enabled": True, "lookback_days": 5, "max_symbols_per_cycle": 20, "time_budget_seconds": 40, "max_ideas_per_run": 150},
     "reader": {"mode": "guard", "max_per_cycle": 8, "time_budget_seconds": 25, "timeout_seconds": 8},
@@ -69,7 +69,7 @@ DEFAULTS: Dict[str, Any] = {
         "llm_prices": {"claude-haiku-5-5": [0.10, 0.50], "claude-sonnet-5-5": [2.0, 10.0], "claude-opus-5-5": [4.0, 20.0]},   # USD per million tokens in/out (verify on Anthropic's pricing page)
         "llm_daily_budget_usd": 0.75, "llm_monthly_budget_usd": 15.0, "llm_daily_max_calls": {"triage": 150, "analyst": 40},
         "max_trade_order": 1, "chain_decay": 0.55, "chain_order_prior": {"1": 0.60, "2": 0.45, "3": 0.30},
-        "max_knowledge_refresh_per_cycle": 2, "engine": "rules", "engine_max_per_cycle": 80, "redteam_enabled": True, "redteam_min_conviction": 0.45, "redteam_required": False,
+        "max_knowledge_refresh_per_cycle": 2, "influence": "guard", "engine_max_per_cycle": 80, "max_evidence_order": 2, "redteam_enabled": True, "redteam_min_conviction": 0.45, "redteam_required": False,
     },
 }
 

@@ -212,20 +212,18 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
                 return finish("CAPACITY_DEFERRED", "size after the correlation haircut with %s (%.2f) is below the minimum" % (twin, corr))
     # ---- red team: a separate LLM pass tries to prove the idea wrong; the deterministic gate decides what to do with it
     rt, size_mult = None, 1.0
-    client = (intel or {}).get("client")
-    use_rules = str(cfg["intelligence"].get("engine", "rules")) == "rules"
-    if cfg["intelligence"]["redteam_enabled"] and (use_rules or client is not None):
+    influence = str(cfg["intelligence"].get("influence", "guard"))
+    if cfg["intelligence"]["redteam_enabled"] and influence != "off":
         th_ = {"primary": f["thesis_key"], "state": th["state"], "p": th["p"]}
-        rt = reasoning.review(conn, cfg, None, c, f, comp, th_, regime, now, did) if use_rules else redteam.review(conn, cfg, client, c, f, comp, th_, regime, now, did)
+        rt = reasoning.review(conn, cfg, None, c, f, comp, th_, regime, now, did)
         if rt:
-            g = redteam.gate(rt, cfg)
-            reason["redteam"] = {"net_conviction": rt["net_conviction"], "valuation": rt["valuation_view"], "fatal": rt["fatal_flaw"], "gate": g, "bear": [b["point"] for b in rt["bear_points"][:3]], "bull": [b["point"] for b in rt["bull_points"][:3]]}
+            g = reasoning.gate(rt, cfg, influence)                                                          # the engine informs; this decides, and records what a stricter mode WOULD have done
+            reason["redteam"] = {"net_conviction": rt["net_conviction"], "valuation": rt["valuation_view"], "fatal": rt["fatal_flaw"], "mode": influence, "gate": {k: g[k] for k in ("ok", "size_mult", "reasons")}, "would": g["would"],
+                                 "bear": [b["point"] for b in rt["bear_points"][:3]], "bull": [b["point"] for b in rt["bull_points"][:2]]}
             conn.execute("UPDATE redteam_reviews SET gate=? WHERE decision_id=?", (json.dumps(g), did))
             if not g["ok"]:
                 return finish("RISK_REJECTED", "red team: " + "; ".join(g["reasons"]))
             size_mult = g["size_mult"]
-        elif cfg["intelligence"]["redteam_required"] and client is not None and client.enabled("analyst"):
-            return finish("RISK_REJECTED", "red-team review required but unavailable")
     if size_mult < 1.0:
         sz["amount"] *= size_mult
         sz["pct"] *= size_mult
@@ -262,7 +260,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
         return finish("REJECTED", "a bearish idea, but short selling is switched off and no put qualified (a put needs a strong, short-horizon edge in a liquid stock)")
     out = execute_buy(conn, cfg, c, f, sz, q, did, fid, now, theme, comp.get("sector") or "Unclassified", reason)
     out["decision_id"] = did
-    if out.get("status") == "EXECUTED" and rt:
+    if out.get("status") == "EXECUTED" and rt and influence in ("guard", "active"):                       # tripwires create exits, which is influence: observe records but does not add them
         with db.tx(conn):
             redteam.store_tripwires(conn, out["position_id"], conn.execute("SELECT entry_price FROM positions WHERE id=?", (out["position_id"],)).fetchone()[0], rt, now)
     return out

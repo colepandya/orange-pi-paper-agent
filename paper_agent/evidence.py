@@ -87,7 +87,7 @@ def _persist_one(conn, universe, cfg: dict, icfg: dict, rules, chosen: dict, ana
     llm_json, intel = None, None
     if n["uid"] in chosen:
         try:
-            ex = analyst({"title": title, "summary": summary[:1500], "analysis": a, "tickers": tickers, "tier": chosen[n["uid"]]})
+            ex = analyst({"now": now, "uid": n["uid"], "title": title, "summary": summary[:1500], "analysis": a, "tickers": tickers, "tier": chosen[n["uid"]]})
         except Exception:  # noqa: BLE001
             ex = None
         if ex:
@@ -117,6 +117,7 @@ def _persist_one(conn, universe, cfg: dict, icfg: dict, rules, chosen: dict, ana
             (n["uid"], iso(now), iso(pub), n["source"], source_id, title, a["event_type"], a["scope"], a["direction"], a["magnitude"], a["amount_usd"],
              json.dumps(tickers), json.dumps(a["regions"]), " ".join(toks), cluster, novelty, cred, age_h, int(stale), llm_json))
         eid = cur.lastrowid
+        conn.execute("UPDATE reasoning_events SET event_ref=? WHERE news_uid=? AND event_ref IS NULL", (eid, n["uid"]))      # the reasoning record and the event it concerns are one thing
         if not cluster:
             conn.execute("UPDATE events SET cluster_id=? WHERE id=?", (eid, eid))
             cluster = eid

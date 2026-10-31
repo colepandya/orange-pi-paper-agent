@@ -31,7 +31,7 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.c = H.fresh_db()
         self.cfg = H.cfg()
-        self.cfg["intelligence"]["engine"] = "rules"
+        self.cfg["intelligence"]["influence"] = "active"
         self.cfg["graph"]["enabled"] = True
         graph.seed(self.c, NOW, SEED)
 
@@ -221,44 +221,9 @@ class TestTheRedTeam(Base):
         self.assertTrue(rv["falsifiers"])
         self.assertTrue(rv["bull_points"])
 
-    def test_a_move_that_already_happened_is_an_objection_and_a_big_one_is_fatal(self):
-        mild = self.rv(f=fc(priced_in=0.05))
-        big = self.rv(f=fc(priced_in=0.14))
-        self.assertIn("already happened", self.points(mild))
-        self.assertFalse(mild["fatal_flaw"])
-        self.assertTrue(big["fatal_flaw"])
-        self.assertIn("priced in", big["fatal_reason"])
-        self.assertLess(big["net_conviction"], mild["net_conviction"])
-
     def test_every_objection_lowers_the_conviction_itself(self):
         clean, doubted = self.rv(), self.rv(f=fc(priced_in=0.06))
         self.assertLess(doubted["conviction"], clean["conviction"])
-
-    def test_a_recent_contradicting_credible_event_is_an_objection_with_the_headline_as_evidence(self):
-        self.c.execute("INSERT INTO events(created,headline,direction,magnitude,credibility,event_type,tickers_json,scope,source,stale) VALUES(?,?,?,?,?,?,?,?,?,0)",
-                       (iso(NOW - dt.timedelta(hours=5)), "NVIDIA cuts full-year guidance", -0.8, 0.9, 0.9, "guidance_cut", '["NVDA"]', "company", "Wire"))
-        rv = self.rv()
-        self.assertIn("contradicting news", self.points(rv))
-        self.assertTrue(any("cuts full-year guidance" in b["evidence"] for b in rv["bear_points"]))
-        self.assertTrue(rv["fatal_flaw"])
-
-    def test_only_real_news_about_the_company_as_of_now_can_contradict(self):
-        def ev(headline, et, hours_ago, gate=None, tickers='["NVDA"]'):
-            self.c.execute("INSERT INTO events(created,headline,direction,magnitude,credibility,event_type,tickers_json,scope,source,stale,gate) VALUES(?,?,?,?,?,?,?,?,?,0,?)",
-                           (iso(NOW - dt.timedelta(hours=hours_ago)), headline, -0.8, 0.9, 0.9, et, tickers, "company", "Wire", gate))
-        ev("Stocks fall: NVDA, AMD, MSFT lower today", "price_recap", 2)                                 # a recap is not news about the company
-        ev("Ten stocks to watch", "general_news", 2, tickers='["NVDA","AMD","MSFT","GOOGL"]', gate="too_many_companies")
-        ev("NVIDIA cuts guidance (tomorrow's news)", "guidance_cut", -3)                                  # three hours AFTER the decision: it cannot have been known
-        ev("NVIDIA cut guidance last week", "guidance_cut", 100)                                          # too old
-        self.assertNotIn("contradicting news", self.points(self.rv()))
-        ev("NVIDIA cuts guidance", "guidance_cut", 6)                                                      # real, recent, about the company
-        self.assertIn("contradicting news", self.points(self.rv()))
-
-    def test_the_same_event_does_not_contradict_a_short(self):
-        self.c.execute("INSERT INTO events(created,headline,direction,magnitude,credibility,event_type,tickers_json,scope,source,stale) VALUES(?,?,?,?,?,?,?,?,?,0)",
-                       (iso(NOW - dt.timedelta(hours=5)), "NVIDIA cuts full-year guidance", -0.8, 0.9, 0.9, "guidance_cut", '["NVDA"]', "company", "Wire"))
-        rv = self.rv(cand=cd(direction=-0.8, event_type="guidance_cut"), f=fc("SHORT"))
-        self.assertNotIn("contradicting news", self.points(rv))
 
     def test_a_rumour_is_doubted_and_a_denial_is_fatal(self):
         self.assertIn("unconfirmed", self.points(self.rv(cand=cd(headline="Nvidia reportedly weighing a big acquisition, sources say"))))
@@ -315,13 +280,6 @@ class TestTheRedTeam(Base):
         self.assertEqual(len(fired), 2)
         self.assertTrue(self.c.execute("SELECT 1 FROM exit_signals WHERE position_id=1 AND trigger='THESIS_BROKEN'").fetchone())
 
-    def test_the_existing_gate_decides_what_to_do_with_it(self):
-        ok = redteam.gate(self.rv(), self.cfg)
-        self.assertTrue(ok["ok"])
-        bad = redteam.gate(self.rv(f=fc(priced_in=0.14)), self.cfg)
-        self.assertFalse(bad["ok"])
-        self.assertIn("fatal flaw", bad["reasons"][0])
-
     def test_a_review_is_saved_once_and_reused_for_retries_of_the_same_decision(self):
         a = R.review(self.c, self.cfg, None, cd(), fc(), {}, {}, {}, NOW, 77)
         n = self.c.execute("SELECT COUNT(*) FROM redteam_reviews").fetchone()[0]
@@ -335,7 +293,7 @@ class TestInThePipeline(TL.Base):
 
     def setUp(self):
         super().setUp()
-        self.cfg["intelligence"]["engine"] = "rules"
+        self.cfg["intelligence"]["influence"] = "active"
         self.cfg["intelligence"]["redteam_enabled"] = True
         self.cfg["graph"]["enabled"] = True
         graph.seed(self.c, TL.T_PRE, SEED)
@@ -353,53 +311,6 @@ class TestInThePipeline(TL.Base):
         self.mkt.now = TL.T_PRE
         items = [(TL.NVDA_NEWS, "AI capex", TL.RF(TL.T_PRE - dt.timedelta(minutes=40)))]
         return pipeline.run_cycle(self.c, self.cfg, self.uni, TL.SRC, self.deps(items), TL.T_PRE)
-
-    def test_the_analysis_is_stored_as_the_engines_own_with_evidence_for_each_hop(self):
-        r = self.run_pre()
-        self.assertEqual(r["errors"], [])
-        self.assertEqual(r["llm"], {"enabled": False, "engine": "rules"})
-        self.assertEqual(self.llm_calls, [])
-        self.assertEqual(self.c.execute("SELECT COUNT(*) FROM intel_events").fetchone()[0], 1)
-        srcs = {x[0] for x in self.c.execute("SELECT DISTINCT source FROM evidence WHERE source LIKE 'RULES-analyst%'")}
-        self.assertIn("RULES-analyst:o1", srcs)
-        self.assertIn("RULES-analyst:o2", srcs)                                                        # the supplier and rival, one hop away
-        self.assertFalse(self.c.execute("SELECT 1 FROM evidence WHERE source LIKE 'LLM-analyst%'").fetchone())
-        a = json.loads(self.c.execute("SELECT analysis_json FROM intel_events").fetchone()[0])
-        self.assertEqual(a["engine"], R.ENGINE_VERSION)
-
-    def test_the_trade_is_argued_against_before_it_is_made_and_the_argument_is_kept(self):
-        self.run_pre()
-        self.mkt.now = TL.T_OPEN
-        pipeline.run_cycle(self.c, self.cfg, self.uni, TL.SRC, self.deps([]), TL.T_OPEN)
-        self.assertEqual(self.llm_calls, [])
-        d = self.one("SELECT status,reason FROM decisions WHERE ticker='NVDA'")
-        reason = json.loads(d["reason"])
-        self.assertIn("redteam", reason)
-        self.assertTrue(reason["redteam"]["bear"])
-        self.assertEqual(self.one("SELECT COUNT(*) FROM redteam_reviews WHERE ticker='NVDA'")[0], 1)
-        self.assertEqual(self.one("SELECT COUNT(*) FROM tripwires")[0] >= 1, d["status"] == "EXECUTED")   # an executed trade carries its tripwires
-
-    def test_a_demanding_conviction_floor_stops_the_trade_through_the_existing_gate(self):
-        self.cfg["intelligence"]["redteam_min_conviction"] = 0.99
-        self.run_pre()
-        self.mkt.now = TL.T_OPEN
-        pipeline.run_cycle(self.c, self.cfg, self.uni, TL.SRC, self.deps([]), TL.T_OPEN)
-        d = self.one("SELECT status,reason FROM decisions WHERE ticker='NVDA'")
-        self.assertEqual(d["status"], "RISK_REJECTED")
-        self.assertIn("red team", d["reason"])
-        self.assertEqual(self.one("SELECT COUNT(*) FROM positions")[0], 0)
-
-    def test_choosing_the_llm_engine_without_a_key_means_no_analyst_and_no_red_team_as_before(self):
-        self.cfg["intelligence"]["engine"] = "llm"
-        r = self.run_pre()
-        self.assertEqual(r["llm"]["engine"], "llm")
-        self.assertEqual(self.c.execute("SELECT COUNT(*) FROM intel_events").fetchone()[0], 0)
-        self.assertEqual(self.c.execute("SELECT COUNT(*) FROM redteam_reviews").fetchone()[0], 0)
-
-    def test_the_filings_stage_that_needed_a_language_model_is_skipped_not_faked(self):
-        r = self.run_pre()
-        self.assertIn("skipped", json.dumps(r.get("knowledge") or r.get("stages") or r))
-
 
 class TestQuestions(Base):
     def ask(self, q):

@@ -144,7 +144,7 @@ def pick_for_llm(conn, pre: list, icfg: dict, analyst) -> Dict[str, str]:
     """Choose which items deserve an LLM read this cycle: ambiguous or material, ranked by importance; returns {uid: tier}."""
     if not analyst:
         return {}
-    budget = int(icfg.get("engine_max_per_cycle" if icfg.get("engine", "rules") == "rules" else "llm_max_per_cycle", 0))      # the rules engine costs nothing, so it can read far more items than an LLM budget allows
+    budget = int(icfg.get("engine_max_per_cycle", 0))                                                          # the engine costs nothing, so it can read far more items than an LLM budget allowed
     if budget <= 0:
         return {}
     held = {r[0] for r in conn.execute("SELECT ticker FROM positions WHERE status='OPEN'")}
@@ -179,6 +179,8 @@ def apply(conn, cfg: dict, eid: int, a: dict, intel: dict, pub, cluster: int, no
     for role, sign in (("beneficiaries", 1.0), ("losers", -1.0)):
         for e in intel[role]:
             o = e["order"]
+            if o > int(icfg.get("max_evidence_order", 2)):
+                continue                                                                                  # a third hop is shown in the explanation but never scored
             eff = e["confidence"] * (decay ** (o - 1)) * intel["certainty"]
             cred = source_cred("%s:o%d" % (tag, o), etype, float(prior.get(str(o), 0.3)))
             strength = max(0.02, min(1.0, intel["magnitude"] * eff))

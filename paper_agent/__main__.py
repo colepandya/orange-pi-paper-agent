@@ -33,6 +33,7 @@ def main(argv=None) -> int:
     cl.add_argument("mode", nargs="?", default="plan", choices=["plan", "apply"])
     cl.add_argument("--scope", default="db,files,config", help="comma list of: db, files, config")
     cl.add_argument("--user", default="", help="the login user whose home folder holds old unpacked builds")
+    sub.add_parser("scorecard", help="did the reasoning engine and its red team earn their influence? (outcomes of what it would have blocked, accuracy by event type)")
     gp = sub.add_parser("graph", help="show a stock's relationship graph and what an event there would do")
     gp.add_argument("ticker", nargs="?", default="NVDA")
     ap2 = sub.add_parser("ask", help="ask the reasoning engine a question, e.g.  ask why NVDA   /   ask what if TSM cuts guidance   /   ask help")
@@ -253,6 +254,18 @@ def main(argv=None) -> int:
             return 0
         rep = _cl.apply(conn if "db" in scope else None, paths, utcnow(), scope)
         print(json.dumps(rep, indent=2, default=str))
+        return 0
+    if args.cmd == "scorecard":
+        from . import pathways as _pw, skeptic as _sk
+        sc = _sk.scorecard(conn)
+        print("DID THE RED TEAM HELP? (beat the market in the position's direction; read a row only once it has ~20 outcomes)")
+        for k, v in sc.items():
+            print("  %-34s n=%-4d win %3.0f%% (90%% range %3.0f-%3.0f%%)  shrunk %3.0f%%  avg vs market %+.2f%%" % (k, v["n"], v["win"] * 100, v["win_low"] * 100, v["win_high"] * 100, v["win_shrunk"] * 100, v["mean"] * 100))
+        if not sc:
+            print("  nothing resolved yet")
+        print("\nACCURACY AT 5 SESSIONS BY EVENT TYPE AND SOURCE")
+        for r in _pw.hierarchical(conn, 5):
+            print("  %-10s %-44s n=%-4d win %3.0f%% shrunk %3.0f%%  avg vs market %+.2f%%" % (r["level"], r["key"][:44], r["n"], r["win"] * 100, r["shrunk"] * 100, r["mean_abn"] * 100))
         return 0
     if args.cmd in ("ask", "graph"):
         from . import graph as _g, reasoning as _rs

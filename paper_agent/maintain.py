@@ -98,7 +98,7 @@ def _event_free_clause(conn) -> str:
     return " AND ".join(parts) or "1=1"
 
 
-def _retention(conn, news_days: int, log_days: int, now) -> Dict[str, Tuple[str, str, tuple]]:
+def _retention(conn, news_days: int, log_days: int, now, reasoning_days: int = 45) -> Dict[str, Tuple[str, str, tuple]]:
     """name -> (count SQL, delete SQL, params). Only data that merely accumulates; nothing a live row points at."""
     tabs, out = _tables(conn), {}
     nc, lc = iso(now - dt.timedelta(days=news_days)), iso(now - dt.timedelta(days=log_days))
@@ -117,6 +117,8 @@ def _retention(conn, news_days: int, log_days: int, now) -> Dict[str, Tuple[str,
     if "narrative_states" in tabs:
         w = "ts<? AND id NOT IN (SELECT MAX(id) FROM narrative_states GROUP BY thesis_key)"          # the latest state per thesis is always kept
         out["narrative_states"] = ("SELECT COUNT(*) FROM narrative_states WHERE " + w, "DELETE FROM narrative_states WHERE " + w, (lc,))
+    if "reasoning_events" in tabs:                                                                          # one row per news item analysed, with its full analysis: kept for reasoning_days, not log_days
+        out["reasoning_events"] = ("SELECT COUNT(*) FROM reasoning_events WHERE created<?", "DELETE FROM reasoning_events WHERE created<?", (iso(now - dt.timedelta(days=reasoning_days)),))
     for t in ("executor_runs", "position_monitor_runs"):
         if t in tabs:
             out[t] = ("SELECT COUNT(*) FROM %s WHERE created<?" % t, "DELETE FROM %s WHERE created<?" % t, (lc,))

@@ -32,7 +32,7 @@ def _clip(x, lo, hi, d=0.0):
 
 def validate(obj: dict) -> Optional[dict]:
     try:
-        bears = [{"point": str(b.get("point", ""))[:240], "severity": _clip(b.get("severity"), 0, 1, 0.3), "evidence": str(b.get("evidence", ""))[:300]} for b in (obj.get("bear_points") or [])[:6] if isinstance(b, dict)]
+        bears = [{"point": str(b.get("point", ""))[:240], "severity": _clip(b.get("severity"), 0, 1, 0.3), "evidence": str(b.get("evidence", ""))[:300], "rule": str(b.get("rule", ""))[:40], "action": str(b.get("action", ""))[:12], "mult": _clip(b.get("mult"), 0.1, 1.0, 1.0)} for b in (obj.get("bear_points") or [])[:6] if isinstance(b, dict)]
         bulls = [{"point": str(b.get("point", ""))[:240], "strength": _clip(b.get("strength"), 0, 1, 0.3)} for b in (obj.get("bull_points") or [])[:6] if isinstance(b, dict)]
         if not bears:
             return None

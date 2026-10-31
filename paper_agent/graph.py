@@ -9,8 +9,10 @@ Every derived idea is discounted, carries the reason ("supplier of NVDA: earning
 separately, and then goes through exactly the same gates, sizing and exits as any other idea."""
 from __future__ import annotations
 
+import datetime as dt
 import json
 import math
+import re
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -79,24 +81,25 @@ def seed(conn, now=None, path: Optional[str] = None) -> dict:
     sig = hashlib.sha256(json.dumps(d, sort_keys=True).encode()).hexdigest()
     if db.param(conn, "relations_hash") == sig and conn.execute("SELECT 1 FROM relations WHERE source='seed' LIMIT 1").fetchone():
         return {"edges": conn.execute("SELECT COUNT(*) FROM relations WHERE source='seed'").fetchone()[0], "unchanged": True}            # nothing to write: the file has not changed
-    rows: Dict[Tuple[str, str, str], Tuple[float, str]] = {}
+    rows: Dict[Tuple[str, str, str], tuple] = {}
     for g in d.get("peer_groups") or []:
         ts = [str(t).upper() for t in g.get("tickers") or []]
         w = float(g.get("weight", 0.35))
         for a in ts:
             for b in ts:
                 if a != b:
-                    rows[(a, b, "peer")] = (max(w, rows.get((a, b, "peer"), (0, ""))[0]), g.get("name", ""))
+                    rows[(a, b, "peer")] = (max(w, rows.get((a, b, "peer"), (0, ""))[0]), g.get("name", ""), g.get("evidence", ""), g.get("verified", ""), g.get("valid_from"), g.get("valid_to"))
     for e in d.get("edges") or []:
         a, b, k, w = str(e["src"]).upper(), str(e["dst"]).upper(), e.get("kind", "peer"), float(e.get("weight", 0.3))
         if a == b or k not in ("supplies", "competes", "peer"):
             continue
-        rows[(a, b, k)] = (w, e.get("note", ""))
+        rows[(a, b, k)] = (w, e.get("note", ""), e.get("evidence", ""), e.get("verified", ""), e.get("valid_from"), e.get("valid_to"))
         if k in ("competes", "peer"):
-            rows[(b, a, k)] = (w, e.get("note", ""))
+            rows[(b, a, k)] = (w, e.get("note", ""), e.get("evidence", ""), e.get("verified", ""), e.get("valid_from"), e.get("valid_to"))
     with db.tx(conn):
         conn.execute("DELETE FROM relations WHERE source='seed'")
-        conn.executemany("INSERT OR REPLACE INTO relations(src,dst,kind,weight,source,note,updated) VALUES(?,?,?,?,'seed',?,?)", [(a, b, k, w, note, iso(now)) for (a, b, k), (w, note) in rows.items()])
+        conn.executemany("INSERT OR REPLACE INTO relations(src,dst,kind,weight,source,note,updated,confidence,evidence,verified,valid_from,valid_to,status) VALUES(?,?,?,?,'seed',?,?,?,?,?,?,?,'active')",
+                         [(a, b, k, v[0], v[1], iso(now), v[0], v[2], v[3], v[4], v[5]) for (a, b, k), v in rows.items()])
         db.set_param(conn, "relations_hash", sig, "hash of the relationship map last loaded")
     return {"edges": len(rows)}
 
@@ -129,36 +132,75 @@ def correlation(conn, a: str, b: str, n: int = 60, cache: Optional[dict] = None)
     return sum((p - mx) * (q - my) for p, q in zip(x, y)) / math.sqrt(sxx * syy)
 
 
+def _winsor(x: List[float]) -> List[float]:
+    if len(x) < 8:
+        return x
+    s = sorted(x)
+    med = s[len(s) // 2]
+    mad = (sorted(abs(v - med) for v in x)[len(x) // 2] * 1.4826) or 1e-9                               # robust spread: one huge day cannot inflate the yardstick it is measured against
+    return [max(med - 5 * mad, min(med + 5 * mad, v)) for v in x]                                      # one wild shared day must not manufacture a relationship
+
+
+def _corr(x: List[float], y: List[float], n: int) -> Optional[float]:
+    m = min(len(x), len(y), n)
+    if m < 40:
+        return None                                                                                    # too few overlapping sessions to say anything
+    x, y = _winsor(x[-m:]), _winsor(y[-m:])
+    mx, my = sum(x) / m, sum(y) / m
+    sxx, syy = sum((v - mx) ** 2 for v in x), sum((v - my) ** 2 for v in y)
+    return sum((p - mx) * (q - my) for p, q in zip(x, y)) / math.sqrt(sxx * syy) if sxx > 0 and syy > 0 else None
+
+
+def _residual(x: List[float], mkt: List[float]) -> List[float]:
+    """What is left of a stock's returns after removing the market's influence (a one-factor regression): shared market beta is not a relationship."""
+    m = min(len(x), len(mkt))
+    x, mk = x[-m:], mkt[-m:]
+    mm, mx = sum(mk) / m, sum(x) / m
+    var = sum((v - mm) ** 2 for v in mk) or 1e-12
+    beta = sum((a - mm) * (b - mx) for a, b in zip(mk, x)) / var
+    return [b - beta * a for a, b in zip(mk, x)]
+
+
 def refresh_data_edges(conn, cfg: dict, now=None, force: bool = False) -> dict:
-    """Once a day: from every stock we hold enough price history for, link each to its closest co-movers (correlation >= graph.peer_min_corr, at most 4 each)."""
+    """Once a day: STATISTICAL association between stocks. Kept only when it holds over BOTH the last 60 and 120 sessions, and still holds after removing the market's influence. These links are labelled
+    `corr`: they explain and warn (the correlation gate, the explanation), they are NEVER treated as a cause, and no trade is built on them."""
     now = now or utcnow()
     if not force and not db.due(conn, "graph_corr", 23.0, now):
         return {"skipped": "not due"}
     lo = float((cfg.get("graph") or {}).get("peer_min_corr", 0.75))
-    tickers = [r[0] for r in conn.execute("SELECT symbol FROM market_series GROUP BY symbol HAVING COUNT(*) >= 40") if r[0] and r[0].isalpha() and len(r[0]) <= 5 and r[0] not in ("SPY", "QQQ", "IWM", "DIA", "VIX")]
-    cache: dict = {}
-    best: Dict[str, List[Tuple[float, str]]] = {t: [] for t in tickers}
+    tickers = [r[0] for r in conn.execute("SELECT symbol FROM market_series GROUP BY symbol HAVING COUNT(*) >= 60") if r[0] and r[0].isalpha() and len(r[0]) <= 5 and r[0] not in ("SPY", "QQQ", "IWM", "DIA", "VIX")]
+    rets = {t: returns(conn, t, 260) for t in tickers}
+    mkt = returns(conn, "SPY", 260)
+    resid = {t: _residual(v, mkt) for t, v in rets.items() if mkt and len(v) >= 40}
+    best: Dict[str, List[Tuple[float, str, str]]] = {t: [] for t in tickers}
     for i, a in enumerate(tickers):
         for b in tickers[i + 1:]:
-            c = correlation(conn, a, b, 60, cache)
-            if c is not None and c >= lo:
-                best[a].append((c, b))
-                best[b].append((c, a))
+            c60, c120 = _corr(rets[a], rets[b], 60), _corr(rets[a], rets[b], 120)
+            if c60 is None or c60 < lo or (c120 is not None and c120 < lo - 0.10):
+                continue
+            adj = _corr(resid[a], resid[b], 60) if a in resid and b in resid else None
+            if adj is not None and adj < 0.45:
+                continue                                                                               # they only move together because the whole market does
+            note = "statistical association (not a cause): correlation %.2f over 60 sessions%s%s" % (c60, (", %.2f over 120" % c120) if c120 is not None else "", (", %.2f after removing the market" % adj) if adj is not None else "")
+            w = min(c60, c120 if c120 is not None else c60)
+            best[a].append((w, b, note))
+            best[b].append((w, a, note))
     rows = []
     for a, lst in best.items():
-        for c, b in sorted(lst, reverse=True)[:4]:
-            rows.append((a, b, "corr", round(c, 3), "data", "moved together over the last 60 sessions (correlation %.2f)" % c, iso(now)))
+        for w, b, note in sorted(lst, reverse=True)[:4]:
+            rows.append((a, b, "corr", round(w, 3), "data", note, iso(now), round(w, 3), "computed from your own price history", now.date().isoformat(), None, None))
     with db.tx(conn):
         conn.execute("DELETE FROM relations WHERE source='data'")
-        conn.executemany("INSERT OR REPLACE INTO relations(src,dst,kind,weight,source,note,updated) VALUES(?,?,?,?,?,?,?)", rows)
+        conn.executemany("INSERT OR REPLACE INTO relations(src,dst,kind,weight,source,note,updated,confidence,evidence,verified,valid_from,valid_to,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'active')", rows)
         db.mark_run(conn, "graph_corr", "", now)
-    return {"stocks": len(tickers), "edges": len(rows)}
+    return {"stocks": len(tickers), "edges": len(rows), "market_adjusted": bool(mkt)}
 
 
 def related(conn, ticker: str) -> List[dict]:
     """Every neighbour of `ticker` with the target's ROLE relative to it: supplier / customer / competitor / peer / corr."""
     out: Dict[Tuple[str, str], dict] = {}
-    for r in conn.execute("SELECT * FROM relations WHERE src=? OR dst=?", (ticker, ticker)):
+    today = utcnow().date().isoformat()
+    for r in conn.execute("SELECT * FROM relations WHERE (src=? OR dst=?) AND COALESCE(status,'active')='active' AND (valid_to IS NULL OR valid_to>=?) AND (valid_from IS NULL OR valid_from<=?)", (ticker, ticker, today, today)):
         if r["kind"] == "supplies":
             other, role = (r["dst"], "customer") if r["src"] == ticker else (r["src"], "supplier")       # src supplies dst: dst is src's CUSTOMER, src is dst's SUPPLIER
         elif r["kind"] == "competes":
@@ -173,7 +215,7 @@ def related(conn, ticker: str) -> List[dict]:
             continue
         k = (other, role)
         if k not in out or r["weight"] > out[k]["weight"]:
-            out[k] = {"ticker": other, "role": role, "weight": float(r["weight"]), "source": r["source"], "note": r["note"] or ""}
+            out[k] = {"ticker": other, "role": role, "weight": float(r["weight"]), "source": r["source"], "note": r["note"] or "", "evidence": r["evidence"] or "", "verified": r["verified"] or ""}
     # the MOST SPECIFIC relationship wins: a rival that is also in the same peer group is a competitor (not both: they pull opposite ways), and a measured co-mover that we already know as a supplier,
     # customer, competitor or peer is that, not "correlated"
     rank = {"supplier": 4, "customer": 4, "competitor": 3, "peer": 2, "corr": 1}
@@ -185,13 +227,33 @@ def related(conn, ticker: str) -> List[dict]:
 
 
 # ------------------------------------------------------------------------------------------------ propagation
+INDUSTRY_CUES = re.compile(r"\b(sector|industry|industry-wide|across the (?:sector|industry|board)|demand|tariffs?|regulat\w+|rules?|bans?|export controls?|shortages?|supply constraints?|downturn|slowdown)\b", re.I)
+SIGN_CONFIDENCE = {"supplier": 0.70, "customer": 0.45, "competitor": 0.50, "peer": 0.60, "corr": 0.30}
+
+
+def industry_wide(conn, ticker: str, etype: str, direction: float, headline: str, now) -> bool:
+    """Is this event about the whole industry rather than one company? Then a competitor moves WITH it, not against it. True if the headline says so, or another company in the same peer group had the
+    same kind of event in the same direction in the last 48 hours."""
+    if INDUSTRY_CUES.search(headline or ""):
+        return True
+    peers = [e["ticker"] for e in related(conn, ticker) if e["role"] in ("peer", "competitor")][:40]
+    if not peers:
+        return False
+    q = ",".join("?" * len(peers))
+    rows = conn.execute("SELECT tickers_json,direction FROM events WHERE event_type=? AND created>=? AND created<=? AND stale=0 AND magnitude>=0.4", (etype, iso(now - dt.timedelta(hours=48)), iso(now))).fetchall()
+    return any(r["direction"] * direction > 0.3 and any('"%s"' % p in (r["tickers_json"] or "") for p in peers) for r in rows)
+
+
 def derive(conn, cfg: dict, cands: List[dict], universe=None, now=None, per_cycle: int = 12) -> List[dict]:
-    """New candidates for the companies connected to those the day's events are about. Only strong, credible company news spreads; each source event creates at most graph.max_derived_per_event ideas."""
+    """New candidates for the FIRST-HOP neighbours of the companies the day's events are about: suppliers, customers, competitors, peers. Only strong, credible company news spreads; each source event creates at
+    most graph.max_derived_per_event ideas. Measured co-movement never trades on its own (graph.trade_on_correlation, default off). Every idea records its mechanism and how sure we are of its sign."""
     g = cfg.get("graph") or {}
     if not g.get("enabled", True):
         return []
+    now = now or utcnow()
     min_mag, min_conf = float(g.get("min_event_magnitude", 0.45)), float(g.get("min_event_conf", 0.60))
     per_event, discount, min_w = int(g.get("max_derived_per_event", 4)), float(g.get("derived_discount", 0.75)), float(g.get("min_edge_weight", 0.20))
+    allow_corr = bool(g.get("trade_on_correlation", False))
     have = {c["ticker"] for c in cands}
     out: List[dict] = []
     for c in sorted(cands, key=lambda x: -(abs(x.get("direction", 0)) * x.get("magnitude", 0))):
@@ -200,22 +262,33 @@ def derive(conn, cfg: dict, cands: List[dict], universe=None, now=None, per_cycl
         if c.get("origin") not in (None, "event") or c.get("magnitude", 0) < min_mag or c.get("conf", 0) < min_conf or abs(c.get("direction", 0)) < 0.3:
             continue
         et = c.get("event_type", "")
-        mine: List[Tuple[float, dict, float]] = []
+        wide = None
+        mine: List[Tuple[float, dict, float, str]] = []
         for e in related(conn, c["ticker"]):
+            if e["role"] == "corr" and not allow_corr:
+                continue                                                                               # an association is not a cause: it may explain, it may not trade
             f = factor(et, e["role"])
+            how = ""
+            if e["role"] == "competitor" and f != 0.0:
+                if wide is None:
+                    wide = industry_wide(conn, c["ticker"], et, c["direction"], c.get("headline") or "", now)
+                if wide:
+                    f, how = abs(f) * 0.7, " (industry-wide news: a rival moves WITH it)"
             if f == 0.0 or e["ticker"] in have or e["ticker"] == c["ticker"] or e["weight"] < min_w:
                 continue
             if universe is not None and e["ticker"] not in universe:
                 continue
-            strength = abs(f) * e["weight"] * discount
-            mine.append((strength, e, f))
-        for strength, e, f in sorted(mine, key=lambda x: -x[0])[:per_event]:
+            mine.append((abs(f) * e["weight"] * discount, e, f, how))
+        for strength, e, f, how in sorted(mine, key=lambda x: -x[0])[:per_event]:
             sgn = 1.0 if (c["direction"] * f) > 0 else -1.0
-            scale = min(1.0, 0.35 + 1.4 * strength)                                      # a strong, close relationship keeps most of the source's strength; a weak one a third of it
+            scale = min(1.0, 0.35 + 1.4 * strength)                                                    # a strong, close relationship keeps most of the source's strength; a weak one a third of it
+            mech = "%s of %s (%s)%s" % (e["role"], c["ticker"], et.replace("_", " "), how)
             out.append({"ticker": e["ticker"], "direction": sgn * min(1.0, abs(c["direction"]) * scale), "magnitude": max(0.1, c["magnitude"] * scale), "event_type": et,
                         "conf": c.get("conf", 0.7) * 0.85, "credibility": c.get("credibility", 0.5) * 0.9, "age_hours": c.get("age_hours", 0.0), "horizon": c.get("horizon", 8),
                         "event_id": c.get("event_id"), "news_uid": c.get("news_uid"), "amount_usd": None, "origin": "graph", "source": "graph:" + e["role"], "chain_order": 2,
-                        "mechanism": "%s of %s (%s)" % (e["role"], c["ticker"], et.replace("_", " ")), "graph_from": c["ticker"], "graph_role": e["role"], "graph_weight": round(e["weight"], 2),
+                        "mechanism": mech, "graph_from": c["ticker"], "graph_role": e["role"], "graph_weight": round(e["weight"], 2),
+                        "graph_detail": {"relationship": e["role"], "edge_weight": round(e["weight"], 2), "factor": round(f, 2), "sign_confidence": SIGN_CONFIDENCE.get(e["role"], 0.4) * (0.8 if how else 1.0),
+                                         "magnitude_transform": round(scale, 2), "edge_source": e["source"], "edge_evidence": e.get("evidence", ""), "edge_verified": e.get("verified", ""), "industry_wide": bool(how)},
                         "headline": "Related to %s: %s" % (c["ticker"], (c.get("headline") or et)[:120]), "thesis_key": c.get("thesis_key")})
             have.add(e["ticker"])
     return out

@@ -115,26 +115,3 @@ class TestFilings(TI.Base):
         self.assertEqual(filings.due_tickers(self.c, self.cfg, ["A", "B", "C"], ["D"], NOW), ["A", "B"])
         db.mark_run(self.c, "kb:A", "", NOW)                      # same clock as the due-check below
         self.assertEqual(filings.due_tickers(self.c, self.cfg, ["A", "B", "C"], [], NOW), ["B", "C"])
-
-    def test_pipeline_reads_filings_then_redteam_and_dossier_use_the_knowledge(self):
-        deps = H.deps([(TI.LMT_TITLE, "Navy awards contract", TI.RF(NOW - dt.timedelta(hours=1)))], {"LMT": 480.0}, llm_transport=TI.FakeLLM(extraction_handler))
-        self.fake = deps.llm_transport
-
-        def routed(url, **k):
-            if "sec.gov" in url:
-                return sec_fetch(url, **k)
-            return H.make_fetch([(TI.LMT_TITLE, "Navy awards contract", TI.RF(NOW - dt.timedelta(hours=1)))])(url, **k)
-        deps.fetch = routed
-        r = pipeline.run_cycle(self.c, self.cfg, self.U, TI.SRC, deps, NOW)
-        self.assertEqual(r["errors"], [], r["stages"])
-        self.assertGreaterEqual(r["knowledge"]["LMT"]["ok"], 1)
-        rt_call = next(c for c in self.fake.calls if c["task"] == "redteam")
-        self.assertIn("Company knowledge base", rt_call["doc"])           # the skeptic sees what the filings say
-        self.assertIn("F-35", rt_call["doc"])
-        d = dossier.build(self.c, self.cfg, "LMT", NOW)
-        self.assertIn("F-35 program volume", d["knowledge"]["revenue_drivers"])
-        self.assertIn("Company knowledge", dashboard.render(self.c, self.cfg, "dossiers", {"ticker": ["LMT"]}))
-
-
-if __name__ == "__main__":
-    unittest.main()

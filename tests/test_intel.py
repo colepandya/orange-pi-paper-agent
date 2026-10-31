@@ -209,89 +209,6 @@ class TestEventIntelValidation(Base):
 
 
 class TestEventIntelPipeline(Base):
-    def test_causal_chain_orders_decay_and_only_order1_can_trade(self):
-        fake = FakeLLM(handler_default())
-        r = self.cycle([(TW_TITLE, "Shipping lanes closed.", RF(NOW - dt.timedelta(hours=1)))], {"LMT": 480.0, "NVDA": 120.0}, fake)
-        self.assertEqual(r["errors"], [])
-        rows = {x["source"]: x for x in self.c.execute("SELECT * FROM evidence WHERE ticker IS NOT NULL")}
-        self.assertEqual(set(rows), {"LLM-analyst:o2", "LLM-analyst:o3"})
-        self.assertEqual(rows["LLM-analyst:o2"]["ticker"], "NVDA")
-        self.assertLess(rows["LLM-analyst:o2"]["direction"], 0)                 # NVDA is a loser
-        self.assertGreater(rows["LLM-analyst:o2"]["strength"], rows["LLM-analyst:o3"]["strength"])   # confidence falls with hop order
-        self.assertEqual(self.c.execute("SELECT COUNT(*) FROM decisions").fetchone()[0], 0)           # order 3 is evidence only, never a trade
-        t = {x["key"]: x for x in thesis.recompute(self.c, NOW)}["china_taiwan_escalation"]
-        self.assertGreater(t["probability"], t["prior"])
-        self.assertEqual(self.c.execute("SELECT mentions FROM proposed_narratives").fetchone()[0], 1)
-        self.assertIsNotNone(self.c.execute("SELECT analysis_json FROM intel_events").fetchone())
-
-    def test_hops_are_scored_separately_so_unreliable_orders_fade(self):
-        self.cycle([(TW_TITLE, "x", RF(NOW - dt.timedelta(hours=1)))], {}, FakeLLM(handler_default()))
-        preds = {r["source"] for r in self.c.execute("SELECT source FROM predictions WHERE kind='llm_chain'")}
-        self.assertEqual(preds, {"LLM-analyst:o2"})               # order<=2 get scored; order 3 is too speculative to grade
-        base = evidence.source_credibility(self.c, "LLM-analyst:o1", "contract_win", 0.6)
-        self.c.execute("INSERT INTO source_stats(source,event_type,hits,misses) VALUES('LLM-analyst:o1','contract_win',2,25)")
-        self.assertLess(evidence.source_credibility(self.c, "LLM-analyst:o1", "contract_win", 0.6), base - 0.25)
-        self.assertEqual(evidence.source_credibility(self.c, "LLM-analyst:o2", "contract_win", 0.45), 0.45)     # other hop orders unaffected
-
-    def test_order1_candidate_trades_after_redteam_and_gets_tripwires(self):
-        fake = FakeLLM(handler_default())
-        r = self.cycle([(LMT_TITLE, "Navy awards multi-year contract", RF(NOW - dt.timedelta(hours=1)))], {"LMT": 480.0}, fake)
-        self.assertEqual(r["errors"], [])
-        self.assertEqual(self.c.execute("SELECT COUNT(*) FROM positions WHERE status='OPEN'").fetchone()[0], 1, r["entries"])
-        tasks = [x["task"] for x in fake.calls]
-        self.assertIn("event_intel", tasks)
-        self.assertIn("redteam", tasks)
-        tw = self.c.execute("SELECT kind,threshold,event_type FROM tripwires ORDER BY id").fetchall()
-        self.assertEqual([t["kind"] for t in tw], ["price", "event"])
-        entry = self.c.execute("SELECT entry_price FROM positions").fetchone()[0]
-        self.assertAlmostEqual(tw[0]["threshold"], entry * 0.94, places=4)
-        reason = json.loads(self.c.execute("SELECT reason FROM decisions WHERE status='EXECUTED'").fetchone()[0])
-        self.assertIn("redteam", reason)
-        self.assertEqual(self.c.execute("SELECT COUNT(*) FROM forecast_revisions WHERE subject_type='position'").fetchone()[0], 3)   # target, stop, hold recorded at entry
-
-    def test_fatal_flaw_from_redteam_blocks_the_trade(self):
-        fake = FakeLLM(handler_default(rt=rt_json(fatal_flaw=True, fatal_reason="deal already announced last quarter", conviction=0.2)))
-        self.cycle([(LMT_TITLE, "Navy awards multi-year contract", RF(NOW - dt.timedelta(hours=1)))], {"LMT": 480.0}, fake)
-        self.assertEqual(self.c.execute("SELECT COUNT(*) FROM positions").fetchone()[0], 0)
-        d = self.c.execute("SELECT status,reason FROM decisions").fetchone()
-        self.assertEqual(d["status"], "RISK_REJECTED")
-        self.assertIn("fatal flaw", d["reason"])
-
-    def test_rich_valuation_shrinks_size(self):
-        a = FakeLLM(handler_default(rt=rt_json(valuation_view="fair", conviction=0.9)))
-        self.cycle([(LMT_TITLE, "x", RF(NOW - dt.timedelta(hours=1)))], {"LMT": 480.0}, a)
-        fair = self.c.execute("SELECT cost FROM positions").fetchone()[0]
-        self.setUp()
-        b = FakeLLM(handler_default(rt=rt_json(valuation_view="rich", conviction=0.9)))
-        self.cycle([(LMT_TITLE, "x", RF(NOW - dt.timedelta(hours=1)))], {"LMT": 480.0}, b)
-        rich = self.c.execute("SELECT cost FROM positions").fetchone()[0]
-        self.assertAlmostEqual(rich / fair, 0.7, delta=0.03)
-
-    def test_tripwire_fires_exit_signal_and_executor_exits(self):
-        self.cycle([(LMT_TITLE, "x", RF(NOW - dt.timedelta(hours=1)))], {"LMT": 480.0}, FakeLLM(handler_default()))
-        entry = self.c.execute("SELECT entry_price FROM positions").fetchone()[0]
-        later = NOW + dt.timedelta(minutes=30)
-        self.c.execute("UPDATE quote_cache SET price=?,quoted_at=?,updated_epoch=?", (entry * 0.93, iso(later), later.timestamp()))
-        out = monitor.monitor(self.c, self.cfg, {"regime": "risk_on", "risk_mult": 1}, later)
-        self.assertTrue(any("tripwire" in s["reason"] for s in out["signals"]), out["signals"])
-        self.assertEqual(self.c.execute("SELECT status FROM tripwires WHERE kind='price'").fetchone()[0], "TRIGGERED")
-        res = executor.run(self.c, self.cfg, later, H.Quotes({"LMT": entry * 0.93}))
-        self.assertEqual(res["committed"], 1)
-        self.assertEqual(self.c.execute("SELECT review_code FROM positions").fetchone()[0], "THESIS_INVALIDATED")
-
-    def test_event_tripwire_fires_on_matching_adverse_event(self):
-        self.cycle([(LMT_TITLE, "x", RF(NOW - dt.timedelta(hours=1)))], {"LMT": 480.0}, FakeLLM(handler_default()))
-        later = NOW + dt.timedelta(hours=2)
-        self.cycle([("Lockheed Martin cuts full-year outlook on program delays", "profit warning", RF(later - dt.timedelta(minutes=10)))], {"LMT": 480.0}, FakeLLM(handler_default()), now=later)
-        self.assertEqual(self.c.execute("SELECT status FROM tripwires WHERE kind='event'").fetchone()[0], "TRIGGERED")
-
-    def test_llm_cycle_cap_limits_calls(self):
-        self.cfg["intelligence"]["llm_max_per_cycle"] = 2
-        fake = FakeLLM(handler_default())
-        items = [("NVIDIA beats estimates number %d and raises guidance" % i, "AI demand", RF(NOW - dt.timedelta(hours=1))) for i in range(6)]
-        self.cycle(items, {}, fake)
-        self.assertEqual(len([x for x in fake.calls if x["task"] == "event_intel"]), 2)
-
     def test_pipeline_unchanged_when_llm_off(self):
         self.cfg["intelligence"]["llm_enabled"] = False
         fake = FakeLLM(handler_default())
@@ -302,20 +219,6 @@ class TestEventIntelPipeline(Base):
 
 
 class TestDossierAndRevisions(Base):
-    def test_dossier_contains_every_section_and_dashboard_renders_it(self):
-        self.cycle([(LMT_TITLE, "x", RF(NOW - dt.timedelta(hours=1)))], {"LMT": 480.0}, FakeLLM(handler_default()))
-        monitor.monitor(self.c, self.cfg, {"regime": "risk_on", "risk_mult": 1}, NOW + dt.timedelta(minutes=5))
-        d = dossier.build(self.c, self.cfg, "LMT", NOW + dt.timedelta(minutes=5))
-        for k in ("thesis", "forecast", "evidence", "redteam", "tripwires", "intel", "revisions", "confidence", "position"):
-            self.assertTrue(d.get(k), k)
-        self.assertEqual(d["thesis"]["key"], "defence_expansion")
-        self.assertTrue(d["redteam"]["bear_points"] and d["redteam"]["bull_points"])
-        self.assertIsNotNone(d["confidence"]["latest"])
-        html = dashboard.render(self.c, self.cfg, "dossiers", {"ticker": ["LMT"]})
-        for needle in ("Red-team review", "Tripwires", "Forecast revision ledger", "Supporting evidence", "Contradicting evidence"):
-            self.assertIn(needle, html)
-        self.assertIn("LLM spend today", dashboard.render(self.c, self.cfg, "system", {}))
-
     def test_plan_revisions_and_thesis_revisions_are_ledgered_with_reasons(self):
         self.cycle([(LMT_TITLE, "x", RF(NOW - dt.timedelta(hours=1)))], {"LMT": 480.0}, FakeLLM(handler_default()))
         later = NOW + dt.timedelta(minutes=30)

@@ -299,7 +299,13 @@ def _score_type(et: EventType, title_n: str, body_n: str):
 _FILING = re.compile(r"^(?:8-K|8-K/A|10-K|10-K/A|10-Q|10-Q/A|20-F|6-K|40-F|[345]|[345]/A|SC 13[DG](?:/A)?|SCHEDULE 13[DG](?:/A)?|S-1|S-1/A|S-3|S-3ASR|S-8|424B\d|FWP|DEF 14A|DEFA14A|DEF 14C|PRE 14A|13F-HR|NT 10-[KQ]|SD|11-K|D|144|CORRESP|UPLOAD|EFFECT|25-NSE|15-12[BG]|N-[A-Z0-9-]+|497[A-Z]*|POS AM|ARS|X-17A-5) - ")
 # 8-K items that are genuinely adverse: (direction, magnitude, what it says). Everything else (results, agreements, officers, Reg FD, exhibits, votes) is neutral until the actual document is read.
 _ADVERSE_ITEMS = {"1.03": (-0.90, 0.85, "bankruptcy or receivership"), "3.01": (-0.60, 0.70, "delisting notice"), "4.02": (-0.70, 0.75, "non-reliance on previously issued financial statements"),
-                  "2.04": (-0.50, 0.55, "triggering event that accelerates a debt obligation"), "2.06": (-0.40, 0.50, "material impairment"), "1.02": (-0.30, 0.40, "termination of a material agreement")}
+                  "2.04": (-0.50, 0.55, "triggering event that accelerates a debt obligation"), "2.06": (-0.40, 0.50, "material impairment"), "1.02": (-0.30, 0.40, "termination of a material agreement"),
+                  "1.05": (-0.40, 0.55, "material cybersecurity incident"), "3.02": (-0.25, 0.35, "unregistered sale of equity (dilution)"), "4.01": (-0.30, 0.40, "change of auditor"), "2.05": (-0.30, 0.40, "exit or restructuring costs")}
+_ITEM_TYPE = {"1.05": "cyber_incident", "3.02": "capital_raise"}                                       # the event type an adverse item belongs to (default: bankruptcy_distress)
+# filing FORMS that say something on their own: (direction, magnitude, event type, what it says)
+_ADVERSE_FORMS = [(re.compile(r"^NT 10-[KQ]"), -0.45, 0.55, "bankruptcy_distress", "a late annual or quarterly report (a notice of inability to file on time)"),
+                  (re.compile(r"^(S-1|S-1/A|424B\d)"), -0.30, 0.40, "capital_raise", "a securities offering (dilution)"),
+                  (re.compile(r"^(SC 13D|SCHEDULE 13D)"), 0.20, 0.35, "insider_filing", "a 5%-plus holder filing as an ACTIVIST")]
 
 
 def _analyze_filing(title: str, summary: str) -> Dict:
@@ -308,7 +314,13 @@ def _analyze_filing(title: str, summary: str) -> Dict:
     worst = min((_ADVERSE_ITEMS[i] for i in items if i in _ADVERSE_ITEMS), default=None, key=lambda v: v[0])
     a.update({"event_type": "sec_filing", "scope": "company", "direction": 0.0, "magnitude": 0.10, "filing_items": sorted(set(items))})
     if worst and re.match(r"^8-K", title):
-        a.update({"event_type": "bankruptcy_distress", "direction": worst[0], "magnitude": worst[1], "filing_note": worst[2]})
+        item = min((i for i in items if i in _ADVERSE_ITEMS), key=lambda i: _ADVERSE_ITEMS[i][0])
+        a.update({"event_type": _ITEM_TYPE.get(item, "bankruptcy_distress"), "direction": worst[0], "magnitude": worst[1], "filing_note": worst[2]})
+        return a
+    for rx, d, m, et, note in _ADVERSE_FORMS:
+        if rx.match(title or ""):
+            a.update({"event_type": et, "direction": d, "magnitude": m, "filing_note": note})
+            break
     return a
 
 

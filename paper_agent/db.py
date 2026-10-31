@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS option_chain_cache(ticker TEXT PRIMARY KEY,fetched TE
 CREATE TABLE IF NOT EXISTS option_feed_health(feed TEXT PRIMARY KEY,last_ok TEXT,last_error TEXT,last_ms INTEGER,ok_count INTEGER DEFAULT 0,fail_count INTEGER DEFAULT 0,last_contracts INTEGER,updated TEXT);
 CREATE TABLE IF NOT EXISTS option_model_checks(id INTEGER PRIMARY KEY,created TEXT,ticker TEXT,kind TEXT,dte INTEGER,moneyness REAL,market_mid REAL,model_mid REAL,err_pct REAL);
 CREATE TABLE IF NOT EXISTS iv_history(ticker TEXT,day TEXT,iv30 REAL,PRIMARY KEY(ticker,day));
-CREATE TABLE IF NOT EXISTS relations(src TEXT,dst TEXT,kind TEXT,weight REAL,source TEXT,note TEXT,updated TEXT,PRIMARY KEY(src,dst,kind));
+CREATE TABLE IF NOT EXISTS relations(src TEXT,dst TEXT,kind TEXT,weight REAL,source TEXT,note TEXT,updated TEXT,confidence REAL,evidence TEXT,verified TEXT,valid_from TEXT,valid_to TEXT,status TEXT DEFAULT 'active',PRIMARY KEY(src,dst,kind));
+CREATE TABLE IF NOT EXISTS relation_stats(role TEXT,event_family TEXT,n INTEGER DEFAULT 0,wins INTEGER DEFAULT 0,mean_abn REAL,updated TEXT,PRIMARY KEY(role,event_family));
 CREATE INDEX IF NOT EXISTS ix_relations_src ON relations(src);
 CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY,created TEXT,kind TEXT,amount REAL,ref TEXT,balance REAL);
 CREATE TABLE IF NOT EXISTS daily_values(day TEXT PRIMARY KEY,equity REAL,cash REAL,deployed REAL,drawdown REAL);
@@ -172,6 +173,12 @@ CREATE TABLE IF NOT EXISTS forecast_revisions(id INTEGER PRIMARY KEY AUTOINCREME
 CREATE INDEX IF NOT EXISTS ix_revisions ON forecast_revisions(ticker,ts DESC);
 CREATE TABLE IF NOT EXISTS company_filings(accession TEXT PRIMARY KEY,ticker TEXT NOT NULL,form TEXT,filed TEXT,items TEXT,processed TEXT,ok INTEGER DEFAULT 0,extraction_json TEXT);
 CREATE INDEX IF NOT EXISTS ix_filings_ticker ON company_filings(ticker,filed DESC);
+CREATE TABLE IF NOT EXISTS reasoning_events(id INTEGER PRIMARY KEY,created TEXT,news_uid TEXT,event_ref INTEGER,mode TEXT,engine TEXT,ref_version TEXT,event_type TEXT,state TEXT,novelty TEXT,evidence_status TEXT,
+  materiality TEXT,independent_sources INTEGER,abstained INTEGER,abstain_reason TEXT,direction REAL,magnitude REAL,certainty REAL,components_json TEXT,horizons_json TEXT,roles_json TEXT,tickers_json TEXT,analysis_json TEXT,trace_json TEXT);
+CREATE INDEX IF NOT EXISTS ix_reasoning_uid ON reasoning_events(news_uid);
+CREATE INDEX IF NOT EXISTS ix_reasoning_ref ON reasoning_events(event_ref);
+CREATE TABLE IF NOT EXISTS prediction_paths(prediction_id INTEGER,horizon INTEGER,ret REAL,abn_spy REAL,abn_sector REAL,mfe REAL,mae REAL,t_mfe INTEGER,t_mae INTEGER,first_hit TEXT,first_hit_day INTEGER,gap REAL,computed_at TEXT,PRIMARY KEY(prediction_id,horizon));
+CREATE TABLE IF NOT EXISTS company_facts(ticker TEXT PRIMARY KEY,facts_json TEXT NOT NULL,updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS company_knowledge(ticker TEXT PRIMARY KEY,summary_json TEXT NOT NULL,sources_json TEXT,updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS confidence_log(id INTEGER PRIMARY KEY AUTOINCREMENT,position_id INTEGER NOT NULL,ts TEXT NOT NULL,thesis REAL,forecast REAL,target REAL,position REAL,valuation TEXT,detail_json TEXT);
 CREATE INDEX IF NOT EXISTS ix_conflog ON confidence_log(position_id,ts DESC);

@@ -17,6 +17,11 @@ COMMON_TICKERS = set("""A AA AAL ABC ACE ADP AGO AI AIR ALL ALLY AM AN ANY ARE A
  IDEA IF IN INFO IS IT KEY KIND LIFE LIKE LINE LOW LUCK MAIN MAN MAR MAS MAX ME MORE NEW NEXT NOW OF ON ONE OPEN OR OUT OWN PAY PEAK PLAY PM POST PRO
  PUMP RARE REAL RUN SEE SHIP SO SON STAR SUM SUN TAP TEAM TECH THE TO TOP TRUE TWO UP US USA VALUE VIA VS WAS WAY WELL WHO WIN WORK YOU ZONE""".split())
 
+# first names that are also company brand words ("Simon" Property, "Jack" in the Box, "Warren"...): "Simon Sharwood" is a person. Only suppressed when a capitalised surname follows.
+_PERSON_FIRST_NAMES = set("""simon david john james michael robert william richard thomas charles peter paul brian kevin gary jeff steve scott andrew anthony eric jason matthew daniel joseph jonathan nicholas adam alex ben sam tom jim bob bill dan chris jack
+ jay roy ray ross carl dale dean glen grant hunter wesley walker warren jordan henry harry george edward frank larry terry jerry barry kenneth donald ronald timothy patrick stephen gregory raymond""".split())
+_BYLINE = re.compile(r"^\s*[A-Z][a-z]+(?: [A-Z][a-z'\-]+){1,2} / [^:]{2,60} :\s*")                  # "Simon Sharwood / The Register : ..."  (Techmeme-style author and publisher prefix)
+
 COMMON_WORD_ALIASES = set("""target block general square mark gap best deal point first national united american global
  universal premier standard advanced applied digital energy power health care capital financial industries international group partners
  resources holdings services systems solutions technologies technology networks communications media entertainment pharmaceuticals therapeutics
@@ -73,6 +78,7 @@ GIVEN_NAMES = set("""james john robert michael william david richard joseph thom
  nancy lisa margaret betty sandra ashley dorothy kimberly emily donna michelle carol amanda melissa deborah stephanie rebecca sharon laura cynthia kathleen amy angela shirley anna brenda pamela emma nicole helen samantha katherine christine debra rachel carolyn
  janet catherine maria heather diane ruth julie olivia joyce virginia victoria kelly lauren christina joan evelyn judith megan andrea cheryl hannah jacqueline martha gloria teresa ann sara madison frances kathryn janice jean abigail alice julia judy sophia grace
  denise amber doris marilyn danielle beverly isabella theresa diana natalie brittany charlotte marie kayla alexis lori vladimir angela ursula marcus gustavo mohammed ahmed ali omar hassan carlos miguel pedro luis diego sergio andre pierre jean francois hans klaus""".split())
+GIVEN_NAMES |= _PERSON_FIRST_NAMES                                                      # the index never makes a company's FIRST WORD a brand when it is also a first name ("Simon" Property, "Jack" in the Box): "Simon Sharwood" is a person
 SURNAMES = set("""smith johnson williams brown jones garcia miller davis rodriguez martinez hernandez lopez gonzalez wilson anderson thomas taylor moore jackson martin lee perez thompson white harris sanchez clark ramirez lewis robinson walker young allen
  king wright scott torres nguyen hill flores green adams nelson baker hall rivera campbell mitchell carter roberts gomez phillips evans turner diaz parker cruz edwards collins reyes stewart morris morales murphy cook rogers gutierrez ortiz morgan cooper
  peterson bailey reed kelly howard ramos kim cox ward richardson watson brooks chavez wood james bennett gray mendoza ruiz hughes price alvarez castillo sanders patel myers long ross foster powell jenkins perry russell sullivan bell coleman butler henderson
@@ -183,7 +189,7 @@ class Universe:
 
     def match(self, title: str, summary: str = "", max_tickers: int = 8) -> List[Tuple[str, float, str]]:
         """Returns [(ticker, confidence, how)] sorted by confidence."""
-        raw = (title or "") + " . " + (summary or "")[:1200]
+        raw = (title or "") + " . " + _BYLINE.sub("", (summary or ""))[:1200]
         found: Dict[str, Tuple[float, str]] = {}
 
         def add(t, c, how):

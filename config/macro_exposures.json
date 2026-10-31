@@ -1,0 +1,42 @@
+{
+  "_about": "How big outside drivers (oil, rates, gold, conflict...) reach groups of stocks (the group names are the ones in relations.json). STARTER DATA written from public knowledge: review and edit freely (re-read when the file changes). Each driver lists CHANNELS: a group, a sign (+1 gains when the driver RISES, -1 loses), a confidence 0-1, the economic channel, the typical lag in days and the horizon over which it acts. Where channels for one group pull opposite ways they are netted; if they cancel, the engine says the effect is mixed and does nothing.",
+  "version": "2026-10-starter",
+  "drivers": [
+    {"id": "oil", "name": "oil price", "patterns": ["\\b(oil|crude|brent|wti)\\b"], "channels": [
+      {"group": "oil majors", "sign": 1.0, "confidence": 0.8, "channel": "revenue per barrel", "lag_days": 0, "horizon": "short"},
+      {"group": "oil services", "sign": 0.9, "confidence": 0.5, "channel": "drilling activity follows the price", "lag_days": 30, "horizon": "medium"},
+      {"group": "refiners", "sign": -0.2, "confidence": 0.3, "channel": "input cost against the refining margin", "lag_days": 0, "horizon": "short"},
+      {"group": "airlines", "sign": -0.9, "confidence": 0.8, "channel": "fuel is the largest variable cost", "lag_days": 0, "horizon": "short"},
+      {"group": "cruise lines", "sign": -0.8, "confidence": 0.6, "channel": "fuel and consumer spending", "lag_days": 0, "horizon": "short"},
+      {"group": "parcel delivery", "sign": -0.4, "confidence": 0.4, "channel": "fuel cost before surcharges catch up", "lag_days": 14, "horizon": "short"}]},
+    {"id": "natgas", "name": "natural gas price", "patterns": ["\\b(natural gas|lng)\\b"], "channels": [{"group": "oil majors", "sign": 0.5, "confidence": 0.4, "channel": "gas production revenue", "lag_days": 0, "horizon": "short"}]},
+    {"id": "gold", "name": "gold price", "patterns": ["\\b(gold|bullion)\\b"], "channels": [{"group": "gold miners", "sign": 1.0, "confidence": 0.8, "channel": "revenue per ounce against mostly fixed costs", "lag_days": 0, "horizon": "short"}]},
+    {"id": "copper", "name": "copper price", "patterns": ["\\bcopper\\b"], "channels": [{"group": "copper and industrial metals", "sign": 1.0, "confidence": 0.8, "channel": "revenue per tonne", "lag_days": 0, "horizon": "short"}]},
+    {"id": "uranium", "name": "uranium price", "patterns": ["\\buranium\\b"], "channels": [{"group": "uranium and nuclear fuel", "sign": 1.0, "confidence": 0.8, "channel": "revenue per pound", "lag_days": 0, "horizon": "short"}]},
+    {"id": "dollar", "name": "US dollar", "patterns": ["\\b(dollar|dxy)\\b"], "channels": [
+      {"group": "gold miners", "sign": -0.5, "confidence": 0.5, "channel": "gold is priced in dollars", "lag_days": 0, "horizon": "short"},
+      {"group": "copper and industrial metals", "sign": -0.4, "confidence": 0.4, "channel": "metals are priced in dollars", "lag_days": 0, "horizon": "short"}]},
+    {"id": "rates", "name": "interest rates", "patterns": ["\\b(interest rates?|treasury yields?|bond yields?|10-year yield|mortgage rates?)\\b"], "channels": [
+      {"group": "homebuilders", "sign": -1.0, "confidence": 0.7, "channel": "mortgage affordability", "lag_days": 30, "horizon": "medium"},
+      {"group": "REIT: industrial and retail", "sign": -0.8, "confidence": 0.6, "channel": "higher cap rates and refinancing cost", "lag_days": 0, "horizon": "medium"},
+      {"group": "REIT: data centre and towers", "sign": -0.6, "confidence": 0.5, "channel": "higher cap rates and refinancing cost", "lag_days": 0, "horizon": "medium"},
+      {"group": "solar", "sign": -0.7, "confidence": 0.6, "channel": "project financing cost", "lag_days": 0, "horizon": "medium"},
+      {"group": "US big banks", "sign": 0.4, "confidence": 0.5, "channel": "wider net interest margin", "lag_days": 0, "horizon": "medium"},
+      {"group": "US big banks", "sign": -0.3, "confidence": 0.4, "channel": "weaker loan demand and higher credit losses", "lag_days": 90, "horizon": "long"}]},
+    {"id": "chip_curbs", "name": "chip export curbs", "patterns": ["\\b(chip|semiconductor)s?\\b.{0,40}\\b(export|controls?|restrictions?|ban)\\b"], "channels": [
+      {"group": "AI accelerators and compute", "sign": -1.0, "confidence": 0.7, "channel": "lost sales to restricted markets", "lag_days": 0, "horizon": "short"},
+      {"group": "foundry and semicap", "sign": -0.9, "confidence": 0.7, "channel": "lost equipment and foundry orders", "lag_days": 0, "horizon": "short"},
+      {"group": "memory and storage", "sign": -0.5, "confidence": 0.5, "channel": "lost sales to restricted markets", "lag_days": 0, "horizon": "short"}]},
+    {"id": "conflict", "name": "geopolitical conflict", "fixed": true, "patterns": ["\\b(war|missile|airstrike|invasion|escalat\\w+|military strike)\\b"], "channels": [
+      {"group": "defence primes", "sign": 1.0, "confidence": 0.6, "channel": "defence spending and orders", "lag_days": 0, "horizon": "short"},
+      {"group": "oil majors", "sign": 0.5, "confidence": 0.5, "channel": "supply-risk premium in oil", "lag_days": 0, "horizon": "short"},
+      {"group": "airlines", "sign": -0.5, "confidence": 0.5, "channel": "fuel cost and route risk", "lag_days": 0, "horizon": "short"},
+      {"group": "cruise lines", "sign": -0.5, "confidence": 0.4, "channel": "route risk and consumer confidence", "lag_days": 0, "horizon": "short"}]},
+    {"id": "ai_capex", "name": "AI capital spending", "patterns": ["\\b(ai (?:capex|spending|capital spending)|data cent(?:er|re) (?:spending|capex|build-?out))\\b"], "channels": [
+      {"group": "AI accelerators and compute", "sign": 1.0, "confidence": 0.7, "channel": "orders for accelerators", "lag_days": 0, "horizon": "short"},
+      {"group": "AI servers and networking", "sign": 0.9, "confidence": 0.7, "channel": "orders for servers and switches", "lag_days": 0, "horizon": "short"},
+      {"group": "data centre power and cooling", "sign": 0.8, "confidence": 0.6, "channel": "orders for power and cooling", "lag_days": 30, "horizon": "medium"},
+      {"group": "foundry and semicap", "sign": 0.7, "confidence": 0.6, "channel": "chip fabrication demand", "lag_days": 30, "horizon": "medium"},
+      {"group": "memory and storage", "sign": 0.7, "confidence": 0.6, "channel": "memory demand", "lag_days": 30, "horizon": "medium"}]}
+  ]
+}

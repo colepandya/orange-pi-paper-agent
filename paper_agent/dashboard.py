@@ -469,6 +469,33 @@ def reasoning_panel(c, cfg, q) -> str:
         h.append(table(["When", "Stock", "Status", "Why it was considered"], rows))
     else:
         h.append("<p class=mut>No ideas have come from the graph yet: it needs a strong company event (magnitude 0.45+, confidence 0.6+) whose company has recorded relationships.</p>")
+    h.append(scorecard_panel(c, cfg))
+    return "".join(h)
+
+
+INFLUENCE_TEXT = {"off": "off: the engine does not run.", "observe": "observe: it reads, argues and records what it WOULD have done, and changes nothing.",
+                  "guard": "guard: it may veto factually broken ideas (denied, stale, wrong company, duplicate, superseded) and make a trade smaller; it never creates or enlarges one.",
+                  "active": "active: its evidence and every objection fully influence entries and sizes."}
+
+
+def scorecard_panel(c, cfg) -> str:
+    """Does the reasoning engine EARN its influence? What it would have blocked versus allowed, per rule, and its accuracy by event type, with honest intervals. Read a row only once it has about 20 outcomes."""
+    from . import pathways, skeptic
+    mode = cfg["intelligence"].get("influence", "guard")
+    h = ["<h2>Reasoning scorecard</h2><p>Influence: <b>%s</b> &middot; %s <span class=mut>(Settings -> System -> What the reasoning engine may do)</span></p>" % (E(mode), E(INFLUENCE_TEXT.get(mode, "")))]
+    sc = skeptic.scorecard(c)
+    rows = [[k, v["n"], pct(v["win"], 0), "%s - %s" % (pct(v["win_low"], 0), pct(v["win_high"], 0)), pct(v["win_shrunk"], 0), pct(v["mean"], 2)] for k, v in sc.items()]
+    h.append("<h3>Did the red team help?</h3>" + (table(["Group of ideas", "Resolved", "Beat the market", "Range (90%)", "Shrunk toward all", "Average vs market"], rows) +
+             "<p class=mut>'Would block' are ideas the red team would have stopped in active mode, followed as if they had been taken. If they do about as well as the ones it would allow, the red team is not adding value. Each rule row is every idea where that rule fired.</p>" if rows
+             else "<p class=mut>No resolved outcomes yet: ideas resolve a few sessions after they are made. Until then the red team's reviews are recorded and nothing is claimed.</p>"))
+    hr = pathways.hierarchical(c, 5)
+    h.append("<h3>Accuracy at 5 sessions, by event type and source</h3>" + (table(["Level", "Group", "N", "Beat the market", "Shrunk", "Range (90%)", "Average vs market"],
+             [[r["level"], r["key"], r["n"], pct(r["win"], 0), pct(r["shrunk"], 0), "%s - %s" % (pct(r["low"], 0), pct(r["high"], 0)), pct(r["mean_abn"], 2)] for r in hr]) if hr
+             else "<p class=mut>Nothing measured yet: the outcome tracker fills this in once forecasts are a few sessions old.</p>"))
+    ev = c.execute("SELECT created,mode,event_type,state,novelty,evidence_status,certainty,abstained,abstain_reason,tickers_json FROM reasoning_events ORDER BY id DESC LIMIT 10").fetchall()
+    h.append("<h3>Recent reasoning</h3>" + (table(["When", "Event", "State", "New?", "Evidence", "Certainty", "Result"],
+             [[to_nz(r["created"], "%d %b %H:%M"), (r["event_type"] or "").replace("_", " "), r["state"] or "-", r["novelty"] or "-", (r["evidence_status"] or "-").replace("_", " "), ("%.2f" % r["certainty"]) if r["certainty"] is not None else "-",
+               ("abstained: " + (r["abstain_reason"] or "")) if r["abstained"] else "analysed (%s)" % r["mode"]] for r in ev]) if ev else "<p class=mut>Nothing analysed yet.</p>"))
     return "".join(h)
 
 

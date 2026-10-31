@@ -1,38 +1,31 @@
-# The Financial Reasoning Engine (build 41)
+# The Financial Reasoning Engine (build 42)
 
-A rules-and-data replacement for everything the bot used an LLM for. No language model, no key, no network, no cost. It is the default; `intelligence.engine = llm` brings the old path back (kept only for comparison).
+A rules-and-data engine that does what the LLM used to do. No language model, no key, no network, no cost. It is the ONLY engine; the old LLM files remain in the code base but nothing calls them.
 
-## What the LLM used to do, and what does it now
-| LLM job | Now | Where |
-|---|---|---|
-| Analyst: read a news item, say what happened, who benefits and loses, by causal order, which themes it moves | `reasoning.analyze_item` / `make_analyst`: same output structure, so `event_intel.apply` and `candidates_from` are unchanged | pipeline -> evidence |
-| Red team: argue against a trade, find a fatal flaw, list tripwires | `reasoning.review`: same structure; `redteam.gate` still decides; tripwires work for shorts too | trader |
-| Triage: which items deserve a deeper look | the deterministic reading already did this; the engine reads up to 80 items a cycle (it is free) | evidence |
-| Q&A about the portfolio, a stock, an event | `reasoning.ask`, the `ask` command and the Ask box on the Intelligence tab | CLI, dashboard |
-| Reading SEC filings into a company knowledge base | NOT replaced: that needs a language model. The stage is skipped, honestly (the deterministic company data and the article reader remain) | pipeline |
-
-## How it reasons
-1. READ the deterministic event reading plus the article's own facts (earnings vs estimate, guidance, deals).
-2. QUALIFY: confirmed / plan / unconfirmed rumour / denial / history / opinion each change how certain the event is.
-3. ROLES: acquirer vs target, plaintiff vs defendant, otherwise everyone named shares the event, with confidence reduced for crowds.
-4. PROPAGATE along the relationship graph (suppliers, customers, competitors, peers, measured co-movers), two hops, confidence decaying per hop; and along macro exposures (oil, gold, copper, uranium, rates, chip export curbs, conflict) to the relationship-map groups they hit.
-5. THEMES it supports or contradicts.
-6. DOUBT: contradictions (headline vs body, good and bad facts together), and ABSTENTION when the evidence is thin. Every result carries `trace` (the rules that fired) and `quotes` (verbatim supporting text).
-
-## Review of the Copilot proposal (what was kept, fixed or rejected)
-| Copilot proposed | Reality / decision |
+## What it may DO: the influence setting (Settings -> System)
+| Mode | What happens |
 |---|---|
-| A structured `analyse_event` interface returning affected tickers, winners/losers, confidence, horizons, evidence, counterarguments | KEPT, and made the same shape the pipeline already consumes, so nothing downstream changes |
-| Versioned event taxonomy, negation and uncertainty handling, article-level extraction | ALREADY EXISTED (nlp event types, the article reader, the lens). Reused, not rebuilt |
-| Company / supplier / customer / competitor / partner / sector / commodity / country relationships | Suppliers, customers, competitors, peers and measured co-movement already exist (the graph, build 39); commodity and macro exposure ADDED here; partner / country not yet |
-| Confidence decay per hop; indirect impact weaker unless independently supported | KEPT: the existing chain-decay setting; reliability per hop is learned from outcomes |
-| Contradiction engine (headline vs body, beat but guidance cut, rumour vs denial vs confirmed, forward vs historical) | Mostly ADDED here (all but "company statement vs independent reporting" and syndicated-duplicate suppression, which the existing novelty clustering partly covers) |
-| Outcome learning: 1h/1d/5d/20d outcomes, MFE/MAE, accuracy by rule, calibration, small-sample caution | The outcome tracker, calibration and small-sample caution ALREADY EXIST (predictions, learning, observe mode); the engine's own source tag lets each hop and event type be scored separately. MFE/MAE per prediction is NOT added yet |
-| Shadow mode before trading on it | The strategy-freeze stamp and the missed-trade engine already give this. The engine is on by default; to compare, set engine=llm for the old behaviour |
-| "Support inverse instruments" | REJECTED: inverse ETFs decay and do not match what shorts, puts and the graph already provide |
-| "Fail closed when data is missing" | KEPT: it abstains and returns None |
-| "No pandas, no heavy runtime, no network in tests" | KEPT: standard library only; no test touches a network |
-| A multi-week phased plan and "send me the archive" | NOT NEEDED: it was built directly against the real code in one pass |
+| off | The engine does not run. The bot behaves as it did before the engine existed. |
+| observe | It reads every news item and argues against every trade, and records all of it, including what it WOULD have blocked. Nothing changes. |
+| **guard** (default) | As observe, plus: it may veto an idea whose evidence is factually broken (denied, stale, the company is only mentioned, the same story twice, contradicted or superseded by a better-sourced report) and make a trade smaller. It never creates or enlarges one, and its analysis is not scored as evidence. |
+| active | Its analysis becomes evidence (hops 1 and 2; a third hop is shown but never scored) and every objection acts, plus the conviction floor. |
+
+Raise it only as the scorecard (Intelligence tab, or `python3 -m paper_agent scorecard`) earns it: what happened to the ideas it would have blocked versus the ones it would have allowed, per rule, with honest intervals.
+
+## Parts
+* reasoning.py: the analyst (event state, novelty, materiality, independent sources, roles, graph and macro propagation, themes, contradictions, abstention) and the question interface (`ask`).
+* skeptic.py: the red team: graded objections tagged by rule, aligned contradictions, gates by mode, counterfactual scorecard.
+* graph.py: relationships with provenance and validity; statistical links separated from causal ones; industry-wide logic.
+* config/macro_exposures.json: macro drivers as channels (edit freely).
+* facts.py: SEC structured financial data.
+* pathways.py: multi-horizon outcomes and hierarchical statistics.
+
+## Assessment of the independent review of build 41
+Each claim was checked against the code. **Right and acted on:** deterministic only with influence modes (I had wrongly offered an LLM fallback); one record for each reasoning event; separate confidence components; contradiction alignment (the 44-of-84 figure was noise); graded severity and a hard-veto list; counterfactual scoring of vetoes; correlation is not causation; a third hop must not score; multi-horizon outcomes with best and worst excursion; shrinkage for small groups; independent-source counting; SEC filings CAN be read deterministically (my earlier claim that they could not was too broad); macro exposures as channels; relationship provenance and validity.
+**Already true or already done:** ambiguous-ticker handling exists (common-word tickers need a cashtag or exchange tag), and 8-K item numbers were already read; relationships were already in database tables; the graph was already event-specific (it lacked mechanism and sign confidence, now added); the outcome tracker, observe-before-apply learning and strategy stamps existed.
+**Wrong or not adopted:** that a single weight cannot depend on the event (it already did); the demand for a full ticker and company-name history database (valuable, large, and not built: it needs a paid or hand-maintained dataset); XBRL "companyfacts" bulk files (too large for the Pi: only a handful of small per-concept requests are used).
+**Found by this audit that the review did not:** a byline ("Simon Sharwood / The Register") matched Simon Property Group; the reasoning record was never linked to its event; a cached red-team review ignored news that arrived after it.
+**Not done yet:** a labelled corpus beyond about a dozen cases, an entity-history table, partner and country relationships, Form 4 transaction parsing, a promotion/rollback workflow for rules (the scorecard supplies the evidence; changing a rule's mode is a config edit).
 
 ## Honest limits
-It handles the event types, phrases and relationships it has rules for. It is not a language model: it will not read an unusual sentence the way an LLM can. When it cannot, it abstains or says "I can't answer that" rather than guess. The relationship and macro maps are starter data written from public knowledge: review `/etc/paper-agent/relations.json`. Its usefulness is measured the same way as everything else: the learned reliability of `RULES-analyst:o1/o2/o3` per event type once outcomes accumulate.
+Everything it knows comes from rules and starter data (relations.json, macro_exposures.json) written from public knowledge, and from your own price history. It will miss what an unusual sentence implies. It abstains rather than guess: about 40% of recent news items. Whether any of this improves returns is unproven; the scorecard is how that gets decided.

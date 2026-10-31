@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, List, Optional
 
-from . import (candqueue, config, earnings, graph, options, optionsdata, reasoning, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, whatif, marketdata as md, monitor, narrative, net, portfolio as pf,
+from . import (candqueue, config, earnings, facts as facts_mod, pathways, graph, options, optionsdata, reasoning, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, whatif, marketdata as md, monitor, narrative, net, portfolio as pf,
                quotes, regime as regime_engine, sources, thesis, trader)
 from .config import load_json, CONFIG_DIR
 from .entities import Universe
@@ -159,11 +159,10 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     thesis.seed(conn)
     report["strategy"] = _stage(report, "strategy", stamp.record, conn, cfg, now)
     icfg = cfg["intelligence"]
-    client = llm_client.LLMClient(conn, cfg, deps.llm_transport)
-    rules = str(icfg.get("engine", "rules")) == "rules"                                                 # the default: the bot's own reasoning engine. "llm" must be chosen on purpose
-    analyst = deps.analyst or (reasoning.make_analyst(conn, cfg, universe) if rules else event_intel.make_analyst(conn, cfg, universe, deps.llm_transport))
-    intel = {"engine": "rules"} if rules else ({"client": client, "engine": "llm"} if client.enabled("triage") else None)
-    report["llm"] = {"enabled": bool(intel and intel.get("client")), "engine": "rules" if rules else "llm"}
+    influence = str(icfg.get("influence", "guard"))                                                      # how much the deterministic reasoning engine may affect trading (it is the ONLY engine); NOT `mode`, which is the cycle mode
+    analyst = None if influence == "off" else (deps.analyst or reasoning.make_analyst(conn, cfg, universe))
+    intel = {"influence": influence} if influence != "off" else None
+    report["reasoning"] = {"influence": influence}
 
     def heal_schedule():
         from . import control
@@ -256,24 +255,20 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         return n
     _stage(report, "companies", refresh_companies)
 
-    # ---- company knowledge base (SEC filings read by the LLM; skipped when the LLM is off)
-    def refresh_knowledge():
-        from . import filings
-        if not (intel and intel.get("client")):
-            return {"skipped": "no LLM (the rules engine does not read filings with a language model)"}
+    # ---- company facts: the numbers companies report to the SEC, read deterministically (a few companies a cycle, weekly each)
+    def refresh_facts():
         done = {}
-        for t in filings.due_tickers(conn, cfg, held, [c["ticker"] for c in cands], now):
+        for t in facts_mod.due_tickers(conn, cfg, held, [c["ticker"] for c in cands], now, int(icfg.get("max_knowledge_refresh_per_cycle", 2)) + 1):
             if over_budget(0.5):
-                report.setdefault("budget", []).append("knowledge: stopped early at %ds" % (time.time() - t_start))
+                report.setdefault("budget", []).append("facts: stopped early at %ds" % (time.time() - t_start))
                 break
-            meta = universe.meta(t)
             try:
-                done[t] = filings.refresh(conn, cfg, client, t, meta.get("cik"), deps.fetch, now, sleep=deps.sleep)
-            except Exception as e:  # noqa: BLE001
+                done[t] = facts_mod.refresh(conn, cfg, t, universe.meta(t).get("cik"), deps.fetch_json, now, sleep=deps.sleep)
+            except Exception as e:  # noqa: BLE001 - one company's failure must not stop the others
                 done[t] = {"error": "%s: %s" % (type(e).__name__, e)}
-            db.mark_run(conn, "kb:" + t, "", now)
+            db.mark_run(conn, "facts:" + t, "", now)
         return done
-    report["knowledge"] = _stage(report, "knowledge", refresh_knowledge)
+    report["facts"] = _stage(report, "facts", refresh_facts)
 
     # ---- capital allocation
     if cfg["graph"].get("enabled", True):
@@ -311,10 +306,11 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         if (cfg.get("whatif") or {}).get("enabled", True) and market_state(now)["session"] in ("AFTER_HOURS", "CLOSED") and db.due(conn, "whatif", 1, now):
             report["whatif"] = _stage(report, "whatif", whatif.run_stage, conn, cfg, now, deps.series_fetch)          # measurement only: reads decisions, writes its own tables, never a decision
             db.mark_run(conn, "whatif", "", now)
+        if db.due(conn, "paths", 6, now):
+            report["paths"] = _stage(report, "paths", pathways.compute, conn, cfg, now)                                  # multi-horizon outcomes, best/worst excursion, target-or-stop first
+            db.mark_run(conn, "paths", "", now)
         _stage(report, "gaps", gaps.scan, conn, cfg, now)
         _stage(report, "gaps_resolve", gaps.resolve_auto, conn, cfg, universe, deps.fetch_json, deps.fetch, now)
-    if intel and intel.get("client"):
-        report["llm"] = client.usage_summary()
     report["finished"] = iso()
     report["current"] = None
     report["seconds"] = round(time.time() - t_start, 1)
