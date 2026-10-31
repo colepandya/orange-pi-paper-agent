@@ -4,9 +4,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 import sys
 
-from . import VERSION, backup as backup_mod, config, db, net, pipeline, trader, universe as universe_mod
+from . import VERSION, backup as backup_mod, config, db, net, pipeline, quotes as quotes_mod, trader, universe as universe_mod
 from .config import CONFIG_DIR, DB_PATH, STATE_DIR
 from .timeutil import utcnow
 
@@ -28,6 +29,8 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("migrate", "cycle", "guard", "serve", "learn", "probe", "universe", "backup", "status", "keys", "llm-test", "llm-eval"):
         sub.add_parser(name)
+    op = sub.add_parser("optionsprobe", help="test the four free options feeds for one stock and show the contract the bot would pick")
+    op.add_argument("ticker", nargs="?", default="SPY")
     pp2 = sub.add_parser("preflight", help="pre-open checklist: READY or the exact blockers")
     pp2.add_argument("--offline", action="store_true")
     rp = sub.add_parser("recover", help="re-evaluate recent events whose candidates were lost when a cycle died")
@@ -231,6 +234,40 @@ def main(argv=None) -> int:
         last = conn.execute("SELECT started,status FROM cycle_runs ORDER BY id DESC LIMIT 1").fetchone()
         print(json.dumps({"equity": round(eq["equity"], 2), "cash": round(eq["cash"], 2), "regime": regime.current(conn)["regime"], "last_cycle": dict(last) if last else None,
                           "open_positions": conn.execute("SELECT COUNT(*) FROM positions WHERE status='OPEN'").fetchone()[0], "paused": os.path.exists(cfg["runtime"]["pause_file"])}, indent=1))
+        return 0
+    if args.cmd == "optionsprobe":
+        from . import optionsdata as OD, options as OP
+        import datetime as _dt
+        now, t = utcnow(), args.ticker.upper()
+        S = None
+        try:
+            S = float(quotes_mod.get_quote(conn, t, cfg, "exit", now=now)["price"])
+        except Exception:  # noqa: BLE001
+            pass
+        print("%s  stock price %s" % (t, ("%.2f" % S) if S else "unknown (market closed or no quote)"))
+        for n in OD.enabled_feeds(cfg):
+            t0 = time.time()
+            try:
+                r = OD.FEEDS[n](t, net.get_json, now, cfg, S)
+                print("  %-7s OK    %4d contracts  %5.1fs  underlying %s  as of %s" % (n, len(r["contracts"]), time.time() - t0, r.get("underlying"), _dt.datetime.fromtimestamp(r["as_of"], _dt.timezone.utc).strftime("%H:%M UTC") if r.get("as_of") else "unlabelled"))
+                if r.get("underlying") and not S:
+                    S = r["underlying"]
+            except Exception as e:  # noqa: BLE001
+                print("  %-7s FAIL  %s: %s  (%.1fs)" % (n, type(e).__name__, str(e)[:90], time.time() - t0))
+        ch = OD.chain_for(conn, cfg, t, now, S)
+        if not ch:
+            print("  no feed answered: the bot would price options by the MODEL only (labelled MODEL)")
+            return 0
+        print("  merged: %d liquid-or-not contracts from %s" % (len(ch["contracts"]), "+".join(ch["sources"])))
+        for kind in ("CALL", "PUT"):
+            q, why = OD.pick(ch["contracts"], kind, S or ch["underlying"], now, cfg)
+            if q:
+                a = OD.anchor(q, S or ch["underlying"], ch.get("underlying"), now, cfg)
+                print("  %-4s %s  bid %.2f ask %.2f  iv %s  open interest %s  sources %s  -> anchored buy at %s" % (kind, OD.build_occ(t, q["expiry"], kind, q["strike"]), q["bid"], q["ask"], ("%.0f%%" % (q["iv"] * 100)) if q.get("iv") else "n/a", q.get("oi"), "+".join(q["sources"]), ("%.2f" % a["ask"]) if a else "n/a"))
+            else:
+                print("  %-4s none usable: %s" % (kind, why))
+        rk = OD.iv_rank(conn, t)
+        print("  IV rank: %s" % (("%.0f" % rk) if rk is not None else "not enough history yet (needs ~20 days)"))
         return 0
     if args.cmd == "probe":
         from . import sources

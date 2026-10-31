@@ -167,7 +167,7 @@ class TestTheMeasurementAndTheVersion(unittest.TestCase):
         self.assertEqual(whatif.gate_family("EXPIRED", "market session AFTER_HOURS; will retry while the event is fresh"), "expired or cancelled")
 
     def test_the_shock_rule_arrived_with_s2_and_a_later_version_keeps_it(self):
-        self.assertIn(stamp.STRATEGY_VERSION, ("S2", "S3", "S4"))                                                       # S2 introduced the rule; S3 (build 38) changed the article reader, not this
+        self.assertIn(stamp.STRATEGY_VERSION, ("S2", "S3", "S4", "S5"))                                                       # S2 introduced the rule; S3 (build 38) changed the article reader, not this
         c = H.fresh_db()
         stamp.record(c, H.cfg(), at(2026, 10, 30, 11, 22))
         self.assertEqual(stamp.current(c)["version"], stamp.STRATEGY_VERSION)

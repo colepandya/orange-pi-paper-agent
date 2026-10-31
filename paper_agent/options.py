@@ -14,7 +14,7 @@ import json
 import math
 from typing import Callable, Dict, Optional
 
-from . import db, marketdata as md, portfolio as pf
+from . import db, marketdata as md, optionsdata, portfolio as pf
 from .timeutil import iso, market_state, parse_ts, trading_days_between, utcnow
 
 EARNINGS_TYPES = {"earnings_beat", "earnings_miss", "guidance_raise", "guidance_cut"}
@@ -22,26 +22,7 @@ CALL, PUT = "CALL", "PUT"
 
 
 # ------------------------------------------------------------------------------------------------ the maths
-def _ncdf(x: float) -> float:
-    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
-
-
-def bs_price(kind: str, S: float, K: float, T: float, r: float, sigma: float) -> float:
-    """Black-Scholes value of a European option (no dividends). At or past expiry it is the intrinsic value."""
-    if T <= 0 or sigma <= 0:
-        return max(0.0, S - K) if kind == CALL else max(0.0, K - S)
-    d1 = (math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
-    d2 = d1 - sigma * math.sqrt(T)
-    if kind == CALL:
-        return S * _ncdf(d1) - K * math.exp(-r * T) * _ncdf(d2)
-    return K * math.exp(-r * T) * _ncdf(-d2) - S * _ncdf(-d1)
-
-
-def bs_delta(kind: str, S: float, K: float, T: float, r: float, sigma: float) -> float:
-    if T <= 0 or sigma <= 0:
-        return (1.0 if S > K else 0.0) if kind == CALL else (-1.0 if S < K else 0.0)
-    d1 = (math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
-    return _ncdf(d1) if kind == CALL else _ncdf(d1) - 1.0
+_ncdf, bs_price, bs_delta, years_left = optionsdata._ncdf, optionsdata.bs_price, optionsdata.bs_delta, optionsdata.years_left
 
 
 def strike_step(S: float) -> float:
@@ -60,11 +41,6 @@ def next_expiry(today: dt.date, min_dte: int) -> dt.date:
     return d + dt.timedelta(days=(4 - d.weekday()) % 7)
 
 
-def years_left(expiry: dt.date, now: dt.datetime) -> float:
-    close = dt.datetime(expiry.year, expiry.month, expiry.day, 20, 0, tzinfo=dt.timezone.utc)          # ~4pm New York on the expiry date
-    return max(0.0, (close - now).total_seconds() / (365.0 * 86400.0))
-
-
 def iv_estimate(conn, ticker: str, cfg: dict, event_type: str = "") -> float:
     """The volatility the model prices with: realised volatility x a premium (options trade above realised), a little more around earnings, clamped to a sane range."""
     inst = cfg["instruments"]
@@ -73,7 +49,7 @@ def iv_estimate(conn, ticker: str, cfg: dict, event_type: str = "") -> float:
     return max(0.20, min(1.50, iv))
 
 
-def price_option(kind: str, S: float, K: float, expiry: dt.date, sigma: float, now: dt.datetime, cfg: dict) -> dict:
+def price_option(kind: str, S: float, K: float, expiry: dt.date, sigma: float, now: dt.datetime, cfg: dict) -> dict:  # noqa: D401
     """mid / bid / ask: the model value, with a spread of 4% of the price (at least 3 cents) each side of it."""
     T = years_left(expiry, now)
     mid = bs_price(kind, S, K, T, float(cfg["instruments"].get("options_risk_free", 0.04)), sigma)
@@ -87,7 +63,8 @@ def sleeve_used(conn) -> float:
 
 
 def plan_for(conn, cfg: dict, f: dict, c: dict, comp: dict, price: float, equity: float, now) -> Optional[dict]:
-    """Should this approved idea be expressed as an option? -> a plan, or None. Every reason it says no is a cost control, not a hunch."""
+    """Should this approved idea be expressed as an option? -> a plan, or None. Real contracts from the free feeds are used when they answer (the contract must really exist and be liquid); the pure model is the
+    labelled fallback. Every reason it says no is a cost control, not a hunch."""
     inst = cfg["instruments"]
     if not inst.get("options_enabled"):
         return None
@@ -95,14 +72,37 @@ def plan_for(conn, cfg: dict, f: dict, c: dict, comp: dict, price: float, equity
         return None                                                                              # time decay punishes weak and slow ideas
     adv = (comp or {}).get("adv_usd")
     if price < float(inst["options_min_price"]) or not adv or adv < float(inst["options_min_adv_usd"]):
-        return None                                                                              # only liquid, higher-priced names have the option markets this model resembles
+        return None                                                                              # only liquid, higher-priced names have the option markets this resembles
     if conn.execute("SELECT 1 FROM option_positions WHERE underlying=? AND status='OPEN'", (c["ticker"],)).fetchone():
         return None
     kind = PUT if f["verdict"] == "SHORT" else CALL
-    sigma = iv_estimate(conn, c["ticker"], cfg, c.get("event_type", ""))
-    expiry = next_expiry(now.date(), int(inst["options_min_dte"]))
-    K = pick_strike(kind, price)
-    px = price_option(kind, price, K, expiry, sigma, now, cfg)
+    model_sigma = iv_estimate(conn, c["ticker"], cfg, c.get("event_type", ""))
+    source, contract, K, expiry, sigma, px, mkt_note = "MODEL", "", None, None, model_sigma, None, ""
+    ch = optionsdata.chain_for(conn, cfg, c["ticker"], now, price) if inst.get("options_use_real_quotes", True) else None      # fetching also records TODAY's implied volatility
+    rank = optionsdata.iv_rank(conn, c["ticker"])
+    if rank is not None and rank > float(inst.get("options_max_iv_rank", 80)):
+        return None                                                                              # volatility is expensive: the option would be bought at the top of its range
+    if inst.get("options_use_real_quotes", True):
+        if ch:
+            q, why = optionsdata.pick(ch["contracts"], kind, price, now, cfg)
+            if q is None:
+                return None                                                                      # the real market has no liquid contract for this: trade the stock instead
+            a = optionsdata.anchor(q, price, ch.get("underlying"), now, cfg)
+            if a:
+                source, K, expiry, sigma, px = "CHAIN", q["strike"], dt.date.fromisoformat(q["expiry"]), a["iv"], a
+                contract = optionsdata.build_occ(c["ticker"], q["expiry"], kind, q["strike"])
+                mkt_note = "real %s contract %s, market spread %.0f%%, open interest %s, IV %.0f%%, from %s" % (kind.lower(), contract, (q["ask"] - q["bid"]) / q["mid"] * 100, q.get("oi") if q.get("oi") is not None else "n/a", a["iv"] * 100, "+".join(q["sources"]))
+                try:
+                    optionsdata.log_model_check(conn, c["ticker"], q, price, model_sigma, now, cfg)
+                except Exception:  # noqa: BLE001 - a log line must never stop a trade
+                    pass
+        if source != "CHAIN" and not inst.get("options_allow_model_fallback", True):
+            return None
+    if px is None:
+        expiry = next_expiry(now.date(), int(inst["options_min_dte"]))
+        K = pick_strike(kind, price)
+        px = price_option(kind, price, K, expiry, sigma, now, cfg)
+        mkt_note = "MODEL price: no free feed answered"
     if px["ask"] < 0.30:
         return None                                                                              # penny options do not trade like this
     comm = float(inst.get("options_commission", 0.65))
@@ -112,9 +112,9 @@ def plan_for(conn, cfg: dict, f: dict, c: dict, comp: dict, price: float, equity
     if contracts < 1:
         return None
     sg = -1.0 if kind == PUT else 1.0
-    return {"kind": kind, "strike": K, "expiry": expiry.isoformat(), "contracts": contracts, "sigma": sigma, "ask": px["ask"], "mid": px["mid"], "bid": px["bid"], "commission": comm,
+    return {"kind": kind, "strike": K, "expiry": expiry.isoformat(), "contracts": contracts, "sigma": sigma, "ask": px["ask"], "mid": px["mid"], "bid": px["bid"], "commission": comm, "source": source, "contract": contract,
             "stop_underlying": price * (1.0 - sg * abs(f["stop_return"])), "target_underlying": price * (1.0 + sg * f["target_return"]),
-            "why": "%s: edge %.1f%% over %d sessions is strong and short enough that time decay will not eat it; %s is liquid ($%.0fM a day)" % ("a put" if kind == PUT else "a call", f["ev_net"] * 100, f["horizon_days"], c["ticker"], adv / 1e6)}
+            "why": "%s: edge %.1f%% over %d sessions is strong and short enough that time decay will not eat it; %s is liquid ($%.0fM a day); %s" % ("a put" if kind == PUT else "a call", f["ev_net"] * 100, f["horizon_days"], c["ticker"], adv / 1e6, mkt_note)}
 
 
 def open_option(conn, cfg: dict, c: dict, f: dict, plan: dict, price: float, did: int, fid: int, now, theme: str, sector: str, reason: dict, set_decision: Callable) -> dict:
@@ -132,7 +132,8 @@ def open_option(conn, cfg: dict, c: dict, f: dict, plan: dict, price: float, did
                            (c["ticker"], plan["kind"], plan["strike"], plan["expiry"], plan["contracts"], iso(now), plan["ask"], price, plan["sigma"], cost, did, fid, plan["bid"], price, iso(now), plan["stop_underlying"],
                             plan["target_underlying"], int(cfg["instruments"]["options_max_hold_days"]), theme, sector, c.get("event_type"), plan["why"]))
         oid = cur.lastrowid
-        reason = dict(reason, instrument="OPTION", option={k: plan[k] for k in ("kind", "strike", "expiry", "contracts", "ask", "sigma")}, option_why=plan["why"], model_priced=True)
+        conn.execute("UPDATE option_positions SET price_source=?,contract=?,last_iv=? WHERE id=?", (plan.get("source", "MODEL"), plan.get("contract", ""), plan["sigma"], oid))
+        reason = dict(reason, instrument="OPTION", option={k: plan[k] for k in ("kind", "strike", "expiry", "contracts", "ask", "sigma")}, option_why=plan["why"], model_priced=(plan.get("source", "MODEL") != "CHAIN"), price_source=plan.get("source", "MODEL"))
         set_decision(conn, did, "EXECUTED", reason, entry_price=plan["ask"], shares=plan["contracts"], amount=cost, action="OPTION_" + plan["kind"])
         db.audit(conn, "options", "option_buy", c["ticker"], {"decision": did, "kind": plan["kind"], "strike": plan["strike"], "expiry": plan["expiry"], "contracts": plan["contracts"], "cost": cost})
     return {"status": "EXECUTED", "option_id": oid, "cost": cost, "instrument": "OPTION"}
@@ -186,8 +187,14 @@ def run(conn, cfg: dict, now=None, quote_fn: Optional[Callable] = None) -> dict:
             else:
                 v = md_valuation(conn, o["underlying"], now)
                 S = v if v else float(o["last_underlying"] or o["entry_underlying"])
-            px = mark(cfg, o, S, now)
-            conn.execute("UPDATE option_positions SET last_mark=?,last_underlying=?,last_mark_at=? WHERE id=?", (px["bid"] if px["T"] > 0 else px["mid"], S, iso(now), o["id"]))
+            px = None
+            if (o["price_source"] or "MODEL") == "CHAIN" and inst.get("options_use_real_quotes", True):
+                ch = optionsdata.chain_for(conn, cfg, o["underlying"], now, S)                      # the market's latest implied volatility and spread (about 15 minutes old), applied to the LIVE stock price
+                q = optionsdata.find(ch, o)
+                px = optionsdata.anchor(q, S, ch.get("underlying"), now, cfg) if q else None
+            if px is None:
+                px = mark(cfg, o, S, now)
+            conn.execute("UPDATE option_positions SET last_mark=?,last_underlying=?,last_mark_at=?,last_iv=? WHERE id=?", (px["bid"] if px["T"] > 0 else px["mid"], S, iso(now), px.get("iv", o["entry_iv"]), o["id"]))
             kind = o["kind"]
             expired = px["T"] <= 0
             if not (fresh or expired):

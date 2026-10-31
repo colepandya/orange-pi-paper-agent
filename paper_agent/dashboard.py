@@ -152,17 +152,23 @@ def options_section(c, now) -> str:
     """Open and recent options. Every price here is the MODEL's (there is no options data feed): the heading says so."""
     op = c.execute("SELECT * FROM option_positions WHERE status='OPEN' ORDER BY id").fetchall()
     cl = c.execute("SELECT * FROM option_positions WHERE status='CLOSED' ORDER BY id DESC LIMIT 15").fetchall()
-    if not op and not cl:
+    feeds = c.execute("SELECT * FROM option_feed_health ORDER BY feed").fetchall()
+    chk = [r[0] for r in c.execute("SELECT ABS(err_pct) FROM option_model_checks ORDER BY id DESC LIMIT 300")]
+    if not op and not cl and not feeds:
         return ""
     rows = []
     for o in op:
         value = float(o["last_mark"] or o["entry_premium"]) * o["contracts"] * o["multiplier"]
         pnl = value - float(o["cost"])
         days = (dt.date.fromisoformat(o["expiry"]) - now.date()).days
-        rows.append([o["underlying"], o["kind"], "%.2f" % o["strike"], "%s (%dd)" % (o["expiry"][5:], days), o["contracts"], money(o["cost"]), money(value),
+        rows.append([o["underlying"], o["kind"] + (" (real contract)" if (o["price_source"] or "") == "CHAIN" else " (MODEL)"), "%.2f" % o["strike"], "%s (%dd)" % (o["expiry"][5:], days), o["contracts"], money(o["cost"]), money(value),
                      Raw('<span class=%s>%s (%s)</span>' % (cls(pnl), money(pnl), pct(pnl / o["cost"] if o["cost"] else 0))), "%.2f / %.2f" % (o["stop_underlying"], o["target_underlying"]), (o["note"] or "")[:90]])
-    out = "<h2>Options (model-priced)</h2><p class=mut>There is no options data feed: these prices come from a Black-Scholes model with a volatility estimate, a spread and a commission, so they are an experiment, not a verified track record. The most a bought option can lose is its premium.</p>"
-    out += table(["Stock", "Type", "Strike", "Expires", "Contracts", "Paid", "Worth now", "P&L", "Stock stop / target", "Why"], rows) if rows else "<p class=mut>No open options.</p>"
+    out = "<h2>Options</h2><p class=mut>Contracts, spreads and implied volatility come from four FREE public feeds (about 15 minutes delayed) and are repriced at the live stock price; a position marked MODEL had no feed answer and is priced by a Black-Scholes model. Either way it is paper money, and the most a bought option can lose is its premium.</p>"
+    if feeds:
+        srt = sorted(chk)
+        out += "<h3>Free options feeds</h3>" + table(["Feed", "Status", "Contracts", "Last took", "Worked / failed", "Last problem"], [[f["feed"], ("OK" if f["last_ok"] and not f["last_error"] else "FAILING"), f["last_contracts"], "%.1f s" % ((f["last_ms"] or 0) / 1000.0), "%d / %d" % (f["ok_count"], f["fail_count"]), (f["last_error"] or "")[:70]] for f in feeds])
+        out += ("<p class=mut>How good is the pure model against the real market? Across the last %d contracts priced, it was off by a median of %.0f%% (90th percentile %.0f%%). The bigger that is, the more the real quotes matter.</p>" % (len(srt), 100 * srt[len(srt) // 2], 100 * srt[int(len(srt) * 0.9)])) if srt else ""
+    out += ("<h3>Open options</h3>" + table(["Stock", "Type", "Strike", "Expires", "Contracts", "Paid", "Worth now", "P&L", "Stock stop / target", "Why"], rows)) if rows else "<p class=mut>No open options.</p>"
     if cl:
         out += "<h3>Closed options</h3>" + table(["Stock", "Type", "Strike", "Opened", "Closed", "Paid", "Back", "P&L", "Exit reason"],
                [[o["underlying"], o["kind"], "%.2f" % o["strike"], to_nz(o["opened"], "%d %b"), to_nz(o["closed"], "%d %b"), money(o["cost"]), "%.2f" % (o["exit_premium"] or 0),

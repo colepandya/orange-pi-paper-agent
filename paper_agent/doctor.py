@@ -89,6 +89,12 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
         out("[disk] database %.0f MB, %s | backups use %.0f MB | %.1f GB free%s" % (pr["db_mb"], grow, pr["backups_mb"], pr["free_mb"] / 1024.0, left))
     except Exception as e:  # noqa: BLE001
         out("[database] check failed: %s" % e)
+    try:
+        rows = conn.execute("SELECT * FROM option_feed_health ORDER BY feed").fetchall()
+        if rows:
+            out("[options feeds] " + " | ".join("%s %s (%s contracts, %.1fs, ok %d / failed %d)" % (r["feed"], "OK" if r["last_ok"] and not r["last_error"] else "FAILING: " + (r["last_error"] or "")[:40], r["last_contracts"], (r["last_ms"] or 0) / 1000.0, r["ok_count"], r["fail_count"]) for r in rows))
+    except Exception:  # noqa: BLE001
+        pass
     # ---- dashboard-managed settings
     from . import config as _cfg
     try:

@@ -1,3 +1,13 @@
+# Build 40  (strategy S5): free options market data
+* **Options now use REAL market quotes from four FREE feeds** (docs/OPTIONS_FEEDS.md): CBOE delayed quotes, Alpaca indicative (your existing free keys), Nasdaq and Yahoo, fetched side by side with each failure isolated and recorded. No paid service, no new key.
+* The bot trades a contract that REALLY EXISTS: first expiry at least 21 days out, strike at/above (call) or at/below (put) the price, and only if it is liquid: a real two-sided market, spread <= 15% of the price, >= 100 open contracts, quote not stale, feeds not disagreeing by more than 15%. If the real market has no liquid contract the STOCK is traded instead (the old model priced contracts nobody would trade).
+* **Prices are anchored**: the free feeds are about 15 minutes behind, so the market implied volatility and real spread are applied to the LIVE stock price. Marks and exits are re-anchored to the latest market volatility every cycle.
+* **IV rank gate**: daily implied volatility is recorded; once about a month exists, options are not bought when volatility is in the top fifth of its range.
+* **Model check**: every real contract priced records how far the pure Black-Scholes model was from the market (Positions page). The model stays only as a LABELLED fallback when no feed answers (or switch the fallback off).
+* Feed health on the Positions page and in doctor; `python3 -m paper_agent optionsprobe NVDA` tests every feed from the Pi and shows the contract the bot would pick.
+* Settings -> Instruments: use real quotes, allow model fallback, max spread, min open interest, quote max age, max IV rank, a switch per feed.
+* Tested: with every new feature off the bot is identical to build 38 on the real data (6 scenarios). The feed parsers are tested against payloads shaped like the services, which could NOT be called live from the build environment: run optionsprobe on the Pi to confirm each.
+
 # Build 39  (strategy S4): all instruments
 * **Short selling** (docs/INSTRUMENTS.md): bearish ideas open paper shorts: stop above, target below, trailing stop down, covering pays up, 150% collateral held back, daily borrow fee, shortability rules (price, size, volume, squeeze), 60% sizing, 25% exposure cap. Every part of the system that assumed a long (forecast, sizing, entry, executor, monitor, news veto, gap test, portfolio, dashboard, reports, performance) now works from the position's side.
 * **Calls and puts** (MODEL-priced, in a capped sleeve): the strongest, shortest, most liquid ideas become a bought call or put; exits on the stock's plan, the premium, days left, time and expiry. Writing options and spreads are not supported.

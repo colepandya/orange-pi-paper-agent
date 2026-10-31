@@ -42,7 +42,9 @@ DEFAULTS: Dict[str, Any] = {
                     "short_squeeze_5d_pct": 0.20, "short_borrow_fee_pct": 0.5, "short_collateral_pct": 1.5,
                     "options_enabled": True, "options_max_premium_pct": 0.05, "options_per_trade_pct": 0.012, "options_min_ev": 0.03, "options_max_horizon_days": 5, "options_min_adv_usd": 100_000_000,
                     "options_min_price": 20.0, "options_min_dte": 21, "options_exit_dte": 5, "options_stop_loss_pct": 0.5, "options_target_pct": 1.0, "options_iv_mult": 1.15, "options_risk_free": 0.04,
-                    "options_commission": 0.65, "options_max_hold_days": 6},
+                    "options_commission": 0.65, "options_max_hold_days": 6,
+                    "options_use_real_quotes": True, "options_allow_model_fallback": True, "options_max_spread_pct": 0.15, "options_min_open_interest": 100, "options_quote_max_age_minutes": 45, "options_max_iv_rank": 80,
+                    "options_feed_cboe": True, "options_feed_alpaca": True, "options_feed_nasdaq": True, "options_feed_yahoo": True},
     # Relationship graph: an event at one company becomes a smaller, discounted idea at its suppliers, customers, competitors and peers (rules + data, no LLM).
     "graph": {"enabled": True, "max_derived_per_event": 4, "min_event_magnitude": 0.45, "min_event_conf": 0.60, "min_edge_weight": 0.20, "peer_min_corr": 0.75, "derived_discount": 0.75},
     "maintenance": {"weekly_cleanup": True, "news_days": 30, "log_days": 30},

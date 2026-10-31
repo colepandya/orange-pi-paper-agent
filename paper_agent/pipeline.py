@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, List, Optional
 
-from . import (candqueue, config, earnings, graph, options, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, whatif, marketdata as md, monitor, narrative, net, portfolio as pf,
+from . import (candqueue, config, earnings, graph, options, optionsdata, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, whatif, marketdata as md, monitor, narrative, net, portfolio as pf,
                quotes, regime as regime_engine, sources, thesis, trader)
 from .config import load_json, CONFIG_DIR
 from .entities import Universe
@@ -153,6 +153,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         conn.execute("UPDATE cycle_runs SET finished=?,status='SKIPPED',report_json=? WHERE id=?", (iso(), json.dumps(report), run_id))
         _CKPT = None
         return report
+    optionsdata.use_fetch(deps.fetch_json)                                    # the free options feeds use the same (injectable) HTTP fetcher as the quote providers
     warm: dict = {}                                                          # provider answers fetched side by side ahead of the entry and exit stages (see _warm_quotes)
     quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json, prefetched=warm))
     thesis.seed(conn)
@@ -347,6 +348,7 @@ def run_guard(conn, cfg: dict, deps: Optional[Deps] = None, now=None) -> dict:
         return {"skipped": "market %s" % market_state(now)["session"]}
     if not conn.execute("SELECT 1 FROM positions WHERE status='OPEN' LIMIT 1").fetchone() and not conn.execute("SELECT 1 FROM option_positions WHERE status='OPEN' LIMIT 1").fetchone():
         return {"skipped": "no open positions"}
+    optionsdata.use_fetch(deps.fetch_json)
     warm = _warm_quotes(conn, cfg, deps, now, [r[0] for r in conn.execute("SELECT ticker FROM positions WHERE status='OPEN' UNION SELECT underlying FROM option_positions WHERE status='OPEN'")])
     quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json, prefetched=warm))
     res = executor.run(conn, cfg, now, quote_fn)
