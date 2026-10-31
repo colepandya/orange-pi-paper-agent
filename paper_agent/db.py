@@ -22,7 +22,10 @@ LEGACY = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS news(id INTEGER PRIMARY KEY,uid TEXT UNIQUE,source TEXT,title TEXT,summary TEXT,url TEXT,published TEXT,ingested TEXT,trust REAL);
 CREATE TABLE IF NOT EXISTS decisions(id INTEGER PRIMARY KEY,created TEXT,news_uid TEXT,ticker TEXT,action TEXT,score REAL,reason TEXT,rules_version TEXT,status TEXT,entry_price REAL,shares INTEGER,amount REAL,theme TEXT,FOREIGN KEY(news_uid) REFERENCES news(uid));
-CREATE TABLE IF NOT EXISTS positions(id INTEGER PRIMARY KEY,ticker TEXT,theme TEXT,opened TEXT,entry_price REAL,shares INTEGER,cost REAL,decision_id INTEGER,status TEXT,closed TEXT,exit_price REAL,pnl REAL,review_code TEXT,FOREIGN KEY(decision_id) REFERENCES decisions(id));
+CREATE TABLE IF NOT EXISTS positions(id INTEGER PRIMARY KEY,ticker TEXT,theme TEXT,opened TEXT,entry_price REAL,shares INTEGER,cost REAL,decision_id INTEGER,status TEXT,closed TEXT,exit_price REAL,pnl REAL,review_code TEXT,side TEXT DEFAULT 'LONG',FOREIGN KEY(decision_id) REFERENCES decisions(id));
+CREATE TABLE IF NOT EXISTS option_positions(id INTEGER PRIMARY KEY,underlying TEXT,kind TEXT,strike REAL,expiry TEXT,contracts INTEGER,multiplier INTEGER DEFAULT 100,opened TEXT,entry_premium REAL,entry_underlying REAL,entry_iv REAL,cost REAL,decision_id INTEGER,forecast_id INTEGER,status TEXT,closed TEXT,exit_premium REAL,exit_underlying REAL,pnl REAL,review_code TEXT,last_mark REAL,last_underlying REAL,last_mark_at TEXT,stop_underlying REAL,target_underlying REAL,max_hold_days INTEGER,theme TEXT,sector TEXT,event_type TEXT,note TEXT);
+CREATE TABLE IF NOT EXISTS relations(src TEXT,dst TEXT,kind TEXT,weight REAL,source TEXT,note TEXT,updated TEXT,PRIMARY KEY(src,dst,kind));
+CREATE INDEX IF NOT EXISTS ix_relations_src ON relations(src);
 CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY,created TEXT,kind TEXT,amount REAL,ref TEXT,balance REAL);
 CREATE TABLE IF NOT EXISTS daily_values(day TEXT PRIMARY KEY,equity REAL,cash REAL,deployed REAL,drawdown REAL);
 CREATE TABLE IF NOT EXISTS lessons(id INTEGER PRIMARY KEY,created TEXT,category TEXT,ticker TEXT,detail TEXT,evidence_count INTEGER DEFAULT 1,status TEXT DEFAULT 'candidate');

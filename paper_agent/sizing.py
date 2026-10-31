@@ -18,7 +18,9 @@ def size_position(forecast: dict, ticker_meta: dict, state: dict, cfg: dict, reg
     edge = max(0.0, forecast["ev_net"]) / sigma_h
     full = max(0.05, float(r.get("full_size_edge", 0.5)))
     conviction = min(1.0, max(0.25, edge / full)) if forecast["ev_net"] > 0 else 0.0
-    base = conviction * r["max_position_pct"]
+    side = "SHORT" if forecast.get("verdict") == "SHORT" else "LONG"
+    inst = cfg.get("instruments") or {}
+    base = conviction * r["max_position_pct"] * (float(inst.get("short_size_mult", 0.6)) if side == "SHORT" else 1.0)         # a short can lose more than it risks if the stock gaps up, so it starts smaller
     reasons.append("conviction %.2f: edge %.2f of a typical move (full size needs %.2f) -> %.1f%% of the portfolio before adjustments (quarter-Kelly would say %.0f%%, which is saturated and not used)" % (conviction, edge, full, base * 100, min(0.25 * kelly_ref, 9.99) * 100))
     pct, binding = base, "conviction"
 
@@ -42,18 +44,25 @@ def size_position(forecast: dict, ticker_meta: dict, state: dict, cfg: dict, reg
         cap(0.02 * adv / eq, "liquidity (2% of ADV)")
     ticker = forecast["ticker"]
     hs = state["holdings"]
-    issuer = sum(h["value"] for h in hs if h["ticker"] == ticker) / eq
+    issuer = sum(abs(h["value"]) for h in hs if h["ticker"] == ticker) / eq
     cap(max(0.0, r["max_issuer_pct"] - issuer), "issuer limit")
     if thesis_info.get("primary"):
-        theme = sum(h["value"] for h in hs if h["thesis_key"] == thesis_info["primary"]) / eq
+        theme = sum(abs(h["value"]) for h in hs if h["thesis_key"] == thesis_info["primary"] and h.get("side", "LONG") == side) / eq        # a short in a theme is not long concentration
         cap(max(0.0, r["max_theme_pct"] - theme), "theme limit")
-    gross = sum(h["value"] for h in hs) / eq
+    gross = sum(abs(h["value"]) for h in hs) / eq
     cap(max(0.0, r["max_gross_pct"] - gross), "gross limit")
-    cap(max(0.0, (state["cash"] / eq) - r["min_cash_pct"]), "cash reserve")
+    spare = (state["cash"] - pf.short_reserve(hs, cfg)) / eq - r["min_cash_pct"]                                                             # cash that is really free (short collateral is not)
+    if side == "SHORT":
+        short_now = sum(abs(h["value"]) for h in hs if h.get("side") == "SHORT") / eq
+        cap(max(0.0, float(inst.get("short_max_gross_pct", 0.25)) - short_now), "short exposure limit")
+        coll = float(inst.get("short_collateral_pct", 1.5))
+        cap(max(0.0, spare) / max(coll - 1.0, 0.05), "short collateral")                                                                      # proceeds come in but the collateral on top has to be found
+    else:
+        cap(max(0.0, spare), "cash reserve")
     # survival: shrink until the worst stress loss fits the budget
     probs = state.get("scenario_probs") or {}
     for _ in range(6):
-        trial = hs + [{"ticker": ticker, "value": pct * eq, "sector": ticker_meta.get("sector", "Unclassified"), "beta": ticker_meta.get("beta") or 1.0, "country": ticker_meta.get("country", "US"),
+        trial = hs + [{"ticker": ticker, "value": (-1.0 if side == "SHORT" else 1.0) * pct * eq, "sector": ticker_meta.get("sector", "Unclassified"), "beta": ticker_meta.get("beta") or 1.0, "country": ticker_meta.get("country", "US"),
                        "industry": ticker_meta.get("industry", ""), "market_cap": ticker_meta.get("market_cap"), "thesis_key": thesis_info.get("primary")}]
         st = pf.stress(trial, eq, cfg, probs)
         if st["worst_loss"] <= r.get("max_stress_loss_pct", 0.20) or pct <= 0.0:

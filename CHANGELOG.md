@@ -1,3 +1,15 @@
+# Build 39  (strategy S4): all instruments
+* **Short selling** (docs/INSTRUMENTS.md): bearish ideas open paper shorts: stop above, target below, trailing stop down, covering pays up, 150% collateral held back, daily borrow fee, shortability rules (price, size, volume, squeeze), 60% sizing, 25% exposure cap. Every part of the system that assumed a long (forecast, sizing, entry, executor, monitor, news veto, gap test, portfolio, dashboard, reports, performance) now works from the position's side.
+* **Calls and puts** (MODEL-priced, in a capped sleeve): the strongest, shortest, most liquid ideas become a bought call or put; exits on the stock's plan, the premium, days left, time and expiry. Writing options and spreads are not supported.
+* **The edge is what the plan can collect.** The forecast used to claim more than the plan's own target (40 of 42 buys on the owner's data); it is now the sum of scenario outcomes clipped at the target and at the stop plus a gap allowance.
+* **Relationship graph** (docs/RELATIONSHIP_GRAPH.md): events spread to suppliers, customers, competitors and peers with the right sign for each kind of event; the most specific relationship wins; measured co-movement edges; every derived idea tagged by relationship for scoring. This logic previously existed only inside the disabled LLM.
+* **Correlation gate:** a position that moves with a same-side holding is shrunk or refused (a hedge is not penalised).
+* **Entries wait 10 minutes after the open** (risk.open_delay_minutes; both early losses were entered one minute after it).
+* **Results -> By instrument:** trades, win rate, P&L, average and hold for stock long, stock short, calls and puts, plus borrow fees. Positions page shows the side and an options table. Decisions has a "related companies" filter.
+* An open option counts as a position in the stock (a second idea is a DUPLICATE, not a second bet).
+* Tested: with every new feature switched off the bot behaves identically to build 38 on the owner's real data (6 scenarios); about 100 deliberate rule breakages are all caught (one equivalent).
+* Everything in builds 32-38 is included. Strategy S4 starts a new measurement period.
+
 # Build 38  (strategy S3)
 * **Faster, responsive cycles: network waiting is shared** (docs/PARALLEL.md). Feeds, article pages, price refresh and the quotes for exits and entries are fetched side by side (default 6 at once, at most 2 per server, 3 per quote provider);
   parsing, storing and every decision stay one at a time in a fixed order, so the database is exactly what it would have been one-at-a-time (tested). One slow or failing feed no longer delays the others; each feed's time is recorded

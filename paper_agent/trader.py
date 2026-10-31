@@ -9,8 +9,8 @@ import math
 import os
 from typing import Callable, Dict, List, Optional
 
-from . import pretrade, candqueue, company, db, ev, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
-from .timeutil import market_hours_between, add_trading_days, iso, market_state, parse_ts, utcnow
+from . import options, pretrade, candqueue, company, db, ev, graph, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
+from .timeutil import market_hours_between, add_trading_days, iso, market_state, minutes_since_open, parse_ts, utcnow
 
 PENDING = ("AWAITING_MARKET", "AWAITING_QUOTE", "AWAITING_CAPACITY", "HELD")
 
@@ -35,6 +35,11 @@ def quote_diagnosis(q: Optional[dict], cfg: dict) -> str:
             bits.append("%s ok (%ds)" % (o["provider"], max(0, o["age_seconds"])))
     msg = "%s%s; need %d fresh agreeing provider(s), have %d" % ("; ".join(bits), "" if bits else (q.get("status") or "none"), need, int(q.get("provider_count") or 0) if q.get("status") == "PASS" else sum(1 for o in q.get("observations") or [] if o.get("accepted") and o.get("age_seconds") is not None and o["age_seconds"] <= max_age))
     return ("%s; " % q["note"] if q.get("note") else "") + msg
+
+
+def action_of(f: dict) -> str:
+    """The decision's action: BUY (go long), SHORT (sell short) or NO_TRADE."""
+    return {"BUY": "BUY", "SHORT": "SHORT"}.get(f.get("verdict"), "NO_TRADE")
 
 
 def eligibility_score(c: dict) -> float:
@@ -63,6 +68,7 @@ def _set_decision(conn, did: int, status: str, reason: dict, **kw) -> None:
 
 def insert_plan(conn, position_id: int, decision_id: int, f: dict, entry: float, opened_iso: str, version: str = "5.0.0") -> int:
     t, s = f["target_return"], abs(f["stop_return"])
+    sg = -1.0 if f.get("verdict") == "SHORT" or (f.get("inputs") or {}).get("side") == "SHORT" else 1.0                  # +1 long, -1 short: prices sit on the other side of the entry for a short
     pp = f["inputs"].get("partial_exit_pct")
     partial = (pp if pp is not None and pp < 0.999 else 1.0) if f["inputs"].get("swing") else (0.7 if t >= 0.025 else 1.0)       # swing: bank part at the target, let the rest run behind the protected stop
     runner = max(f["runner_target"], t * 1.5) if partial < 1 else t
@@ -72,8 +78,8 @@ def insert_plan(conn, position_id: int, decision_id: int, f: dict, entry: float,
         "INSERT INTO position_forecast_plans(position_id,decision_id,created,plan_version,active,event_type,forecast_decision,target_return,stop_return,target_price,stop_price,max_hold_days,estimated_exit,target_probability,confidence,completeness,"
         "partial_exit_pct,runner_target_return,runner_target_price,runner_stop_return,runner_stop_price,bear_return,base_return,bull_return,expected_return,residual_return,priced_in,rationale,invalidation_json,forecast_hash) "
         "VALUES(?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (position_id, decision_id, opened_iso, version, f["inputs"].get("event_type", "thesis_signal"), f["verdict"], t, -s, entry * (1 + t), entry * (1 - s), f["horizon_days"], iso(add_trading_days(opened_iso, f["horizon_days"])),
-         f["target_probability"], f["confidence"] * 100, f["completeness"] * 100, partial, runner, entry * (1 + runner), rstop, entry * (1 + rstop), sc["bear"]["ret"], sc["base"]["ret"], sc["bull"]["ret"], f["ev_net"], f["edge"], f["inputs"]["priced_in"],
+        (position_id, decision_id, opened_iso, version, f["inputs"].get("event_type", "thesis_signal"), f["verdict"], t, -s, entry * (1 + sg * t), entry * (1 - sg * s), f["horizon_days"], iso(add_trading_days(opened_iso, f["horizon_days"])),
+         f["target_probability"], f["confidence"] * 100, f["completeness"] * 100, partial, runner, entry * (1 + sg * runner), rstop, entry * (1 + sg * rstop), sc["bear"]["ret"], sc["base"]["ret"], sc["bull"]["ret"], f["ev_net"], f["edge"], f["inputs"]["priced_in"],
          ("Swing plan: expected %+.2f%% inside %d session(s) (news works for ~%d), stop %.2f%% (%.1fx the stock's daily move), break-even lock and trailing stop active. Thesis %s." % (f["edge"] * 100, f["horizon_days"], f["inputs"].get("event_horizon_days", f["horizon_days"]), s * 100, s / max(f["inputs"].get("vol_daily") or s, 1e-6), f["thesis_key"] or "n/a")
           if f["inputs"].get("swing") else "EV-derived plan: base case %+.2f%%, stop %.2f%% (1.25 daily-vol x sqrt(min(h,5))), horizon %d sessions. Thesis %s." % (f["edge"] * 100, s * 100, f["horizon_days"], f["thesis_key"] or "n/a")),
          json.dumps(["event facts contradicted or corrected", "entity mapping invalidated", "thesis broken", "fresh quote unavailable", "adverse high-credibility evidence"]), f["hash"]))
@@ -81,35 +87,47 @@ def insert_plan(conn, position_id: int, decision_id: int, f: dict, entry: float,
 
 
 def execute_buy(conn, cfg: dict, c: dict, f: dict, sz: dict, q: dict, did: int, forecast_id: int, now, theme: str, sector: str, reason: dict) -> dict:
-    fill = q["price"] * (1 + cfg["portfolio"]["slippage_bps"] / 1e4)
+    """Open the position: a LONG buys (cash out), a SHORT sells borrowed shares (proceeds credited to cash, held as collateral by short_reserve)."""
+    short = f.get("verdict") == "SHORT"
+    sg = -1.0 if short else 1.0
+    slip = cfg["portfolio"]["slippage_bps"] / 1e4
+    fill = q["price"] * (1 - slip) if short else q["price"] * (1 + slip)                          # you sell a short a little lower and buy a long a little higher than the quote
     shares = math.floor(sz["amount"] / fill)
     if shares < 1:
         with db.tx(conn):
             _set_decision(conn, did, "CAPACITY_DEFERRED", reason)
         return {"status": "CAPACITY_DEFERRED"}
-    cost = round(shares * fill, 2)
+    cost = round(shares * fill, 2)                                                                  # a long's cost, or a short's proceeds: the basis the profit is measured from
     with db.tx(conn):
         cash = db.cash(conn)
-        eq = pf.equity_of(conn, now=now)["equity"]
-        if cash - cost < cfg["risk"]["min_cash_pct"] * eq * 0.99 or cash - cost < 0:
+        hs = pf.holdings(conn, now)
+        eq = pf.equity_of(conn, hs, now)["equity"]
+        reserve = pf.short_reserve(hs, cfg)
+        coll = float(cfg["instruments"].get("short_collateral_pct", 1.5))
+        if short:
+            breach = (cash + cost) - (reserve + coll * cost) < cfg["risk"]["min_cash_pct"] * eq * 0.99
+        else:
+            breach = cash - cost < cfg["risk"]["min_cash_pct"] * eq * 0.99 or cash - cost < 0 or cash - cost - reserve < cfg["risk"]["min_cash_pct"] * eq * 0.99
+        if breach:
             _set_decision(conn, did, "CAPACITY_DEFERRED", dict(reason, note="cash reserve would be breached"))
             return {"status": "CAPACITY_DEFERRED"}
-        conn.execute("INSERT INTO ledger(created,kind,amount,ref,balance) VALUES(?,?,?,?,?)", (iso(now), "VIRTUAL_BUY", -cost, "%s:%d" % (c["ticker"], did), round(cash - cost, 2)))
-        cur = conn.execute("INSERT INTO positions(ticker,theme,opened,entry_price,shares,cost,decision_id,status,thesis_key,forecast_id,sector) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?)",
-                           (c["ticker"], theme, iso(now), fill, shares, cost, did, f["thesis_key"], forecast_id, sector))
+        new_cash = round(cash + (cost if short else -cost), 2)
+        conn.execute("INSERT INTO ledger(created,kind,amount,ref,balance) VALUES(?,?,?,?,?)", (iso(now), "VIRTUAL_SHORT" if short else "VIRTUAL_BUY", cost if short else -cost, "%s:%d" % (c["ticker"], did), new_cash))
+        cur = conn.execute("INSERT INTO positions(ticker,theme,opened,entry_price,shares,cost,decision_id,status,thesis_key,forecast_id,sector,side) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?)",
+                           (c["ticker"], theme, iso(now), fill, shares, cost, did, f["thesis_key"], forecast_id, sector, "SHORT" if short else "LONG"))
         pid = cur.lastrowid
         conn.execute("INSERT INTO position_lifecycle(position_id,phase,remaining_shares,remaining_cost,updated) VALUES(?,?,?,?,?)", (pid, "OPEN", shares, cost, iso(now)))
         insert_plan(conn, pid, did, f, fill, iso(now))
-        why0 = "initial plan: %s" % (c.get("headline") or c.get("event_type"))
-        revisions.record(conn, now, "position", str(pid), c["ticker"], "target_price", None, fill * (1 + f["target_return"]), why0, None, f["confidence"], {"ev_net": f["ev_net"]})
-        revisions.record(conn, now, "position", str(pid), c["ticker"], "stop_price", None, fill * (1 + f["stop_return"]), why0, None, f["confidence"])
+        why0 = "initial plan: %s%s" % ("SHORT " if short else "", c.get("headline") or c.get("event_type"))
+        revisions.record(conn, now, "position", str(pid), c["ticker"], "target_price", None, fill * (1 + sg * f["target_return"]), why0, None, f["confidence"], {"ev_net": f["ev_net"]})
+        revisions.record(conn, now, "position", str(pid), c["ticker"], "stop_price", None, fill * (1 + sg * f["stop_return"]), why0, None, f["confidence"])
         revisions.record(conn, now, "position", str(pid), c["ticker"], "max_hold_days", None, f["horizon_days"], why0, None, f["confidence"])
-        reason = dict(reason, quote={"price": q["price"], "providers": q.get("providers_used"), "quoted_at": q.get("quoted_at"), "age_s": q.get("age_seconds")}, fill=fill, shares=shares)
+        reason = dict(reason, quote={"price": q["price"], "providers": q.get("providers_used"), "quoted_at": q.get("quoted_at"), "age_s": q.get("age_seconds")}, fill=fill, shares=shares, side="SHORT" if short else "LONG")
         _set_decision(conn, did, "EXECUTED", reason, entry_price=fill, shares=shares, amount=cost)
         conn.execute("INSERT INTO quote_cache(ticker,price,source,quoted_at,updated_epoch) VALUES(?,?,?,?,?) ON CONFLICT(ticker) DO UPDATE SET price=excluded.price,source=excluded.source,quoted_at=excluded.quoted_at,updated_epoch=excluded.updated_epoch",
                      (c["ticker"], q["price"], "ENTRY_CONSENSUS", iso(now), now.timestamp()))   # mark-to-market starts from the verified entry quote
         learning.record_position_prediction(conn, pid, f, fill, now)
-        db.audit(conn, "trader", "virtual_buy", c["ticker"], {"decision": did, "shares": shares, "cost": cost, "ev_net": f["ev_net"]})
+        db.audit(conn, "trader", "virtual_short" if short else "virtual_buy", c["ticker"], {"decision": did, "shares": shares, "cost": cost, "ev_net": f["ev_net"]})
     return {"status": "EXECUTED", "position_id": pid, "cost": cost}
 
 
@@ -133,7 +151,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     with db.tx(conn):
         prev = conn.execute("SELECT * FROM forecasts WHERE decision_id=? ORDER BY id DESC LIMIT 1", (existing_decision,)).fetchone() if existing_decision else None
         fid = ev.refresh(conn, prev["id"], f, now) if (prev and ev.materially_same(prev, f)) else ev.persist(conn, f, None, c.get("event_id"), now)      # a retry that changed nothing rewrites its row, not adds one
-        did = existing_decision or _decision(conn, c, "PROPOSED", "BUY" if f["verdict"] == "BUY" else "NO_TRADE", reason, score, now, fid, f["ev_net"], None, "", f["thesis_key"])
+        did = existing_decision or _decision(conn, c, "PROPOSED", action_of(f), reason, score, now, fid, f["ev_net"], None, "", f["thesis_key"])
         conn.execute("UPDATE forecasts SET decision_id=? WHERE id=?", (did, fid))
         if not existing_decision:
             learning.record_forecast_prediction(conn, fid, f, c, now)
@@ -144,13 +162,14 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     def finish(status, why, **kw):
         reason["gates"].append(why)
         with db.tx(conn):
-            _set_decision(conn, did, status, reason, **dict({"ev_net": f["ev_net"], "forecast_id": fid, "theme": theme, "thesis_key": f["thesis_key"], "action": "BUY" if f["verdict"] == "BUY" else "NO_TRADE"}, **kw))
+            _set_decision(conn, did, status, reason, **dict({"ev_net": f["ev_net"], "forecast_id": fid, "theme": theme, "thesis_key": f["thesis_key"], "action": action_of(f)}, **kw))
         return {"status": status, "decision_id": did, "why": why}
 
     if score < cfg["portfolio"]["entry_score"]:
         return finish("REJECTED", "eligibility %.2f < %.2f" % (score, float(cfg["portfolio"]["entry_score"])), action="NO_TRADE")
-    if f["verdict"] != "BUY":
+    if f["verdict"] not in ("BUY", "SHORT"):
         return finish("REJECTED", "; ".join(f["why"]) or f["verdict"], action="NO_TRADE")
+    c["side"] = "SHORT" if f["verdict"] == "SHORT" else "LONG"                                    # the last-look checks (news veto, shock, gap) read the position's side from here
     if paused(cfg):
         return finish("PAUSED", "trading paused by operator")
     th = thesis_engine.ticker_thesis_score(conn, t, regime.get("regime", "unknown"))
@@ -177,6 +196,20 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
         return finish("RISK_REJECTED", opp["reason"])
     if not sz["ok"]:
         return finish("CAPACITY_DEFERRED", "size %.2f%% below minimum %.2f%% (%s)" % (sz["pct"] * 100, cfg["risk"]["min_position_pct"] * 100, sz["binding"]))
+    # ---- two stocks that move together are ONE bet: shrink a new position that tracks a same-side holding, refuse a near-twin
+    corr, twin = graph.max_same_side_corr(conn, t, hs, c["side"])
+    if twin:
+        start, block = float(cfg["risk"].get("corr_haircut_from", 0.6)), float(cfg["risk"].get("corr_block", 0.92))
+        reason["correlation"] = {"with": twin, "corr": round(corr, 3)}
+        if corr >= block:
+            return finish("RISK_REJECTED", "moves almost exactly with %s, which is already held on the same side (correlation %.2f over 60 sessions): holding both would double one bet" % (twin, corr))
+        if corr > start:
+            shrink = 1.0 - 0.5 * (corr - start) / max(block - start, 1e-6)
+            sz["amount"] *= shrink
+            sz["pct"] *= shrink
+            sz["reasons"].append("moves with %s (correlation %.2f): size cut to %.0f%%" % (twin, corr, shrink * 100))
+            if sz["pct"] < cfg["risk"]["min_position_pct"]:
+                return finish("CAPACITY_DEFERRED", "size after the correlation haircut with %s (%.2f) is below the minimum" % (twin, corr))
     # ---- red team: a separate LLM pass tries to prove the idea wrong; the deterministic gate decides what to do with it
     rt, size_mult = None, 1.0
     client = (intel or {}).get("client")
@@ -198,8 +231,13 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
             return finish("CAPACITY_DEFERRED", "size after red-team adjustment %.2f%% below minimum" % (sz["pct"] * 100))
     if not market_state(now)["execution"]:
         return finish("AWAITING_MARKET", "market session %s; will retry while the event is fresh" % market_state(now)["session"])
+    delay = float(cfg["risk"].get("open_delay_minutes", 0) or 0)
+    since_open = minutes_since_open(now) if delay > 0 else None
+    if since_open is not None and since_open < delay:
+        return finish("AWAITING_MARKET", "the market opened %.0f minutes ago: spreads are widest and prices noisiest in the first %.0f, so the entry waits (retried every cycle)" % (max(0.0, since_open), delay))
     if not cfg["risk"].get("allow_add_to_position", False):
-        held = conn.execute("SELECT id,opened FROM positions WHERE ticker=? AND status='OPEN' ORDER BY id LIMIT 1", (t,)).fetchone()
+        held = conn.execute("SELECT id,opened FROM positions WHERE ticker=? AND status='OPEN' ORDER BY id LIMIT 1", (t,)).fetchone() \
+            or conn.execute("SELECT id,opened FROM option_positions WHERE underlying=? AND status='OPEN' ORDER BY id LIMIT 1", (t,)).fetchone()          # an open option on the stock is a position in it too
         if held:
             return finish("DUPLICATE", "already holding %s (position #%d, opened %s): a second position in the same stock would stack the same bet" % (t, held["id"], held["opened"][:16].replace("T", " ")))
     pt = pretrade.review(conn, cfg, c, reason["decided_at"], now, universe=universe)      # last look #1: later news / market shock (no price needed)
@@ -214,6 +252,12 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     if pt["action"] == "veto":
         return finish("VETOED", pt["reason"])
     reason["gates"].append("all gates passed")
+    opt = options.maybe_open(conn, cfg, c, f, q, did, fid, now, theme, comp, comp.get("sector") or "Unclassified", reason, eq["equity"], _set_decision)      # the strongest, shortest, most liquid ideas become a call or put
+    if opt:
+        opt["decision_id"] = did
+        return opt
+    if f["verdict"] == "SHORT" and not cfg["instruments"].get("shorts_enabled"):
+        return finish("REJECTED", "a bearish idea, but short selling is switched off and no put qualified (a put needs a strong, short-horizon edge in a liquid stock)")
     out = execute_buy(conn, cfg, c, f, sz, q, did, fid, now, theme, comp.get("sector") or "Unclassified", reason)
     out["decision_id"] = did
     if out.get("status") == "EXECUTED" and rt:

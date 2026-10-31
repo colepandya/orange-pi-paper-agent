@@ -152,8 +152,8 @@ class TestQuieterForecasts(TL.Base):
 
 
 class TestTheVersion(unittest.TestCase):
-    def test_the_version_is_s3(self):
-        self.assertEqual(stamp.STRATEGY_VERSION, "S3")
+    def test_the_version_has_moved_on_from_s3_and_the_s3_note_is_kept(self):
+        self.assertIn(stamp.STRATEGY_VERSION, ("S3", "S4"))
         with open(stamp.__file__) as fh:
             self.assertIn("opinion", fh.read())
 

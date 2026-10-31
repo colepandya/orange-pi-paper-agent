@@ -17,11 +17,11 @@ def cash_hurdle(horizon_days: int) -> float:
 def position_remaining(conn, h: dict, now=None) -> Optional[dict]:
     """Remaining expected value of an open position from its active plan, measured from the CURRENT price."""
     plan = conn.execute("SELECT * FROM position_forecast_plans WHERE position_id=? AND active=1 ORDER BY id DESC LIMIT 1", (h["position_id"],)).fetchone()
-    pos = conn.execute("SELECT entry_price,opened FROM positions WHERE id=?", (h["position_id"],)).fetchone()
+    pos = conn.execute("SELECT entry_price,opened,side FROM positions WHERE id=?", (h["position_id"],)).fetchone()
     if not plan or not pos or not h["price"]:
         return None
     entry = float(pos["entry_price"])
-    r = h["price"] / entry - 1
+    r = (-1 if (pos["side"] or "LONG") == "SHORT" else 1) * (h["price"] / entry - 1)                    # the position's own return (a short gains when the price falls); the plan's target and stop are in these terms
     T, S, p = float(plan["target_return"]), float(plan["stop_return"]), float(plan["target_probability"])
     rem = p * (T - r) + (1 - p) * (S - r)
     left = max(1, int(plan["max_hold_days"]) - trading_days_between(pos["opened"], now or utcnow()))

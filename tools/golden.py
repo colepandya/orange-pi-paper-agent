@@ -53,6 +53,17 @@ def owner_settings(cfg):
 
 
 # ------------------------------------------------------------------------------------------------------ helpers
+def legacy_mode(cfg):
+    """Build 39's new behaviour, all off: no shorts, no options, no relationship graph, the old (larger) edge claim, no opening delay, no correlation gate."""
+    cfg["instruments"]["shorts_enabled"] = False
+    cfg["instruments"]["options_enabled"] = False
+    cfg["graph"]["enabled"] = False
+    cfg["strategy"]["plan_consistent_ev"] = False
+    cfg["risk"]["open_delay_minutes"] = 0
+    cfg["risk"]["corr_block"] = 1.01
+    cfg["risk"]["corr_haircut_from"] = 1.0
+
+
 class Work:
     """A private copy of the database (never touches the original) plus a fresh default config."""
 
@@ -66,6 +77,8 @@ class Work:
         pi_baseline(self.cfg)
         if tweak:
             tweak(self.cfg)
+        if os.environ.get("GOLDEN_LEGACY"):
+            legacy_mode(self.cfg)                                               # every feature added after build 38 switched OFF: the behaviour must equal build 38's exactly
         watch = {r["ticker"]: {"name": r["name"] or r["ticker"], "sector": r["sector"]} for r in self.c.execute("select ticker,name,sector from companies")}
         self.uni = Universe(watch)
         self.px = {r["ticker"]: float(r["price"]) for r in self.c.execute("select ticker,price from quote_cache")}

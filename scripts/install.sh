@@ -125,6 +125,8 @@ rm -rf /opt/paper-agent/paper_agent /opt/paper-agent/scripts && cp -a "$R/paper_
 [[ -f /etc/paper-agent/config.json ]] || install -m0644 "$R/config/config.example.json" /etc/paper-agent/config.json
 [[ -f /etc/paper-agent/sources.json ]] && cp /etc/paper-agent/sources.json "$B/sources.json.old"
 install -m0644 "$R/config/sources.json" /etc/paper-agent/sources.json
+[[ -f /etc/paper-agent/relations.json ]] || install -m0644 "$R/config/relations.json" /etc/paper-agent/relations.json       # YOUR edits to the relationship map are kept; the shipped one is always alongside as relations.default.json
+install -m0644 "$R/config/relations.json" /etc/paper-agent/relations.default.json
 if [[ -f "$R/config/market-data.env" ]]; then
   [[ -f /etc/paper-agent/market-data.env ]] && cp /etc/paper-agent/market-data.env "$B/market-data.env.old"
   # MERGE (never overwrite): keys already on the Pi survive unless the repo supplies a non-empty value

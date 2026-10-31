@@ -35,7 +35,7 @@ def build(conn, cfg: dict, universe, srcs: List[dict], now, live: bool = True, f
     pre = preflight.run(conn, cfg, universe, srcs=srcs, live=live, check_units=check_units, now=now, fetch=fetch, fetch_json=fetch_json, out=pre_lines.append)
     fr = funnel.report(conn, 6, now, samples=1, cfg=cfg)
     since = iso(last_market_open(now))
-    opened = conn.execute("SELECT ticker,shares,entry_price,cost FROM positions WHERE opened>=? ORDER BY opened", (since,)).fetchall()
+    opened = conn.execute("SELECT ticker,shares,entry_price,cost,side FROM positions WHERE opened>=? ORDER BY opened", (since,)).fetchall()
     exits = conn.execute("SELECT ticker,review_code,pnl FROM positions WHERE closed>=? AND status='CLOSED' ORDER BY closed", (since,)).fetchall()
     holdings = conn.execute("SELECT COUNT(*) FROM positions WHERE status='OPEN'").fetchone()[0]
     eq = pf.equity_of(conn, now=now)
@@ -75,7 +75,7 @@ def build(conn, cfg: dict, universe, srcs: List[dict], now, live: bool = True, f
     if not failed and not problems:
         L += ["Nothing needs your attention.", ""]
     if opened:
-        L += ["OPENED THIS SESSION:"] + ["  %-6s %5d sh @ %9.2f  ($%s)" % (r["ticker"], r["shares"], r["entry_price"], format(round(r["cost"]), ",")) for r in opened[:30]] + [""]
+        L += ["OPENED THIS SESSION:"] + ["  %-6s %5d sh @ %9.2f  ($%s)%s" % (r["ticker"], r["shares"], r["entry_price"], format(round(r["cost"]), ","), "  SHORT" if r["side"] == "SHORT" else "") for r in opened[:30]] + [""]
     if exits:
         L += ["CLOSED THIS SESSION:"] + ["  %-6s %-22s P&L %+10.2f" % (r["ticker"], r["review_code"] or "?", r["pnl"] or 0) for r in exits[:30]] + [""]
     if waiting:

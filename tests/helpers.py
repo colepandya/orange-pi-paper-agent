@@ -88,6 +88,10 @@ def cfg():
     c["runtime"]["pause_file"] = "/nonexistent/pause"
     c["runtime"]["min_available_memory_mb"] = 0
     c["intelligence"]["allow_thesis_entries"] = False                      # the news-path tests must not be joined by thesis ideas: the thesis path has its own tests
+    c["instruments"]["shorts_enabled"] = False                                # the shared tests are about the long-only book; shorts, options and the graph have their own tests that switch them on
+    c["instruments"]["options_enabled"] = False
+    c["graph"]["enabled"] = False
+    c["risk"]["open_delay_minutes"] = 0
     c["runtime"]["fetch_workers"] = 1                                       # the shared tests assume one-after-another (call order); parallel behaviour has its own tests
     c["whatif"]["enabled"] = False                                          # the missed-trade engine fetches prices: its own tests switch it on with a fake fetcher
     c["reader"]["mode"] = "off"                                             # tests must never touch the network: the article reader has its own tests that switch it on with a fake fetcher

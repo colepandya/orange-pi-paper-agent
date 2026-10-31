@@ -41,7 +41,7 @@ def build(conn, cfg: dict, ticker: str, now=None) -> Optional[dict]:
         plan = conn.execute("SELECT * FROM position_forecast_plans WHERE position_id=? ORDER BY active DESC,id DESC LIMIT 1", (pos["id"],)).fetchone()
         q = quotes.valuation_price(conn, ticker, now)
         entry = float(pos["entry_price"])
-        d["position"] = {"id": pos["id"], "status": pos["status"], "opened": pos["opened"], "entry": entry, "price": q["price"] if q else None, "pnl_pct": (q["price"] / entry - 1) if q and entry else None,
+        d["position"] = {"id": pos["id"], "status": pos["status"], "opened": pos["opened"], "entry": entry, "price": q["price"] if q else None, "side": pos["side"] or "LONG", "pnl_pct": ((-1 if (pos["side"] or "LONG") == "SHORT" else 1) * (q["price"] / entry - 1)) if q and entry else None,
                          "shares": pos["shares"], "closed": pos["closed"], "exit_reason": pos["review_code"]}
         if plan:
             d["forecast"] = {"target_price": plan["target_price"], "stop_price": plan["stop_price"], "target_return": plan["target_return"], "stop_return": plan["stop_return"], "probability": plan["target_probability"],

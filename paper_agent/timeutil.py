@@ -186,6 +186,14 @@ def minutes_to_close(now: Optional[dt.datetime] = None) -> Optional[float]:
     return close - (n.hour * 60 + n.minute + n.second / 60.0)
 
 
+def minutes_since_open(now: Optional[dt.datetime] = None) -> Optional[float]:
+    """Minutes since the regular session opened (9:30 New York); None when it is not open."""
+    n = (now or utcnow()).astimezone(NY)
+    if not market_state(n)["execution"]:
+        return None
+    return (n.hour * 60 + n.minute + n.second / 60.0) - (9 * 60 + 30)
+
+
 def market_state(now: Optional[dt.datetime] = None) -> dict:
     """Return the US equity session and whether virtual execution is allowed."""
     n = (now or utcnow()).astimezone(NY)

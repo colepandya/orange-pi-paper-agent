@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 from . import db
 from .timeutil import iso, utcnow
 
-STRATEGY_VERSION = "S3"                    # S1 = builds 25-36: news + thesis ideas, swing exits, article reader, EV-based sizing. S2 = build 37: a shock hold needs a headline that names the shock, from distinct publishers. S3 = build 38: an article is only "opinion" on strong evidence (a Zacks "Rank" or a stray word no longer cancels a trade); FFO is read as REIT earnings; "a quarter ago" is history
+STRATEGY_VERSION = "S4"                    # S1 = builds 25-36: news + thesis ideas, swing exits, article reader, EV-based sizing. S2 = build 37: a shock hold needs a headline that names the shock, from distinct publishers. S3 = build 38: an article is only "opinion" on strong evidence (a Zacks "Rank" or a stray word no longer cancels a trade); FFO is read as REIT earnings; "a quarter ago" is history. S4 = build 39: bearish ideas can be SHORTED and strong short-horizon ideas bought as CALLS / PUTS (model-priced); the edge is what the exit plan can collect (not the old, larger claim); a relationship graph spreads events to suppliers / customers / competitors / peers; correlated holdings are one bet; entries wait 10 minutes after the open
 HISTORY_KEY = "strategy_history"
 SNAPSHOT_KEY = "strategy_snapshot"
 MAX_HISTORY = 200

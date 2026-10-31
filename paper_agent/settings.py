@@ -124,6 +124,33 @@ FIELDS: List[Field] = [
     F("whatif.max_symbols_per_cycle", "Stocks whose prices are fetched per cycle", "int", "Missed-trade analysis", 0, 60, "The price source allows about 30 requests a minute; the rest wait for the next cycle."),
     F("whatif.time_budget_seconds", "Time budget per run (seconds)", "int", "Missed-trade analysis", 5, 200, "Fetching and simulating stop when this is used up, so it can never delay trading."),
     F("runtime.fetch_workers", "Network requests in flight at once (1 = one after another)", "int", "Refresh times", 1, 12, "Feeds, article pages and prices are fetched side by side, at most 2 per server. Only waiting is shared: everything that decides or writes still happens one step at a time in a fixed order, so the results are the same either way. 1 restores the old behaviour."),
+    F("strategy.plan_consistent_ev", "Judge ideas by what their exit plan can actually collect", "bool", "Swing strategy", help="The old forecast could claim a +6% edge for a plan that sells at +4%. On: the expected value is computed with the gains capped at the plan's target and the losses at its stop (a gap allowance beyond it), so ideas, sizes and rankings reflect what the plan can really earn."),
+    F("strategy.plan_gap_allowance", "Plan-consistent edge: allow stops to slip by", "float", "Swing strategy", 0.0, 2.0, "A stop does not always fill at its price. 0.5 = a stopped trade is assumed to lose up to 1.5x the planned stop when the edge is computed."),
+    F("risk.open_delay_minutes", "Wait this long after the open before entering", "int", "Risk limits", 0, 60, "The first minutes have the widest spreads and the noisiest prices; both early losses were entered one minute after the open. 0 = enter immediately."),
+    F("risk.corr_haircut_from", "Shrink a new position that moves with one you hold, above this correlation", "float", "Risk limits", 0.3, 0.95, "Two stocks that move together are one bet. Above this 60-day correlation with a holding on the SAME side, the new position is made smaller."),
+    F("risk.corr_block", "Refuse a new position this correlated with one you hold", "float", "Risk limits", 0.7, 0.99, "At or above this correlation with a same-side holding the idea is turned down as a duplicate bet."),
+    F("instruments.shorts_enabled", "Trade the bearish side too (short selling)", "bool", "Instruments", help="Bearish ideas open paper SHORT positions: the stop sits above, the target below, you pay a borrow fee, and collateral is set aside. Off = long-only, as before."),
+    F("instruments.short_max_gross_pct", "Short exposure: at most", "pct", "Instruments", 0.0, 0.6, "Total value of short positions as a share of equity."),
+    F("instruments.short_size_mult", "Shorts are sized at this share of an equal long", "float", "Instruments", 0.1, 1.0, "A short can lose more than it risks if a stock gaps up, so it starts smaller."),
+    F("instruments.short_min_price", "Never short a stock under ($)", "float", "Instruments", 1.0, 100.0, "Cheap stocks are hard to borrow and squeeze violently."),
+    F("instruments.short_min_market_cap", "Never short a company smaller than ($)", "float", "Instruments", 1e8, 1e11, "Small companies are hard to borrow."),
+    F("instruments.short_min_adv_usd", "Never short a stock trading less than ($ a day)", "float", "Instruments", 1e6, 1e9, "Liquidity: you must be able to buy it back in a hurry."),
+    F("instruments.short_squeeze_5d_pct", "Never short a stock that has already risen this much in 5 days", "pct", "Instruments", 0.05, 1.0, "A stock in a runaway rally is the classic short squeeze."),
+    F("instruments.short_borrow_fee_pct", "Borrow fee on shorts (% a year)", "float", "Instruments", 0.0, 20.0, "Charged daily on the value of each short."),
+    F("instruments.short_collateral_pct", "Cash held back for each short (x its value)", "float", "Instruments", 1.0, 2.0, "Short proceeds cannot be spent; this share of the position's value is reserved, as at a broker."),
+    F("instruments.options_enabled", "Trade calls and puts (paper, MODEL-priced)", "bool", "Instruments", help="The strongest short-horizon ideas may be expressed as a bought call (bullish) or put (bearish). There is NO options data feed: prices come from a Black-Scholes model with a volatility estimate, a spread and a commission, so treat the results as an experiment, not a verified track record."),
+    F("instruments.options_max_premium_pct", "Options: all premiums together at most", "pct", "Instruments", 0.0, 0.2, "A bought option can lose its whole premium, so this is the most the sleeve can lose."),
+    F("instruments.options_per_trade_pct", "Options: premium per trade at most", "pct", "Instruments", 0.001, 0.05, "Share of equity spent on one option."),
+    F("instruments.options_min_ev", "Options: only for ideas with an edge of at least", "pct", "Instruments", 0.01, 0.2, "Options decay every day, so only the strongest, shortest-horizon ideas qualify."),
+    F("instruments.options_max_horizon_days", "Options: only for catalysts that work within (sessions)", "int", "Instruments", 1, 15, "Time decay punishes slow ideas."),
+    F("instruments.options_min_dte", "Options: buy contracts with at least this many days left", "int", "Instruments", 7, 90, "More time = less decay per day."),
+    F("instruments.options_exit_dte", "Options: close when this few days remain", "int", "Instruments", 1, 14, "Avoids the last days where time decay is fastest."),
+    F("instruments.options_stop_loss_pct", "Options: cut the loss at this fall in the premium", "pct", "Instruments", 0.2, 0.9, "A stop on the option's own price."),
+    F("instruments.options_target_pct", "Options: take the profit at this gain in the premium", "pct", "Instruments", 0.2, 3.0, "1.0 = sell at double."),
+    F("graph.enabled", "Spread an event to the company's suppliers, customers, competitors and peers", "bool", "Relationship graph", help="A big event at one company becomes a smaller, discounted idea at the companies it affects (a customer's guidance cut hurts its suppliers; a rival's recall helps competitors). Uses a built-in relationship map plus how stocks actually move together. No LLM."),
+    F("graph.max_derived_per_event", "Related ideas per event: at most", "int", "Relationship graph", 1, 10, "Keeps one headline from creating a crowd of trades."),
+    F("graph.min_event_magnitude", "Only events at least this big spread", "float", "Relationship graph", 0.2, 1.0, "Small news does not move a supply chain."),
+    F("graph.derived_discount", "A related idea is this share as strong as the original", "float", "Relationship graph", 0.2, 1.0, "Second-order effects are weaker and less certain."),
     F("reader.mode", "Read the full article (no LLM)", "choice", "Article reader", choices=["off", "shadow", "guard", "full"], help="off: headlines + snippets only. shadow: read articles and record what they say, change nothing. guard (recommended start): the article can CANCEL or WEAKEN a candidate (wrong company, old news, opinion, contradicts the headline) but never create or enlarge one. full: also lets the article confirm, strengthen, or rescue a candidate whose headline was too vague (e.g. 'X reports results')."),
     F("reader.max_per_cycle", "Articles to download per cycle", "int", "Article reader", 0, 40, "The best-ranked news items are read first; the rest use the feed's snippet. Each download is capped at 1.5 MB."),
     F("reader.time_budget_seconds", "Time budget for reading articles per cycle (seconds)", "int", "Article reader", 5, 120, "Reading stops when this is used up, so it can never delay trading."),
@@ -139,7 +166,7 @@ FIELDS: List[Field] = [
     F("runtime.bind_port", "Dashboard port", "int", "System", 1024, 65535, "Takes effect after restarting the dashboard.", restart="dashboard"),
 ]
 BY_NAME = {f.name: f for f in FIELDS}
-GROUP_ORDER = ["Risk limits", "Swing strategy", "Execution", "Refresh times", "LLM analyst", "Article reader", "Missed-trade analysis", "Database", "System"]
+GROUP_ORDER = ["Risk limits", "Swing strategy", "Instruments", "Relationship graph", "Execution", "Refresh times", "LLM analyst", "Article reader", "Missed-trade analysis", "Database", "System"]
 TIERS = ("triage", "analyst")
 PROVIDERS = ("anthropic", "github")
 MODEL_RX = re.compile(r"^[A-Za-z0-9._:/-]{3,80}$")

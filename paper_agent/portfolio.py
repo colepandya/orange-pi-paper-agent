@@ -13,6 +13,23 @@ CYCLICAL = {"Materials", "Industrials", "Energy", "Consumer Discretionary", "Sem
 DEFENSIVE = {"Consumer Staples", "Utilities", "Healthcare"}
 
 
+def sign_of(side) -> int:
+    """+1 for a long, -1 for a short: multiply a price change by this to get the POSITION's return."""
+    return -1 if str(side or "LONG").upper() == "SHORT" else 1
+
+
+def short_reserve(hs: List[dict], cfg: dict) -> float:
+    """Cash held back against open shorts. Short proceeds are credited to cash, but they are not yours to spend: a broker holds them as collateral and wants a margin on top."""
+    coll = float(((cfg or {}).get("instruments") or {}).get("short_collateral_pct", 1.5))
+    return coll * sum(abs(h["value"]) for h in hs if h.get("side") == "SHORT")
+
+
+def option_value(conn) -> float:
+    """What the open options are worth at their last marks (a bought option is worth its premium at most as a loss, but it is an asset until closed)."""
+    r = conn.execute("SELECT SUM(COALESCE(last_mark, entry_premium) * contracts * multiplier) FROM option_positions WHERE status='OPEN'").fetchone()
+    return float(r[0] or 0.0)
+
+
 def holdings(conn, now=None) -> List[dict]:
     out = []
     for p in conn.execute("SELECT p.*,l.remaining_shares,l.remaining_cost,l.phase FROM positions p LEFT JOIN position_lifecycle l ON l.position_id=p.id WHERE p.status='OPEN'"):
@@ -22,7 +39,10 @@ def holdings(conn, now=None) -> List[dict]:
         px = q["price"] if q else (cost / shares if shares else 0.0)
         c = conn.execute("SELECT * FROM companies WHERE ticker=?", (p["ticker"],)).fetchone()
         tk = conn.execute("SELECT thesis_key FROM thesis_companies WHERE ticker=? LIMIT 1", (p["ticker"],)).fetchone()
-        out.append({"position_id": p["id"], "ticker": p["ticker"], "shares": shares, "cost": cost, "price": px, "value": shares * px, "price_source": q["source"] if q else "COST",
+        sg = sign_of(p["side"])
+        out.append({"position_id": p["id"], "ticker": p["ticker"], "side": "SHORT" if sg < 0 else "LONG", "shares": shares, "cost": cost, "price": px,
+                    "value": sg * shares * px,                                       # a short is a LIABILITY: negative, so cash + sum(value) is still the equity
+                    "unrealized": sg * (shares * px - cost), "price_source": q["source"] if q else "COST",
                     "price_age": q["age_seconds"] if q else None, "sector": (c["sector"] if c and c["sector"] else p["sector"] or "Unclassified"), "country": c["country"] if c and c["country"] else "US",
                     "currency": c["currency"] if c and c["currency"] else "USD", "beta": (c["beta"] if c and c["beta"] is not None else 1.0), "adv_usd": c["adv_usd"] if c else None,
                     "market_cap": c["market_cap"] if c else None, "industry": (c["industry"] or "") if c else "", "dna": c["dna"] if c else None,
@@ -34,13 +54,18 @@ def equity_of(conn, hs: Optional[List[dict]] = None, now=None) -> dict:
     hs = holdings(conn, now) if hs is None else hs
     c = db.cash(conn)
     mv = sum(h["value"] for h in hs)
-    return {"cash": c, "market_value": mv, "equity": c + mv, "gross": mv / (c + mv) if c + mv > 0 else 0.0, "cost": sum(h["cost"] for h in hs)}
+    opt = option_value(conn)
+    eq = c + mv + opt
+    longs = sum(h["value"] for h in hs if h["value"] > 0)
+    shorts = -sum(h["value"] for h in hs if h["value"] < 0)
+    return {"cash": c, "market_value": mv, "equity": eq, "gross": (longs + shorts) / eq if eq > 0 else 0.0, "net": mv / eq if eq > 0 else 0.0, "long_value": longs, "short_value": shorts,
+            "option_value": opt, "cost": sum(h["cost"] for h in hs)}
 
 
 def exposures(hs: List[dict], equity: float) -> Dict[str, Dict[str, float]]:
     dims = {"sector": {}, "theme": {}, "country": {}, "currency": {}, "liquidity": {}, "factor": {}, "issuer": {}}
     for h in hs:
-        w = h["value"] / equity if equity else 0
+        w = abs(h["value"]) / equity if equity else 0                             # exposure is how much is at risk in a group, whichever way it points (net is reported separately)
         for dim, key in (("sector", h["sector"]), ("theme", h["thesis_key"] or "none"), ("country", h["country"]), ("currency", h["currency"]), ("issuer", h["ticker"])):
             dims[dim][key] = dims[dim].get(key, 0.0) + w
         adv = h["adv_usd"]
@@ -95,10 +120,10 @@ def scenario_probabilities(conn, regime: dict) -> Dict[str, float]:
             "credit_crisis": 0.30 * tp("credit_stress", 0.15)}
 
 
-def stress(hs: List[dict], equity: float, cfg: dict, probs: Dict[str, float]) -> dict:
+def stress(hs: List[dict], equity: float, cfg: dict, probs: Dict[str, float], option_value_now: float = 0.0) -> dict:
     res = {}
     for s in SCENARIOS:
-        loss = sum(h["value"] * _shock(h, s) for h in hs) / equity if equity else 0.0
+        loss = (sum(h["value"] * _shock(h, s) for h in hs) - option_value_now) / equity if equity else 0.0     # shorts are negative, so a crash is a GAIN for them; open options are assumed worthless in every stress
         res[s] = {"name": SCENARIO_NAMES[s], "pnl_pct": loss, "p": probs.get(s, 0.0)}
     worst = min((v["pnl_pct"] for v in res.values()), default=0.0)
     ruin = float(cfg["risk"]["ruin_loss_pct"])
@@ -106,6 +131,33 @@ def stress(hs: List[dict], equity: float, cfg: dict, probs: Dict[str, float]) ->
     survival = max(0.0, 1.0 - p_ruin)
     recovery = (math.log(1 / (1 + worst)) / math.log(1.08)) * 365 if worst < 0 else 0.0
     return {"scenarios": res, "worst_loss": -worst if worst < 0 else 0.0, "survival_probability": survival, "recovery_days": recovery, "ruin_threshold": ruin}
+
+
+def accrue_borrow_fees(conn, cfg: dict, hs: List[dict], now=None) -> dict:
+    """Charge the borrow fee on every open short, at most once a day each (a ledger row, so it is auditable and idempotent): value x annual rate x days held since the last charge / 365."""
+    from .timeutil import parse_ts
+    now = now or utcnow()
+    rate = float(((cfg or {}).get("instruments") or {}).get("short_borrow_fee_pct", 0.5)) / 100.0
+    charged, total = 0, 0.0
+    if rate <= 0:
+        return {"charged": 0, "total": 0.0}
+    for h in hs:
+        if h.get("side") != "SHORT":
+            continue
+        last = conn.execute("SELECT MAX(created) FROM ledger WHERE kind='SHORT_BORROW_FEE' AND ref=?", ("fee:%d" % h["position_id"],)).fetchone()[0]
+        since = parse_ts(last) if last else parse_ts(h["opened"])
+        days = (now - since).total_seconds() / 86400.0 if since else 0.0
+        if days < 0.9:
+            continue
+        fee = round(abs(h["value"]) * rate * days / 365.0, 2)
+        if fee < 0.01:
+            continue
+        with db.tx(conn):
+            cash = db.cash(conn)
+            conn.execute("INSERT INTO ledger(created,kind,amount,ref,balance) VALUES(?,?,?,?,?)", (iso(now), "SHORT_BORROW_FEE", -fee, "fee:%d" % h["position_id"], round(cash - fee, 2)))
+        charged += 1
+        total += fee
+    return {"charged": charged, "total": round(total, 2)}
 
 
 def drawdown(conn, equity_now: float) -> float:
@@ -125,7 +177,7 @@ def snapshot(conn, cfg: dict, regime: dict, now=None) -> dict:
     hs = holdings(conn, now)
     eq = equity_of(conn, hs, now)
     ex = exposures(hs, eq["equity"])
-    st = stress(hs, eq["equity"], cfg, scenario_probabilities(conn, regime))
+    st = stress(hs, eq["equity"], cfg, scenario_probabilities(conn, regime), eq.get("option_value", 0.0))
     dd = drawdown(conn, eq["equity"])
     conn.execute("INSERT INTO portfolio_snapshots(ts,equity,cash,gross,drawdown,regime,survival_probability,max_stress_loss,recovery_days,exposures_json,stress_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                  (iso(now), eq["equity"], eq["cash"], eq["gross"], dd, regime.get("regime"), st["survival_probability"], st["worst_loss"], st["recovery_days"], json.dumps(ex, sort_keys=True), json.dumps(st, sort_keys=True)))

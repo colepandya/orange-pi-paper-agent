@@ -148,6 +148,28 @@ def price_label(source: str, age_seconds) -> str:
     return "%s, %s" % (what, "just now" if m < 2 else ("%d min ago" % m if m < 120 else "%.0fh ago" % (m / 60)))
 
 
+def options_section(c, now) -> str:
+    """Open and recent options. Every price here is the MODEL's (there is no options data feed): the heading says so."""
+    op = c.execute("SELECT * FROM option_positions WHERE status='OPEN' ORDER BY id").fetchall()
+    cl = c.execute("SELECT * FROM option_positions WHERE status='CLOSED' ORDER BY id DESC LIMIT 15").fetchall()
+    if not op and not cl:
+        return ""
+    rows = []
+    for o in op:
+        value = float(o["last_mark"] or o["entry_premium"]) * o["contracts"] * o["multiplier"]
+        pnl = value - float(o["cost"])
+        days = (dt.date.fromisoformat(o["expiry"]) - now.date()).days
+        rows.append([o["underlying"], o["kind"], "%.2f" % o["strike"], "%s (%dd)" % (o["expiry"][5:], days), o["contracts"], money(o["cost"]), money(value),
+                     Raw('<span class=%s>%s (%s)</span>' % (cls(pnl), money(pnl), pct(pnl / o["cost"] if o["cost"] else 0))), "%.2f / %.2f" % (o["stop_underlying"], o["target_underlying"]), (o["note"] or "")[:90]])
+    out = "<h2>Options (model-priced)</h2><p class=mut>There is no options data feed: these prices come from a Black-Scholes model with a volatility estimate, a spread and a commission, so they are an experiment, not a verified track record. The most a bought option can lose is its premium.</p>"
+    out += table(["Stock", "Type", "Strike", "Expires", "Contracts", "Paid", "Worth now", "P&L", "Stock stop / target", "Why"], rows) if rows else "<p class=mut>No open options.</p>"
+    if cl:
+        out += "<h3>Closed options</h3>" + table(["Stock", "Type", "Strike", "Opened", "Closed", "Paid", "Back", "P&L", "Exit reason"],
+               [[o["underlying"], o["kind"], "%.2f" % o["strike"], to_nz(o["opened"], "%d %b"), to_nz(o["closed"], "%d %b"), money(o["cost"]), "%.2f" % (o["exit_premium"] or 0),
+                 Raw('<span class=%s>%s</span>' % (cls(o["pnl"] or 0), money(o["pnl"] or 0))), (o["review_code"] or "").replace("_", " ").lower()] for o in cl])
+    return out
+
+
 def page_positions(c, cfg, s):
     rows = []
     for h in s["hs"]:
@@ -155,12 +177,13 @@ def page_positions(c, cfg, s):
         plan = c.execute("SELECT * FROM position_forecast_plans WHERE position_id=? AND active=1 ORDER BY id DESC LIMIT 1", (h["position_id"],)).fetchone()
         ph = c.execute("SELECT * FROM position_health WHERE position_id=? ORDER BY id DESC LIMIT 1", (h["position_id"],)).fetchone()
         sig = [r[0] for r in c.execute("SELECT trigger FROM exit_signals WHERE position_id=? AND status='OPEN'", (h["position_id"],))]
-        unreal = h["value"] - h["cost"]
-        rows.append([h["ticker"], h["phase"], "%.0f" % h["shares"], "%.2f" % p["entry_price"], "%.2f (%s)" % (h["price"], price_label(h["price_source"], h.get("price_age"))), Raw('<span class=%s>%s (%s)</span>' % (cls(unreal), money(unreal), pct(unreal / h["cost"] if h["cost"] else 0))),
+        unreal = h["unrealized"]                                                       # a short gains when the price FALLS; the holdings carry the right sign
+        rows.append([h["ticker"] + (" (SHORT)" if h.get("side") == "SHORT" else ""), h["phase"], "%.0f" % h["shares"], "%.2f" % p["entry_price"], "%.2f (%s)" % (h["price"], price_label(h["price_source"], h.get("price_age"))), Raw('<span class=%s>%s (%s)</span>' % (cls(unreal), money(unreal), pct(unreal / h["cost"] if h["cost"] else 0))),
                      h["thesis_key"] or "", "%.0f" % ph["health"] if ph else "n/a", ("%+.1f%% / %+.1f%% / %dd" % (plan["target_return"] * 100, plan["stop_return"] * 100, plan["max_hold_days"])) if plan else "no plan", ", ".join(sig) or "-", to_nz(p["opened"], "%d %b")])
     out = [table(["Ticker", "Phase", "Shares", "Entry", "Price", "Unrealised", "Thesis", "Health", "Target/Stop/Hold", "Signals", "Opened"], rows)]
-    cl = c.execute("SELECT ticker,opened,closed,entry_price,exit_price,pnl,review_code FROM positions WHERE status='CLOSED' ORDER BY id DESC LIMIT 25").fetchall()
-    out.append("<h2>Closed positions</h2>" + table(["Ticker", "Opened", "Closed", "Entry", "Exit", "P&L", "Exit reason"], [[r["ticker"], to_nz(r["opened"], "%d %b"), to_nz(r["closed"], "%d %b"), "%.2f" % r["entry_price"], "%.2f" % (r["exit_price"] or 0), Raw('<span class=%s>%s</span>' % (cls(r["pnl"]), money(r["pnl"]))), r["review_code"]] for r in cl]))
+    cl = c.execute("SELECT ticker,side,opened,closed,entry_price,exit_price,pnl,review_code FROM positions WHERE status='CLOSED' ORDER BY id DESC LIMIT 25").fetchall()
+    out.append("<h2>Closed positions</h2>" + table(["Ticker", "Opened", "Closed", "Entry", "Exit", "P&L", "Exit reason"], [[r["ticker"] + (" (SHORT)" if r["side"] == "SHORT" else ""), to_nz(r["opened"], "%d %b"), to_nz(r["closed"], "%d %b"), "%.2f" % r["entry_price"], "%.2f" % (r["exit_price"] or 0), Raw('<span class=%s>%s</span>' % (cls(r["pnl"]), money(r["pnl"]))), r["review_code"]] for r in cl]))
+    out.append(options_section(c, s["now"]))
     return "".join(out)
 
 
@@ -255,12 +278,14 @@ def page_decisions(c, cfg, s, q):
     org = (q.get("origin") or [""])[0]
     if org == "thesis":
         sql += " AND origin='thesis'"
+    elif org == "graph":
+        sql += " AND origin='graph'"
     elif org == "news":
-        sql += " AND (origin IS NULL OR origin!='thesis')"
+        sql += " AND (origin IS NULL OR origin NOT IN ('thesis','graph'))"
     rows = c.execute(sql + " ORDER BY id DESC LIMIT 120", args).fetchall()
     stats = [r[0] for r in c.execute("SELECT DISTINCT status FROM decisions")]
     out = ["<form>Status <select name=status><option value=''>all</option>%s</select> Ticker <input name=ticker value='%s' size=6><input type=hidden name=tab value=decisions><button>Filter</button></form>" % ("".join("<option%s>%s</option>" % (" selected" if x == st else "", E(x)) for x in stats), E(tk))]
-    out.append("<p class=mut>Idea from: %s</p>" % " | ".join(("<b>%s</b>" % lab) if org == key else "<a href='?tab=decisions&origin=%s'>%s</a>" % (key, lab) for key, lab in (("", "all"), ("news", "news stories"), ("thesis", "thesis ideas (no news)"))))
+    out.append("<p class=mut>Idea from: %s</p>" % " | ".join(("<b>%s</b>" % lab) if org == key else "<a href='?tab=decisions&origin=%s'>%s</a>" % (key, lab) for key, lab in (("", "all"), ("news", "news stories"), ("graph", "related companies"), ("thesis", "thesis ideas (no news)"))))
     body = []
     for r in rows:
         try:
@@ -274,7 +299,7 @@ def page_decisions(c, cfg, s, q):
             plain = "(could not summarise: %s)" % type(e).__name__
         waiting = "<br><span class=mut style='font-size:12px'>%s</span>" % E(plain[:200])
         det = "<a href='?tab=decisions&id=%d'>Why? &rarr;</a>" % r["id"]
-        body.append([to_nz(r["created"], "%d %b %H:%M"), r["ticker"], Raw(E(r["status"]) + waiting), "thesis idea" if r["origin"] == "thesis" else "news", r["action"], "%.0f" % (r["score"] or 0), pct(r["ev_net"], 2), r["thesis_key"] or "", money(r["amount"]) if r["amount"] else "-", Raw(det)])
+        body.append([to_nz(r["created"], "%d %b %H:%M"), r["ticker"], Raw(E(r["status"]) + waiting), "thesis idea" if r["origin"] == "thesis" else "related company" if r["origin"] == "graph" else "news", r["action"], "%.0f" % (r["score"] or 0), pct(r["ev_net"], 2), r["thesis_key"] or "", money(r["amount"]) if r["amount"] else "-", Raw(det)])
     out.append(table(["Time", "Ticker", "Status", "From", "Action", "Elig.", "EV net", "Thesis", "Amount", "Why"], body))
     return "".join(out)
 
@@ -299,9 +324,14 @@ def page_performance(c, cfg, s, q):
              card("Win rate", pct(sm["win_rate"], 0) if sm["win_rate"] is not None else "n/a"), card("Profit factor", ("%.2f" % pf if pf not in (None, math.inf) else ("no losses" if pf else "n/a"))),
              card("Average trade", "%s (%s)" % (pct(sm["expectancy_pct"], 2) if sm["expectancy_pct"] is not None else "n/a", money(sm["expectancy_usd"]) if sm["expectancy_usd"] is not None else "n/a"), cls(sm["expectancy_pct"] or 0)),
              card("Average win / loss", "%s / %s" % (pct(sm["avg_win_pct"], 2) if sm["avg_win_pct"] is not None else "n/a", pct(sm["avg_loss_pct"], 2) if sm["avg_loss_pct"] is not None else "n/a")),
-             card("Average hold", ("%.1f h" % sm["avg_hold_hours"]) if sm["avg_hold_hours"] is not None else "n/a"), card("Unrealised (open now)", money(sum(h["value"] - h["cost"] for h in s["hs"])), cls(sum(h["value"] - h["cost"] for h in s["hs"]))), '</div>']
+             card("Average hold", ("%.1f h" % sm["avg_hold_hours"]) if sm["avg_hold_hours"] is not None else "n/a"), card("Unrealised (open now)", money(sum(h["unrealized"] for h in s["hs"])), cls(sum(h["unrealized"] for h in s["hs"]))), '</div>']
     vcls = {"good": "ok", "marginal": "warn", "bad": "bad", "early": "mut"}[vd["level"]]
     out = ["<p>Window: %s</p>" % sel] + cards + ["<h2 class=%s>%s</h2><ul>%s</ul>" % (vcls, E(vd["headline"]), "".join("<li>%s</li>" % E(p) for p in vd["points"]))]
+    bi = performance.by_instrument(c, cutoff)
+    ib = [[r["label"], r["n"], (pct(r["win_rate"], 0) if r["win_rate"] is not None else "-"), Raw('<span class=%s>%s</span>' % (cls(r["pnl"]), money(r["pnl"]))), (pct(r["avg_ret"], 2) if r["avg_ret"] is not None else "-"),
+           ("%.1f h" % r["avg_hold_h"]) if r["avg_hold_h"] is not None else "-"] for r in bi["rows"] if r["n"]]
+    out.append("<h2>By instrument</h2>" + (table(["Instrument", "Trades", "Won", "P&L", "Average trade", "Average hold"], ib) if ib else "<p class=mut>No closed trades in this period.</p>")
+               + "<p class=mut>Short borrow fees paid: %s (charged daily on each short; not included in the P&amp;L above). Options are priced by a model, not a market: treat their row as an experiment. Read a row only once it has about 20 trades.</p>" % money(bi["borrow_fees"]))
     out.append("<h2>Cumulative realized P&L (trade by trade)</h2>" + performance.svg_line(performance.cumulative(tr)))
     dayrows = performance.by_day(tr)
     out.append("<h2>Daily realized P&L</h2>" + performance.svg_bars([r["pnl"] for r in dayrows]))

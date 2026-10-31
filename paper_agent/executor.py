@@ -19,6 +19,14 @@ def action_id(position: int, plan: int, trigger: str, phase: str, shares: float)
     return hashlib.sha256(("%s:%s:%s:%s:%.8f" % (position, plan, trigger, phase, float(shares))).encode()).hexdigest()
 
 
+def sg_of(p) -> float:
+    """+1 for a long position, -1 for a short: price moves times this = the position's own return."""
+    try:
+        return -1.0 if (p["side"] or "LONG") == "SHORT" else 1.0
+    except (KeyError, IndexError, TypeError):
+        return 1.0
+
+
 def swing_cap(cfg: Optional[dict], days: int) -> int:
     """Swing mode: no plan (runner, extension) may keep a position longer than the maximum hold plus ONE session."""
     sw = (cfg or {}).get("strategy") or {}
@@ -33,18 +41,25 @@ def ratchet_stop(conn, p, plan, price: float, cfg: dict, now) -> float:
     if not sw.get("swing_enabled"):
         return stop
     entry = float(p["entry_price"])
+    sg = sg_of(p)
     row = conn.execute("SELECT high_water FROM position_lifecycle WHERE position_id=?", (p["id"],)).fetchone()
-    hw = max(float(row[0]) if row and row[0] else entry, price)
-    if row and (row[0] is None or hw > float(row[0])):
+    start = float(row[0]) if row and row[0] else entry
+    hw = max(start, price) if sg > 0 else min(start, price)                            # the best price so far in the position's favour: the high for a long, the LOW for a short
+    if row and (row[0] is None or (hw > float(row[0]) if sg > 0 else hw < float(row[0]))):
         conn.execute("UPDATE position_lifecycle SET high_water=? WHERE position_id=?", (hw, p["id"]))
-    if hw / entry - 1.0 < float(sw["breakeven_trigger_pct"]):
+    if sg * (hw / entry - 1.0) < float(sw["breakeven_trigger_pct"]):
         return stop
-    new = max(stop, entry * (1.0 + float(sw["breakeven_lock_pct"])), hw * (1.0 - float(sw["trail_pct"])))
-    if new > stop + 1e-9:
-        conn.execute("UPDATE position_forecast_plans SET stop_price=?,stop_return=? WHERE id=?", (new, new / entry - 1.0, plan["id"]))
+    if sg > 0:
+        new = max(stop, entry * (1.0 + float(sw["breakeven_lock_pct"])), hw * (1.0 - float(sw["trail_pct"])))
+        moved = new > stop + 1e-9
+    else:
+        new = min(stop, entry * (1.0 - float(sw["breakeven_lock_pct"])), hw * (1.0 + float(sw["trail_pct"])))      # a short's stop sits above the price and only ever moves DOWN
+        moved = new < stop - 1e-9
+    if moved:
+        conn.execute("UPDATE position_forecast_plans SET stop_price=?,stop_return=? WHERE id=?", (new, sg * (new / entry - 1.0), plan["id"]))
         revisions.record(conn, now, "position", str(p["id"]), p["ticker"], "stop_price", stop, new,
-                         "Swing protection: the price reached %.2f (+%.2f%% from entry %.2f), so the stop moved up to %.2f (locks in %+.2f%%)." % (hw, (hw / entry - 1) * 100, entry, new, (new / entry - 1) * 100))
-    return max(stop, new)
+                         "Swing protection: the price reached %.2f (%+.2f%% in the position's favour from entry %.2f), so the stop moved %s to %.2f (locks in %+.2f%%)." % (hw, sg * (hw / entry - 1) * 100, entry, "up" if sg > 0 else "down", new, sg * (new / entry - 1) * 100))
+    return max(stop, new) if sg > 0 else min(stop, new)
 
 
 def choose_trigger(conn, p, plan, q: dict, held: int, phase: str, cfg: Optional[dict] = None, now=None) -> tuple:
@@ -63,10 +78,11 @@ def choose_trigger(conn, p, plan, q: dict, held: int, phase: str, cfg: Optional[
                 return "EARNINGS_AHEAD", "earnings report %s would hit while holding overnight; a swing stop cannot protect against that gap" % er["label"], None
         if sw.get("swing_enabled") and sw.get("flatten_at_close") and mtc is not None and mtc <= float(sw["flatten_minutes_before_close"]):
             return "EOD_FLATTEN", "day-trade mode: %.0f minutes to the close, not holding overnight" % mtc, None
-    if price <= stop:
-        return ("RUNNER_STOP" if phase == "RUNNER_OPEN" else "STOP_REACHED"), "price %.4f <= stop %.4f" % (price, stop), None
-    if price >= target:
-        return ("RUNNER_TARGET" if phase == "RUNNER_OPEN" else "TARGET_REACHED"), "price %.4f >= target %.4f" % (price, target), None
+    short = sg_of(p) < 0
+    if (price >= stop) if short else (price <= stop):
+        return ("RUNNER_STOP" if phase == "RUNNER_OPEN" else "STOP_REACHED"), "price %.4f %s stop %.4f" % (price, ">=" if short else "<=", stop), None
+    if (price <= target) if short else (price >= target):
+        return ("RUNNER_TARGET" if phase == "RUNNER_OPEN" else "TARGET_REACHED"), "price %.4f %s target %.4f" % (price, "<=" if short else ">=", target), None
     if held >= int(plan["max_hold_days"]):
         return ("RUNNER_TIME" if phase == "RUNNER_OPEN" else "TIME_EXPIRED"), "held %d sessions >= maximum %d" % (held, plan["max_hold_days"]), None
     return None, "no trigger", None
@@ -77,7 +93,7 @@ def rapid_reforecast(conn, p, plan, q: dict, held: int, now, cfg: Optional[dict]
         return None
     if conn.execute("SELECT 1 FROM target_reforecasts WHERE position_id=? AND prior_plan_id=?", (p["id"], plan["id"])).fetchone():
         return None
-    observed = q["price"] / float(p["entry_price"]) - 1
+    observed = sg_of(p) * (q["price"] / float(p["entry_price"]) - 1)                         # the position's own return
     velocity = observed / max(0.001, float(plan["target_return"]))
     remaining_bull = float(plan["bull_return"]) - observed
     adverse = conn.execute("SELECT 1 FROM exit_signals WHERE position_id=? AND status='OPEN'", (p["id"],)).fetchone()
@@ -90,7 +106,7 @@ def rapid_reforecast(conn, p, plan, q: dict, held: int, now, cfg: Optional[dict]
         entry = float(p["entry_price"])
         cols = [c[1] for c in conn.execute("PRAGMA table_info(position_forecast_plans)")]
         vals = dict(plan)
-        vals.update(created=iso(now), plan_version=VERSION, active=1, target_return=ext, target_price=entry * (1 + ext), max_hold_days=days, estimated_exit=iso(add_trading_days(p["opened"], days)), rationale=reason)
+        vals.update(created=iso(now), plan_version=VERSION, active=1, target_return=ext, target_price=entry * (1 + sg_of(p) * ext), max_hold_days=days, estimated_exit=iso(add_trading_days(p["opened"], days)), rationale=reason)
         conn.execute("UPDATE position_forecast_plans SET active=0 WHERE id=?", (plan["id"],))
         ins = [c for c in cols if c != "id"]
         newid = conn.execute("INSERT INTO position_forecast_plans(%s) VALUES(%s)" % (",".join(ins), ",".join("?" * len(ins))), [vals[c] for c in ins]).lastrowid
@@ -105,7 +121,7 @@ def _create_runner_plan(conn, p, plan, now, cfg: Optional[dict] = None) -> int:
     days = swing_cap(cfg, min(15, max(1, int(plan["max_hold_days"]) + 2)))
     cols = [c[1] for c in conn.execute("PRAGMA table_info(position_forecast_plans)")]
     vals = dict(plan)
-    vals.update(created=iso(now), plan_version=VERSION, active=1, target_return=t, stop_return=s, target_price=entry * (1 + t), stop_price=entry * (1 + s), max_hold_days=days,
+    vals.update(created=iso(now), plan_version=VERSION, active=1, target_return=t, stop_return=s, target_price=entry * (1 + sg_of(p) * t), stop_price=entry * (1 + sg_of(p) * s), max_hold_days=days,
                 estimated_exit=iso(add_trading_days(p["opened"], days)), partial_exit_pct=1.0, rationale="Runner plan after partial target exit: target %+.2f%%, protected stop %+.2f%%, max hold %d sessions." % (t * 100, s * 100, days))
     conn.execute("UPDATE position_forecast_plans SET active=0 WHERE id=?", (plan["id"],))
     ins = [c for c in cols if c != "id"]
@@ -114,7 +130,8 @@ def _create_runner_plan(conn, p, plan, now, cfg: Optional[dict] = None) -> int:
 
 def commit_action(conn, cfg: dict, p, life, plan, trigger: str, reason: str, q: dict, shares: float, aid: str, signal_id: Optional[int], now) -> dict:
     slip = cfg["portfolio"]["slippage_bps"]
-    fill = max(0.0001, q["price"] * (1 - slip / 1e4))
+    short = sg_of(p) < 0
+    fill = max(0.0001, q["price"] * (1 + slip / 1e4) if short else q["price"] * (1 - slip / 1e4))       # covering a short means BUYING: you pay a little more than the quote
     with db.tx(conn):
         existing = conn.execute("SELECT status FROM virtual_exit_actions WHERE action_id=?", (aid,)).fetchone()
         if existing and existing["status"] == "COMMITTED":
@@ -125,16 +142,16 @@ def commit_action(conn, cfg: dict, p, life, plan, trigger: str, reason: str, q: 
             return {"result": "NOTHING_TO_SELL"}
         frac = shares / rem_sh
         released, proceeds = round(rem_cost * frac, 2), round(fill * shares, 2)
-        pnl = round(proceeds - released, 2)
+        pnl = round(released - proceeds, 2) if short else round(proceeds - released, 2)                      # a short earned what it was sold for minus what it cost to buy back
         left_sh, left_cost = round(rem_sh - shares, 8), round(rem_cost - released, 2)
         partial = left_sh > 1e-8
         prior = db.cash(conn)
-        new_cash = round(prior + proceeds, 2)
+        new_cash = round(prior - proceeds, 2) if short else round(prior + proceeds, 2)
         if not existing:
             conn.execute("INSERT INTO virtual_exit_actions(action_id,position_id,decision_id,plan_id,created,status,trigger,phase_before,shares_requested,observed_price,quote_source,quote_time,quote_age_seconds,reason,plan_json,evidence_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                          (aid, p["id"], p["decision_id"] or 0, plan["id"], iso(now), "RESERVED", trigger, life["phase"], shares, q["price"], "+".join(q.get("providers_used") or []), q.get("quoted_at"), q.get("age_seconds"), reason,
                           json.dumps(dict(plan), sort_keys=True, default=str), json.dumps({"quote": {k: q.get(k) for k in ("price", "providers_used", "quoted_at", "age_seconds")}}, default=str)))
-        conn.execute("INSERT INTO ledger(created,kind,amount,ref,balance) VALUES(?,?,?,?,?)", (iso(now), "VIRTUAL_PARTIAL_SELL" if partial else "VIRTUAL_SELL_V5", proceeds, "%s:%d:%s" % (p["ticker"], p["id"], aid[:16]), new_cash))
+        conn.execute("INSERT INTO ledger(created,kind,amount,ref,balance) VALUES(?,?,?,?,?)", (iso(now), ("VIRTUAL_PARTIAL_COVER" if partial else "VIRTUAL_COVER") if short else ("VIRTUAL_PARTIAL_SELL" if partial else "VIRTUAL_SELL_V5"), -proceeds if short else proceeds, "%s:%d:%s" % (p["ticker"], p["id"], aid[:16]), new_cash))
         total_real = round(float(life["realized_pnl"]) + pnl, 2)
         if partial:
             rid = _create_runner_plan(conn, p, plan, now, cfg)

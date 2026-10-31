@@ -20,7 +20,7 @@ DEFAULTS: Dict[str, Any] = {
     # Safer than the legacy 50% / 80% / 90% limits. Survival > returns (OMEGA principle 6).
     "risk": {
         "max_position_pct": 0.10, "max_issuer_pct": 0.15, "max_theme_pct": 0.30, "max_gross_pct": 0.80,
-        "min_cash_pct": 0.20, "risk_per_trade_pct": 0.010, "min_position_pct": 0.01,
+        "min_cash_pct": 0.20, "risk_per_trade_pct": 0.010, "open_delay_minutes": 10, "corr_haircut_from": 0.6, "corr_block": 0.92, "min_position_pct": 0.01,
         "drawdown_pause_pct": 0.12, "daily_loss_pause_pct": 0.03, "survival_floor": 0.80,
         "ruin_loss_pct": 0.20, "max_stress_loss_pct": 0.20, "min_ev_net": 0.006, "min_confidence": 0.45, "max_new_per_cycle": 0, "veto_adverse_news": True, "allow_add_to_position": False, "rotation_min_hold_hours": 6, "full_size_edge": 0.5, "veto_news_direction": -0.35, "veto_news_magnitude": 0.30, "shock_direction": -0.6, "shock_hold_hours": 6, "shock_min_sources": 2, "shock_market_drop_pct": 0.01, "shock_applies_to": "after_decision", "max_gap_down_pct": 0.03, "max_gap_up_pct": 0.05,
         "max_spread_pct": 0.02, "min_adv_usd": 2_000_000,
@@ -35,7 +35,16 @@ DEFAULTS: Dict[str, Any] = {
     "strategy": {   # SWING profile: in and out within ~1-3 sessions, small repeatable gains, tight risk. swing_enabled=False restores the older multi-week behaviour.
         "swing_enabled": True, "max_hold_days": 3, "stop_vol_mult": 1.0, "stop_min_pct": 0.012, "stop_max_pct": 0.03, "target_min_pct": 0.012, "target_max_pct": 0.04,
         "min_reward_risk": 1.0, "partial_exit_pct": 0.6, "min_daily_vol_pct": 0.008, "runner_cap_pct": 0.06, "breakeven_trigger_pct": 0.01, "breakeven_lock_pct": 0.0015, "trail_pct": 0.01,
-        "avoid_earnings": True, "earnings_exit_minutes_before_close": 45, "flatten_at_close": False, "flatten_minutes_before_close": 10},
+        "avoid_earnings": True, "earnings_exit_minutes_before_close": 45, "flatten_at_close": False, "flatten_minutes_before_close": 10,
+        "plan_consistent_ev": True, "plan_gap_allowance": 0.5},
+    # Which instruments the bot may trade (all paper money). Shorts and options start with SMALL caps so a bad idea cannot hurt the long book, and every result is reported per instrument.
+    "instruments": {"shorts_enabled": True, "short_max_gross_pct": 0.25, "short_size_mult": 0.6, "short_min_price": 5.0, "short_min_market_cap": 2_000_000_000, "short_min_adv_usd": 20_000_000,
+                    "short_squeeze_5d_pct": 0.20, "short_borrow_fee_pct": 0.5, "short_collateral_pct": 1.5,
+                    "options_enabled": True, "options_max_premium_pct": 0.05, "options_per_trade_pct": 0.012, "options_min_ev": 0.03, "options_max_horizon_days": 5, "options_min_adv_usd": 100_000_000,
+                    "options_min_price": 20.0, "options_min_dte": 21, "options_exit_dte": 5, "options_stop_loss_pct": 0.5, "options_target_pct": 1.0, "options_iv_mult": 1.15, "options_risk_free": 0.04,
+                    "options_commission": 0.65, "options_max_hold_days": 6},
+    # Relationship graph: an event at one company becomes a smaller, discounted idea at its suppliers, customers, competitors and peers (rules + data, no LLM).
+    "graph": {"enabled": True, "max_derived_per_event": 4, "min_event_magnitude": 0.45, "min_event_conf": 0.60, "min_edge_weight": 0.20, "peer_min_corr": 0.75, "derived_discount": 0.75},
     "maintenance": {"weekly_cleanup": True, "news_days": 30, "log_days": 30},
     "whatif": {"enabled": True, "lookback_days": 5, "max_symbols_per_cycle": 20, "time_budget_seconds": 40, "max_ideas_per_run": 150},
     "reader": {"mode": "guard", "max_per_cycle": 8, "time_budget_seconds": 25, "timeout_seconds": 8},

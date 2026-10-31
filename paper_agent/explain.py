@@ -162,10 +162,17 @@ def explain(conn, cfg: dict, did: int, now=None) -> Optional[dict]:
 
     # ------------------------------------------------------------------ what happened
     why_main = next((txt for ok, txt in gates if ok is False), None)
-    if st == "EXECUTED" and pos:
-        head = "Bought %.0f shares of %s at $%.2f (%s)" % (pos["shares"], t, pos["entry_price"], money(pos["cost"]))
+    opt = conn.execute("SELECT * FROM option_positions WHERE decision_id=? ORDER BY id LIMIT 1", (did,)).fetchone()
+    if st == "EXECUTED" and opt and not pos:
+        head = "Bought %d %s contract(s) on %s (strike $%.2f, expires %s) for $%s, a MODEL price (no options data feed)" % (opt["contracts"], opt["kind"].lower(), t, opt["strike"], opt["expiry"], format(round(opt["cost"]), ","))
+        if opt["status"] == "CLOSED":
+            head += ", then sold them for a %s of $%s (%s)" % ("profit" if (opt["pnl"] or 0) >= 0 else "loss", format(round(abs(opt["pnl"] or 0)), ","), (opt["review_code"] or "").replace("_", " ").lower())
+        summary = "This idea was strong enough, short-term enough and liquid enough to be expressed as an option. Risk is limited to the premium paid; the price is the model's, not a quote."
+    elif st == "EXECUTED" and pos:
+        short = (pos["side"] or "LONG") == "SHORT"
+        head = ("Sold short %.0f shares of %s at $%.2f (%s received)" if short else "Bought %.0f shares of %s at $%.2f (%s)") % (pos["shares"], t, pos["entry_price"], money(pos["cost"]))
         if pos["status"] == "CLOSED":
-            head += ", then sold at $%.2f for a %s of %s (%s)" % (pos["exit_price"] or 0, "profit" if (pos["pnl"] or 0) >= 0 else "loss", money(abs(pos["pnl"] or 0)), (pos["review_code"] or "").replace("_", " ").lower())
+            head += ((", then bought back at" if short else ", then sold at") + " $%.2f for a %s of %s (%s)") % (pos["exit_price"] or 0, "profit" if (pos["pnl"] or 0) >= 0 else "loss", money(abs(pos["pnl"] or 0)), (pos["review_code"] or "").replace("_", " ").lower())
         summary = "This idea passed every check and was bought."
     elif st == "AWAITING_MARKET":
         head, summary = "Queued to buy %s: waiting for the US market to open" % t, "The idea is good enough to buy, but the market is closed. It is re-checked, and the news / price / last-look tests re-run, when the market opens."
@@ -241,7 +248,7 @@ def explain(conn, cfg: dict, did: int, now=None) -> Optional[dict]:
         fill = r.get("fill")
         px = fill if isinstance(fill, (int, float)) else (pos["entry_price"] if pos else None)
         if px:
-            checks.append((True, "Bought at $%.2f using %s." % (px, ", ".join(q.get("providers_used") or []) or "verified quotes")))
+            checks.append((True, ("Sold short at $%.2f using %s." if (pos and (pos["side"] or "LONG") == "SHORT") else "Bought at $%.2f using %s.") % (px, ", ".join(q.get("providers_used") or []) or "verified quotes")))
     if r.get("opportunity"):
         checks.append((True if st == "EXECUTED" else None, "Portfolio room: %s." % r["opportunity"]))
 
@@ -287,7 +294,7 @@ def explain(conn, cfg: dict, did: int, now=None) -> Optional[dict]:
     # ------------------------------------------------------------------ timeline
     tl: List[Tuple[str, str]] = [(to_nz(d["created"], "%d %b %H:%M"), "Decision created: %s" % st.replace("_", " ").lower())]
     if pos:
-        tl.append((to_nz(pos["opened"], "%d %b %H:%M"), "Bought %.0f shares at $%.2f" % (pos["shares"], pos["entry_price"])))
+        tl.append((to_nz(pos["opened"], "%d %b %H:%M"), ("Sold short %.0f shares at $%.2f" if (pos["side"] or "LONG") == "SHORT" else "Bought %.0f shares at $%.2f") % (pos["shares"], pos["entry_price"])))
         for rv in conn.execute("SELECT ts,old_value,new_value,reason FROM forecast_revisions WHERE subject=? AND subject_type='position' AND field='stop_price' ORDER BY id LIMIT 8", (str(pos["id"]),)):
             tl.append((to_nz(rv["ts"], "%d %b %H:%M"), ("Stop moved $%.2f -> $%.2f. %s" % (rv["old_value"], rv["new_value"], rv["reason"] or "")) if rv["old_value"] else ("Initial stop set at $%.2f." % rv["new_value"])))
         if pos["status"] == "CLOSED":

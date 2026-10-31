@@ -1,6 +1,8 @@
 """Expected Value engine: EV = sum(P(scenario) x outcome) over Bull / Base / Bear / Tail / Black Swan, net of costs.
 
-Negative-EV opportunities are rejected (OMEGA principle 5). Long-only: bearish events produce an AVOID verdict, not a short."""
+Negative-EV opportunities are rejected (OMEGA principle 5). Everything is computed from the POSITION'S point of view: for a long a rise is good and the tail scenarios are crashes; for a short (instruments.shorts_enabled) a fall is good
+and the tail scenarios are squeezes upward. With shorts off a bearish event produces an AVOID verdict, exactly as before. With strategy.plan_consistent_ev the edge is what the exit plan can COLLECT: gains are capped at the
+target and losses at the stop (plus a gap allowance), because the old forecast could claim +6% for a plan that sells at +4%."""
 from __future__ import annotations
 
 import hashlib
@@ -91,13 +93,19 @@ def build(conn, cand: dict, cfg: dict, regime: dict, now=None, universe=None) ->
     r5 = md.ret_n(closes, 5)
     priced_in = max(0.0, min(0.20, (r5 or 0.0) * sign)) * 0.8
     e = sign * (econ * edge_mult - priced_in)   # signed residual edge after subtracting what the price already moved in the event direction
+    inst = cfg.get("instruments") or {}
+    shorts_on = bool(inst.get("shorts_enabled"))
+    shorts_ok = shorts_on or bool(inst.get("options_enabled"))               # a bearish idea can be sold short OR expressed as a put (the trader decides which, or refuses)
+    psign = sign if (sign < 0 and shorts_ok) else 1.0          # +1 = judged from the stock's direction (longs, and bearish ideas while shorts are off: the old behaviour)
+    edge_pos = psign * e                                       # the edge in the POSITION's favour (a short profits from a fall)
     # confidence: source, entity, thesis quality, data completeness, learned history
     n_hist = conn.execute("SELECT COUNT(*) FROM outcomes").fetchone()[0]
     completeness = (comp["completeness"] if comp else 0.0)
     conf = max(0.1, min(0.95, 0.20 + 0.28 * cand.get("credibility", 0.5) + 0.15 * cand.get("conf", 0.7) + 0.12 * (1 - min(1, cand.get("age_hours", 0) / 24.0))
                               + 0.12 * completeness + 0.08 * (tt["views"][0]["confidence_quality"] if tt["views"] else 0.0) + 0.05 * min(1.0, n_hist / 100.0)))
-    p_dir = calibrate_p(conn, max(0.05, min(0.95, 0.5 + 0.30 * math.tanh(e / max(sigma_h, 1e-3)) * (0.5 + conf) + 0.08 * align)))
-    scen = scenario_table(e, sigma_h, p_dir, float(regime.get("risk_mult", 0.75)))
+    p_good = calibrate_p(conn, max(0.05, min(0.95, 0.5 + 0.30 * math.tanh(edge_pos / max(sigma_h, 1e-3)) * (0.5 + conf) + 0.08 * align)))      # chance the position works
+    p_dir = p_good if psign > 0 else 1.0 - p_good                                                                                              # chance the STOCK goes up
+    scen = scenario_table(edge_pos, sigma_h, p_good, float(regime.get("risk_mult", 0.75)))
     ev_gross = sum(v["p"] * v["ret"] for v in scen.values())
     cost = 2 * cfg["portfolio"]["slippage_bps"] / 1e4 + 0.0005
     ev_net = ev_gross - cost
@@ -105,17 +113,35 @@ def build(conn, cand: dict, cfg: dict, regime: dict, now=None, universe=None) ->
     adv = comp["adv_usd"] if comp and comp["adv_usd"] else md.adv_usd(conn, t)
     if swing:
         stop = max(float(sw["stop_min_pct"]), min(float(sw["stop_max_pct"]), float(sw["stop_vol_mult"]) * vol_d))
-        target = max(float(sw["target_min_pct"]), min(float(sw["target_max_pct"]), e - cost)) if e > cost else 0.0
+        target = max(float(sw["target_min_pct"]), min(float(sw["target_max_pct"]), edge_pos - cost)) if edge_pos > cost else 0.0
     else:
         stop = max(0.02, min(0.10, 1.25 * vol_d * math.sqrt(min(h, 5))))
-        target = max(0.012, min(0.20, e - cost)) if e > cost else 0.0
+        target = max(0.012, min(0.20, edge_pos - cost)) if edge_pos > cost else 0.0
+    ev_model_net = ev_net
+    if sw.get("plan_consistent_ev", False) and target:
+        lo, hi = -stop * (1.0 + float(sw.get("plan_gap_allowance", 0.5))), target             # what the plan can collect: gains stop at the target, losses at the stop (+ a gap allowance)
+        ev_net = sum(v["p"] * max(lo, min(hi, v["ret"])) for v in scen.values()) - cost
     p_hit = max(0.05, min(0.90, stop / (target + stop) + max(-0.15, min(0.15, ev_net / max(sigma_h, 1e-3) * 0.15)))) if target else 0.0
     p_tail = scen["tail"]["p"] + scen["black_swan"]["p"]
     liq_risk = 0.0 if (adv or 0) >= cfg["risk"]["min_adv_usd"] * 5 else (0.5 if adv and adv >= cfg["risk"]["min_adv_usd"] else 1.0)
     risk_score = 100 * max(0.0, min(1.0, 0.35 * min(sigma_h / 0.15, 1) + 0.25 * min(1, p_tail / 0.15) + 0.20 * (1 - conf) + 0.20 * liq_risk))
-    verdict, why = "BUY", []
-    if sign < 0:
+    verdict, why = ("SHORT" if psign < 0 else "BUY"), []
+    blockers = []
+    if psign < 0 and shorts_on:
+        last = closes[-1] if closes else None
+        mcap = comp["market_cap"] if comp and comp["market_cap"] else None
+        if last is not None and last < float(inst.get("short_min_price", 5.0)):
+            blockers.append("price $%.2f under the $%.0f short minimum (hard to borrow, squeezes violently)" % (last, float(inst.get("short_min_price", 5.0))))
+        if mcap is None or mcap < float(inst.get("short_min_market_cap", 2e9)):
+            blockers.append("market cap %s under the short minimum (hard to borrow)" % ("unknown" if mcap is None else "$%.1fB" % (mcap / 1e9)))
+        if adv is None or adv < float(inst.get("short_min_adv_usd", 2e7)):
+            blockers.append("trades %s a day, under the short minimum (hard to buy back in a hurry)" % ("an unknown amount" if adv is None else "$%.0fM" % (adv / 1e6)))
+        if (r5 or 0.0) >= float(inst.get("short_squeeze_5d_pct", 0.20)):
+            blockers.append("already up %.0f%% in 5 days: shorting a runaway rally is the classic squeeze" % ((r5 or 0.0) * 100))
+    if sign < 0 and not shorts_ok:
         verdict, why = "AVOID_BEARISH_LONG_ONLY", ["bearish event; long-only book"]
+    elif blockers:
+        verdict, why = "REJECT_NOT_SHORTABLE", blockers
     elif ev_net <= 0:
         verdict, why = "REJECT_NEGATIVE_EV", ["EV net %.2f%% <= 0" % (ev_net * 100)]
     elif ev_net < cfg["risk"]["min_ev_net"]:
@@ -135,7 +161,7 @@ def build(conn, cand: dict, cfg: dict, regime: dict, now=None, universe=None) ->
         verdict, why = "REJECT_ILLIQUID", ["ADV $%.1fM below minimum" % (adv / 1e6)]
     runner = max(target * 1.6, scen["bull"]["ret"]) if target else 0.0
     inputs = {"event_type": etype, "direction": direction, "magnitude": mag, "amount_usd": cand.get("amount_usd"), "materiality_ratio": ratio, "vol_daily": vol_d, "horizon_days": h, "swing": swing, "partial_exit_pct": float(sw.get("partial_exit_pct", 0.6)) if swing else None, "event_horizon_days": h0, "capture": capture, "stop": stop,
-              "move_prior": prior, "priced_in": priced_in, "thesis_score": tt["score"], "thesis_primary": tt["primary"], "flow": fl, "edge_mult": edge_mult, "confidence": conf,
+              "side": "SHORT" if psign < 0 else "LONG", "edge_pos": edge_pos, "ev_model_net": ev_model_net, "plan_consistent_ev": bool(sw.get("plan_consistent_ev", False)), "move_prior": prior, "priced_in": priced_in, "thesis_score": tt["score"], "thesis_primary": tt["primary"], "flow": fl, "edge_mult": edge_mult, "confidence": conf,
               "p_dir": p_dir, "cost": cost, "adv_usd": adv, "regime": regime.get("regime"), "risk_mult": regime.get("risk_mult")}
     out = {"ticker": t, "direction": "LONG" if sign > 0 else "SHORT", "horizon_days": h, "p_up": p_dir, "p_positive": p_pos, "ev_gross": ev_gross, "ev_net": ev_net, "risk_score": risk_score,
            "confidence": conf, "target_return": target, "stop_return": -stop, "target_probability": p_hit, "runner_target": min(float(sw.get("runner_cap_pct", 0.35)) if swing else 0.35, runner), "scenarios": scen, "verdict": verdict, "why": why,

@@ -6,16 +6,19 @@ config/config.example.json
 config/deploy-settings.json
 config/market-data.env
 config/market-data.env.example
+config/relations.json
 config/sources.json
 docs/ARTICLE_READER.md
 docs/BUGS_FIXED.md
 docs/DATABASE.md
+docs/INSTRUMENTS.md
 docs/INTELLIGENCE.md
 docs/LIMITS.md
 docs/MISSED_TRADES.md
 docs/OMEGA_MAPPING.md
 docs/OPERATIONS.md
 docs/PARALLEL.md
+docs/RELATIONSHIP_GRAPH.md
 docs/REVIEW_FINDINGS.md
 docs/SETTINGS.md
 docs/STRATEGY_FREEZE.md
@@ -46,6 +49,7 @@ paper_agent/flows.py
 paper_agent/funnel.py
 paper_agent/gaps.py
 paper_agent/golden.py
+paper_agent/graph.py
 paper_agent/keys.py
 paper_agent/learning.py
 paper_agent/lens.py
@@ -59,6 +63,7 @@ paper_agent/net.py
 paper_agent/nlp.py
 paper_agent/notify.py
 paper_agent/opportunity.py
+paper_agent/options.py
 paper_agent/parallel.py
 paper_agent/performance.py
 paper_agent/pipeline.py
@@ -117,6 +122,7 @@ tests/fake_internet.py
 tests/helpers.py
 tests/soak_twenty_days.py
 tests/test_build38.py
+tests/test_build39.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py
 tests/test_disabled_feeds.py
@@ -129,6 +135,7 @@ tests/test_explain.py
 tests/test_fake_internet.py
 tests/test_filings.py
 tests/test_funnel.py
+tests/test_graph.py
 tests/test_guards.py
 tests/test_installer.py
 tests/test_intel.py
@@ -138,6 +145,8 @@ tests/test_lens.py
 tests/test_live_findings.py
 tests/test_maintain.py
 tests/test_open_blockers.py
+tests/test_options.py
+tests/test_options_gaps.py
 tests/test_parallel.py
 tests/test_parallel_collect.py
 tests/test_parallel_quotes.py
@@ -158,6 +167,8 @@ tests/test_schema_drift.py
 tests/test_settings_page.py
 tests/test_settings_ui.py
 tests/test_shock_rules.py
+tests/test_short_gaps.py
+tests/test_shorts.py
 tests/test_swing.py
 tests/test_systemd.py
 tests/test_thesis_entries.py

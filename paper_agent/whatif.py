@@ -151,7 +151,7 @@ def select_ideas(conn, cfg: dict, now, days: float) -> Tuple[List[dict], int]:
         "f.thesis_key fthesis,p.opened p_opened,p.entry_price p_entry,p.status p_status,p.pnl p_pnl,p.review_code p_code,p.closed p_closed,"
         "(SELECT -SUM(amount) FROM ledger WHERE kind='VIRTUAL_BUY' AND ref=d.ticker||':'||d.id) buy_cost "
         "FROM decisions d JOIN forecasts f ON f.id=d.forecast_id LEFT JOIN positions p ON p.decision_id=d.id "
-        "WHERE d.created>=? AND d.status NOT IN (%s,'DUPLICATE') ORDER BY d.id" % ",".join("'%s'" % s for s in PENDING), (since,)).fetchall()
+        "WHERE d.created>=? AND d.action NOT LIKE 'OPTION%%' AND d.status NOT IN (%s,'DUPLICATE') ORDER BY d.id" % ",".join("'%s'" % s for s in PENDING), (since,)).fetchall()
     out, bearish = [], 0
     for r in rows:
         r = dict(r)

@@ -18,7 +18,7 @@ HOLD_BUCKETS = ["same day", "1 night", "2 nights", "3+ nights"]
 
 def closed_trades(conn) -> List[dict]:
     out = []
-    rows = conn.execute("SELECT p.id pid,p.ticker,p.opened,p.closed,p.entry_price,p.exit_price,p.pnl,p.review_code,p.decision_id,d.amount,d.shares dshares,d.reason,d.thesis_key,d.ev_net "
+    rows = conn.execute("SELECT p.id pid,p.side,p.ticker,p.opened,p.closed,p.entry_price,p.exit_price,p.pnl,p.review_code,p.decision_id,d.amount,d.shares dshares,d.reason,d.thesis_key,d.ev_net "
                         "FROM positions p LEFT JOIN decisions d ON d.id=p.decision_id WHERE p.status='CLOSED' AND p.closed IS NOT NULL ORDER BY p.closed, p.id").fetchall()
     for r in rows:
         try:
@@ -34,7 +34,7 @@ def closed_trades(conn) -> List[dict]:
         out.append({"position_id": r["pid"], "decision_id": r["decision_id"], "ticker": r["ticker"], "opened": r["opened"], "closed": r["closed"], "entry": r["entry_price"], "exit": r["exit_price"],
                     "pnl": pnl, "basis": basis, "ret": (pnl / basis) if basis else None, "exit_reason": r["review_code"] or "UNKNOWN", "event_type": et or "unknown", "thesis": r["thesis_key"],
                     "hold_hours": ((c - o).total_seconds() / 3600.0) if o and c else None, "hold_bucket": HOLD_BUCKETS[min(3, nights)], "open_hour_ny": o.astimezone(NY).hour if o else None,
-                    "partial": parts > 1, "ev_net": r["ev_net"]})
+                    "partial": parts > 1, "ev_net": r["ev_net"], "side": r["side"] or "LONG", "instrument": "SHORT" if (r["side"] or "LONG") == "SHORT" else "STOCK"})
     return out
 
 
@@ -144,3 +144,38 @@ def svg_bars(values: List[float], w: int = 720, h: int = 110) -> str:
     bars = "".join("<rect x=%.1f y=%.1f width=%.1f height=%.1f fill='%s'/>" % (10 + i * (bw + 3), mid - max(v, 0) / m * (mid - 8), bw, max(1.0, abs(v) / m * (mid - 8)), "var(--ok)" if v >= 0 else "var(--bad)")
                    for i, v in enumerate(values[-int((w - 20) / (bw + 3)):]))
     return "<svg viewBox='0 0 %d %d' width='100%%' style='max-width:%dpx;background:var(--card);border-radius:6px'><line x1=10 x2=%d y1=%.0f y2=%.0f stroke='var(--line)'/>%s</svg>" % (w, h, w, w - 10, mid, mid, bars)
+
+
+INSTRUMENT_LABEL = {"STOCK": "Stocks (long)", "SHORT": "Stocks (short)", "CALL": "Calls (model-priced)", "PUT": "Puts (model-priced)"}
+
+
+def by_instrument(conn, since: Optional[str] = None) -> dict:
+    """The scorecard that says which instrument actually earns money: trades, win rate, total and average result, hold time, for long stock, short stock, calls and puts, plus the borrow fees the shorts cost.
+    (Option rows come from the MODEL, so they are shown as an experiment, never mixed into the stock results.)"""
+    acc = {k: {"instrument": k, "label": v, "n": 0, "wins": 0, "pnl": 0.0, "rets": [], "holds": []} for k, v in INSTRUMENT_LABEL.items()}
+
+    def add(k: str, pnl: float, basis: Optional[float], hold_h: Optional[float]) -> None:
+        a = acc[k]
+        a["n"] += 1
+        a["wins"] += 1 if pnl > 0 else 0
+        a["pnl"] += pnl
+        if basis:
+            a["rets"].append(pnl / basis)
+        if hold_h is not None:
+            a["holds"].append(hold_h)
+    for t in closed_trades(conn):
+        if since and t["closed"] < since:
+            continue
+        add(t.get("instrument") or "STOCK", t["pnl"], t.get("basis"), t.get("hold_hours"))
+    for o in conn.execute("SELECT kind,pnl,cost,opened,closed FROM option_positions WHERE status='CLOSED'"):
+        if since and (o["closed"] or "") < since:
+            continue
+        a, b = parse_ts(o["opened"]), parse_ts(o["closed"])
+        add(o["kind"], float(o["pnl"] or 0.0), float(o["cost"] or 0.0), ((b - a).total_seconds() / 3600.0) if a and b else None)
+    rows = []
+    for a in acc.values():
+        rows.append({"instrument": a["instrument"], "label": a["label"], "n": a["n"], "wins": a["wins"], "win_rate": (a["wins"] / a["n"]) if a["n"] else None, "pnl": a["pnl"],
+                     "avg_ret": (sum(a["rets"]) / len(a["rets"])) if a["rets"] else None, "avg_hold_h": (sum(a["holds"]) / len(a["holds"])) if a["holds"] else None})
+    fees = conn.execute("SELECT COALESCE(SUM(amount),0) FROM ledger WHERE kind='SHORT_BORROW_FEE'" + (" AND created>=?" if since else ""), (since,) if since else ()).fetchone()[0]
+    return {"rows": rows, "borrow_fees": -float(fees or 0.0)}
+

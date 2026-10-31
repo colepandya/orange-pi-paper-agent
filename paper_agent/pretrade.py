@@ -16,14 +16,14 @@ from . import nlp
 from .timeutil import iso, parse_ts
 
 
-def adverse_company_news(conn, ticker: str, since: str, cfg: dict, exclude_event: Optional[int] = None, universe=None) -> Optional[dict]:
+def adverse_company_news(conn, ticker: str, since: str, cfg: dict, exclude_event: Optional[int] = None, universe=None, side: str = "LONG") -> Optional[dict]:
     """Later bad news about THIS company. Market wraps, roundups and "X slides, Y firms" headlines mention a ticker without being about it:
     with a universe, the story must name this company FIRST (as its subject); commentary and recaps never veto."""
     r = cfg["risk"]
     rows = conn.execute("SELECT id,headline,direction,magnitude,credibility,created,event_type FROM events WHERE created>? AND tickers_json LIKE ? AND id!=? AND scope IN ('company','sector') "
-                        "AND direction<=? AND magnitude>=? AND credibility>=0.5 AND gate IS NOT 'stale' AND gate IS NOT 'too_many_companies' AND event_type NOT IN ('price_recap','opinion_piece') "
-                        "ORDER BY direction ASC, magnitude DESC LIMIT 15",
-                        (since, '%"' + ticker + '"%', exclude_event or -1, float(r["veto_news_direction"]), float(r["veto_news_magnitude"]))).fetchall()
+                        "AND direction%s? AND magnitude>=? AND credibility>=0.5 AND gate IS NOT 'stale' AND gate IS NOT 'too_many_companies' AND event_type NOT IN ('price_recap','opinion_piece') "
+                        "ORDER BY direction %s, magnitude DESC LIMIT 15" % (">=" if side == "SHORT" else "<=", "DESC" if side == "SHORT" else "ASC"),               # for a short, GOOD news is the adverse news
+                        (since, '%"' + ticker + '"%', exclude_event or -1, (-1.0 if side == "SHORT" else 1.0) * float(r["veto_news_direction"]), float(r["veto_news_magnitude"]))).fetchall()
     for row in rows:
         if universe is None or (universe.subjects(row["headline"]) or [None])[0] == ticker:
             return dict(row)
@@ -103,20 +103,24 @@ def still_about(c: dict, universe) -> Optional[str]:
 def review(conn, cfg: dict, c: dict, decided_at: str, now, price: Optional[float] = None, universe=None) -> dict:
     """-> {'action': 'go' | 'veto' | 'hold', 'reason': str}. ``price`` is the verified entry price (None = skip the gap test)."""
     r = cfg["risk"]
+    side = c.get("side") or "LONG"
+    word = "SHORT" if side == "SHORT" else "BUY"
     wrong = still_about(c, universe)
     if wrong:
         return {"action": "veto", "reason": wrong}
     if r.get("veto_adverse_news", True):
-        n = adverse_company_news(conn, c["ticker"], decided_at, cfg, c.get("event_id"), universe)
+        n = adverse_company_news(conn, c["ticker"], decided_at, cfg, c.get("event_id"), universe, side)
         if n:
-            return {"action": "veto", "reason": "VETO: news about %s arrived after this BUY was decided and points the other way (%s, direction %+.2f): \"%s\"" % (c["ticker"], n["event_type"], n["direction"], (n["headline"] or "")[:110])}
+            return {"action": "veto", "reason": "VETO: news about %s arrived after this %s was decided and points the other way (%s, direction %+.2f): \"%s\"" % (c["ticker"], word, n["event_type"], n["direction"], (n["headline"] or "")[:110])}
         everyone = str(r.get("shock_applies_to", "after_decision")) == "all_buys"
-        s = market_shock(conn, iso(now - dt.timedelta(hours=float(r["shock_hold_hours"]))) if everyone else decided_at, now, cfg)
+        s = None if side == "SHORT" else market_shock(conn, iso(now - dt.timedelta(hours=float(r["shock_hold_hours"]))) if everyone else decided_at, now, cfg)
         if s:
             until = parse_ts(s["created"]) + dt.timedelta(hours=float(r["shock_hold_hours"]))
             seen = "reported by %s%s" % (", ".join(s["outlets"]), ("; SPY is %+.2f%% versus its previous close" % (s["spy_move"] * 100)) if s.get("spy_move") is not None else "")
             return {"action": "hold", "reason": "HELD: market-wide shock %s (%s, direction %+.2f): \"%s\" (%s). Re-checked every cycle; released after %s UTC if nothing worse happens." % ("while this BUY waits" if everyone else "since this BUY was decided", s["event_type"], s["direction"], (s["headline"] or "")[:90], seen, until.strftime("%d %b %H:%M"))}
     g = gap(price, c.get("ref_price"), cfg) if price else None
+    if g is not None and side == "SHORT":
+        g = -g                                                                        # a short is judged on the position's own side: a jump UP is the market disagreeing, a drop is the move already made
     if g is not None:
         if g <= -float(r["max_gap_down_pct"]):
             return {"action": "veto", "reason": "VETO: %s opened %.1f%% below its previous close (%.2f -> %.2f): the market disagrees with this BUY, or there is bad news we cannot see" % (c["ticker"], -g * 100, c["ref_price"], price)}

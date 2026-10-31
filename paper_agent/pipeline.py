@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, List, Optional
 
-from . import (candqueue, config, earnings, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, whatif, marketdata as md, monitor, narrative, net, portfolio as pf,
+from . import (candqueue, config, earnings, graph, options, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, whatif, marketdata as md, monitor, narrative, net, portfolio as pf,
                quotes, regime as regime_engine, sources, thesis, trader)
 from .config import load_json, CONFIG_DIR
 from .entities import Universe
@@ -274,6 +274,11 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     report["knowledge"] = _stage(report, "knowledge", refresh_knowledge)
 
     # ---- capital allocation
+    if cfg["graph"].get("enabled", True):
+        _stage(report, "graph_edges", graph.ensure_edges, conn, cfg, now)
+        derived = _stage(report, "graph", graph.derive, conn, cfg, cands, universe, now) or []
+        report["graph"] = {"derived": len(derived), "ideas": ["%s<-%s(%s)" % (d["ticker"], d["graph_from"], d["graph_role"]) for d in derived[:8]]}
+        cands = cands + derived
     cands = cands + trader.thesis_candidates(conn, cfg, reg, universe, now)
     warm.update(_stage(report, "quote_prefetch", _warm_quotes, conn, cfg, deps, now, _quote_wishlist(conn, cands)) or {})
     ent = _stage(report, "entries", trader.run_entries, conn, cfg, universe, cands, reg, now, quote_fn, deps.series_fetch if deps.series_fetch else None, intel, t_start + budget * 1.2)
@@ -281,10 +286,13 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
 
     # ---- portfolio intelligence -> monitoring -> execution
     snap = _stage(report, "portfolio", pf.snapshot, conn, cfg, reg, now)
+    report["borrow_fees"] = _stage(report, "borrow_fees", pf.accrue_borrow_fees, conn, cfg, (snap or {}).get("holdings") or [], now)
     mon = _stage(report, "monitor", monitor.monitor, conn, cfg, reg, now, snap["stress"] if snap else None, snap["holdings"] if snap else None)
     report["monitor"] = {"signals": mon["signals"], "plans_changed": mon["plans_changed"]} if mon else {}
     exe = _stage(report, "executor", executor.run, conn, cfg, now, quote_fn)
     report["executor"] = {k: exe[k] for k in ("checked", "committed", "extended", "blocked", "errors")} if exe else {}
+    opx = _stage(report, "options", options.run, conn, cfg, now, quote_fn) if cfg["instruments"].get("options_enabled") or conn.execute("SELECT 1 FROM option_positions WHERE status='OPEN' LIMIT 1").fetchone() else None
+    report["options"] = {k: opx[k] for k in ("checked", "closed", "blocked")} if opx else {}
     snap2 = _stage(report, "portfolio_final", pf.snapshot, conn, cfg, reg, now)
     if snap2:
         report["portfolio"] = {"equity": round(snap2["equity"], 2), "cash": round(snap2["cash"], 2), "drawdown": round(snap2["drawdown"], 4), "survival": round(snap2["stress"]["survival_probability"], 4)}
@@ -317,7 +325,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
 def _quote_wishlist(conn, cands: list) -> List[str]:
     """Whose prices the entry and exit stages will most likely ask for, MOST IMPORTANT FIRST (so a rate-limited provider's budget goes where it matters): what we hold, then the waiting BUYs by edge,
     then this cycle's new candidates."""
-    held = [r[0] for r in conn.execute("SELECT DISTINCT ticker FROM positions WHERE status='OPEN' ORDER BY id")]
+    held = [r[0] for r in conn.execute("SELECT ticker FROM positions WHERE status='OPEN' UNION SELECT underlying FROM option_positions WHERE status='OPEN'")]
     waiting = [r[0] for r in conn.execute("SELECT ticker FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') ORDER BY ev_net DESC, id LIMIT 12")]
     return list(dict.fromkeys(held + waiting + [c["ticker"] for c in cands[:12]]))
 
@@ -337,8 +345,11 @@ def run_guard(conn, cfg: dict, deps: Optional[Deps] = None, now=None) -> dict:
     now = now or utcnow()
     if not market_state(now)["execution"]:
         return {"skipped": "market %s" % market_state(now)["session"]}
-    if not conn.execute("SELECT 1 FROM positions WHERE status='OPEN' LIMIT 1").fetchone():
+    if not conn.execute("SELECT 1 FROM positions WHERE status='OPEN' LIMIT 1").fetchone() and not conn.execute("SELECT 1 FROM option_positions WHERE status='OPEN' LIMIT 1").fetchone():
         return {"skipped": "no open positions"}
-    warm = _warm_quotes(conn, cfg, deps, now, [r[0] for r in conn.execute("SELECT DISTINCT ticker FROM positions WHERE status='OPEN' ORDER BY id")])
+    warm = _warm_quotes(conn, cfg, deps, now, [r[0] for r in conn.execute("SELECT ticker FROM positions WHERE status='OPEN' UNION SELECT underlying FROM option_positions WHERE status='OPEN'")])
     quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json, prefetched=warm))
-    return executor.run(conn, cfg, now, quote_fn)
+    res = executor.run(conn, cfg, now, quote_fn)
+    if conn.execute("SELECT 1 FROM option_positions WHERE status='OPEN' LIMIT 1").fetchone():
+        res["options"] = options.run(conn, cfg, now, quote_fn)
+    return res
