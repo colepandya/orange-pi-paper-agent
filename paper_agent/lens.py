@@ -68,7 +68,7 @@ _DENIAL = re.compile(r"\b(?:denies|denied|deny|denying|rejects?|rejected|refutes
 _HEDGE = re.compile(r"\b(?:could|may|might|reportedly|rumou?red?s?|allegedly|according to (?:people|sources|a person|two people|three people|the wall street journal|bloomberg)|people familiar|sources? (?:said|say|told)|in (?:advanced )?talks|"
                     r"exploring|considering|weighing|plans? to|planning to|expected to|likely to|potential(?:ly)?|possible|possibly|if |hopes? to|aims? to|seeks? to|may be|is said to|set to|poised to|preparing to|eyeing)\b", re.I)
 _ATTRIB = re.compile(r"\b(?:analysts?|strategists?|investors?|economists?|experts?|traders?|brokers?|commentators?|pundits?|observers?)\b[^.]{0,40}\b(?:said|says|say|expect|expects|believe|believes|think|thinks|predict|predicts|note[sd]?|argue[sd]?|warn(?:ed|s)?|see|sees)\b", re.I)
-_HIST = re.compile(r"\b(?:last year|a year (?:ago|earlier)|year-ago|previously|in (?:19|20)\d\d\b|earlier this year|last (?:quarter|month|decade)|historically|back in)\b", re.I)
+_HIST = re.compile(r"\b(?:last year|a year (?:ago|earlier)|year-ago|previously|in (?:19|20)\d\d\b|earlier this year|last (?:quarter|month|decade)|(?:a|one|two|three) quarters? (?:ago|earlier)|(?:the )?(?:previous|prior) quarter|over the (?:last|past) (?:four|five|eight|\d+) quarters|historically|back in)\b", re.I)
 _CONTRAST = re.compile(r"\b(?:but|however|although|though|despite|even as|even though|while|yet|nevertheless|still)\b", re.I)
 
 
@@ -85,6 +85,9 @@ def _denied(s: str, pos: int) -> bool:
     return bool(_DENIAL.search(_window(s, pos, 80)))
 
 
+_HIST_LEAD = re.compile(r"^\W*(?:(?:a|one|two|three) (?:quarters?|years?|months?) (?:ago|earlier)|last (?:quarter|year|month)|previously|in (?:19|20)\d\d\b|over the (?:last|past) (?:four|five|eight|\d+) quarters)", re.I)
+
+
 def _weight(s: str, pos: int, base: float = 1.0) -> float:
     """How much to trust a fact found at ``pos`` in sentence ``s``: hedged, attributed to someone else, or historical statements count for much less."""
     w = base
@@ -94,7 +97,7 @@ def _weight(s: str, pos: int, base: float = 1.0) -> float:
         w *= 0.55
     if _denied(s, pos):
         w *= 0.7                                                # the company disputes it: still news, less certain
-    if _HIST.search(_window(s, pos, 50) + s[pos:pos + 40]):
+    if _HIST_LEAD.search(s[:80]) or _HIST.search(_window(s, pos, 50) + s[pos:pos + 40]):          # a sentence that OPENS "A quarter ago, ..." is about the past, wherever its numbers are
         w *= 0.3
     if s.count('"') >= 2 or "“" in s:                          # inside a quotation: someone's words
         w *= 0.7
@@ -114,7 +117,7 @@ def _fact(kind: str, pol: float, w: float, mag: float, sent: str, **kw) -> Fact:
 _EST = re.compile(r"\b(?:expected|expectations?|estimates?|estimated|consensus|analysts?|lseg|refinitiv|factset|visible alpha|zacks|polled|predicted|street|anticipated|had (?:expected|forecast|predicted))\b", re.I)    # NOT "forecast": "cut its forecast to $5.0B from $5.4B" is guidance, not a beat
 _BEAT = re.compile(r"\b(?:beat|beats|beating|topped|tops|topping|exceeded|exceeds|exceeding|surpassed|surpasses|above|ahead of|outpaced|outperformed|better than|stronger than|higher than|trounced|smashed|cleared)\b", re.I)
 _MISS = re.compile(r"\b(?:missed|misses|missing|fell short|falls short|lagged|trailed|below|short of|lower than|worse than|weaker than|disappointed|disappointing|undershot|came in under|shy of)\b", re.I)
-_EPS_CUE = re.compile(r"\b(?:eps|earnings per share|profit per share|a share|per share|per diluted share|adjusted earnings|earnings of|earned|net income|profit of|adjusted profit)\b", re.I)
+_EPS_CUE = re.compile(r"\b(?:eps|earnings per share|profit per share|a share|per share|per diluted share|adjusted earnings|earnings of|earned|net income|profit of|adjusted profit|ffo|affo|core ffo|funds from operations)\b", re.I)
 _REV_CUE = re.compile(r"\b(?:revenues?|sales|net sales|total revenue|bookings|turnover)\b", re.I)
 
 
@@ -373,13 +376,22 @@ _TRANSCRIPT = re.compile(r"\b(?:operator:|question-and-answer session|earnings c
 _LISTICLE = re.compile(r"^\s*(?:\d+|two|three|four|five|six|seven|eight|nine|ten)\s+(?:reasons|things|stocks|ways|signs|takeaways)\b", re.I)
 
 
-def classify_type(title: str, text: str) -> str:
+_FIRST_PERSON = re.compile(r"\b(?:i think|i believe|in my view|my view|my take|we believe|i'd buy|i would buy|i'm (?:buying|bullish|bearish)|our (?:view|take|pick))\b", re.I)
+_OPINION_TITLE = re.compile(r"(?:^\s*(?:opinion|commentary|analysis|column|editorial|op-ed|perspective|viewpoint)\s*[:|\-\u2013\u2014]|\bhere'?s why\b|\bshould you buy\b|\bis it a buy\b|\bbuy, sell,? or hold\b|\bstocks? to (?:buy|watch|avoid)\b|\bmy (?:favou?rite|take|pick)\b|^[^.!]{0,80}\b(?:buy|sell|hold|worth (?:buying|owning)|good (?:stock|buy))\b[^.!]{0,40}\?\s*$)", re.I)
+_OPINION_URL = re.compile(r"/(?:opinion|opinions|commentisfree|comment|commentary|column|columns|editorial|editorials|op-ed|perspectives?|viewpoint)(?:[/?\-]|$)", re.I)
+
+
+def classify_type(title: str, text: str, url: str = "") -> str:
+    """What kind of text is it? 'opinion' needs STRONG evidence: an opinion label / listicle / advice-style TITLE, an opinion section in the URL, or at least two different first-person cues in the text.
+    A single stray word ('opinion', 'column', 'Zacks Rank', 'reasons to') anywhere in a news story used to be enough, which turned Zacks earnings recaps and ordinary reports into 'opinion' and cancelled
+    real ideas (an AWS earnings story, a Kimco FFO beat)."""
     head = (title or "") + " " + (text or "")[:2500]
     if _SPONSORED.search(head):
         return "promo"
     if _TRANSCRIPT.search(head):
         return "transcript"
-    if _LISTICLE.search(title or "") or (_OPINION.search(head) and not _RELEASE.search(head)):
+    strong = bool(_LISTICLE.search(title or "") or _OPINION_TITLE.search(title or "") or (url and _OPINION_URL.search(url)) or len({m.lower() for m in _FIRST_PERSON.findall(head)}) >= 2)
+    if strong and not _RELEASE.search(head):
         return "opinion"
     if _RELEASE.search(head):
         return "release"
@@ -432,12 +444,12 @@ def subject_scores(title: str, paragraphs: List[str], names_by_ticker: Dict[str,
 # ----------------------------------------------------------------------------- the analysis
 
 def analyze(title: str, paragraphs: List[str], published: Optional[dt.datetime] = None, names_by_ticker: Optional[Dict[str, List[str]]] = None,
-            market_cap: Optional[float] = None) -> Dict:
+            market_cap: Optional[float] = None, url: str = "") -> Dict:
     """-> {type, direction, magnitude, confidence, facts[], stale, stale_why, mixed, subject{ticker: score}, chars, n_sentences}.
     ``market_cap`` (dollars) scales the importance of deal / contract / buyback sizes: $2B matters differently to a $20B company and a $2T one."""
     paragraphs = [p for p in (paragraphs or []) if p and p.strip()]
     body = " ".join(paragraphs)
-    typ = classify_type(title, body)
+    typ = classify_type(title, body, url)
     facts: List[Fact] = []
     for pi, para in enumerate(paragraphs[:40]):
         lead_boost = 1.0 if pi < 3 else 0.65                                  # the inverted pyramid: what matters is said first

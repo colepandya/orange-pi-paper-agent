@@ -163,7 +163,7 @@ systemctl start paper-agent-control.path
 systemctl start paper-agent-cycle.timer paper-agent-guard.timer paper-agent-backup.timer paper-agent-universe.timer paper-agent-update.timer paper-agent-open.timer paper-agent-report.timer paper-agent-maintain.timer
 
 echo "[7/7] First cycle + health report"
-ls -1dt /var/backups/paper-agent/v5-* 2>/dev/null | tail -n +6 | xargs -r rm -rf      # keep the 5 newest backups
+ls -1dt /var/backups/paper-agent/v5-* 2>/dev/null | tail -n +4 | xargs -r rm -rf      # keep the 3 newest backups (each is a full uncompressed copy of the database)
 PA=(runuser -u paperagent -- env PYTHONPATH=/opt/paper-agent python3 -m paper_agent)
 timeout 600 "${PA[@]}" cycle || echo "(first cycle reported problems; see doctor below)"
 "${PA[@]}" doctor --fix || true

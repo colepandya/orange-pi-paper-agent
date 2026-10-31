@@ -144,6 +144,23 @@ def build(conn, cand: dict, cfg: dict, regime: dict, now=None, universe=None) ->
     return out
 
 
+def materially_same(prev, f: dict) -> bool:
+    """Is a re-made forecast for the same decision the same forecast for every practical purpose? (same verdict, edge within 0.3 points, same target / stop / horizon)."""
+    try:
+        return (prev["verdict"] == f["verdict"] and int(prev["horizon_days"]) == int(f["horizon_days"]) and abs(float(prev["ev_net"]) - float(f["ev_net"])) < 0.003
+                and abs(float(prev["target_return"]) - float(f["target_return"])) < 0.0005 and abs(float(prev["stop_return"]) - float(f["stop_return"])) < 0.0005)
+    except (TypeError, ValueError, KeyError):
+        return False
+
+
+def refresh(conn, fid: int, f: dict, now=None) -> int:
+    """Bring an existing forecast row up to date in place (a retry of a waiting BUY that has not materially changed) instead of writing another near-identical row every cycle."""
+    conn.execute("UPDATE forecasts SET created=?,thesis_key=?,direction=?,horizon_days=?,p_up=?,ev_gross=?,ev_net=?,risk_score=?,confidence=?,target_return=?,stop_return=?,regime=?,verdict=?,scenarios_json=?,inputs_json=?,hash=? WHERE id=?",
+                 (iso(now), f["thesis_key"], f["direction"], f["horizon_days"], f["p_up"], f["ev_gross"], f["ev_net"], f["risk_score"], f["confidence"], f["target_return"], f["stop_return"], f["regime"], f["verdict"],
+                  json.dumps(f["scenarios"], sort_keys=True), json.dumps(f["inputs"], sort_keys=True, default=str), f["hash"], fid))
+    return fid
+
+
 def persist(conn, f: dict, decision_id: Optional[int], event_id: Optional[int], now=None) -> int:
     cur = conn.execute("INSERT INTO forecasts(created,ticker,decision_id,event_id,thesis_key,direction,horizon_days,p_up,ev_gross,ev_net,risk_score,confidence,target_return,stop_return,regime,verdict,scenarios_json,inputs_json,hash) "
                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",

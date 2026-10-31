@@ -82,6 +82,11 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
         sm = _mt.summary(conn, path)
         out("[database] %s | %d legacy table(s), %d old v4 decision(s)%s | last clean-up: %s" % ("%.1f MB" % sm["file_mb"] if sm["file_mb"] is not None else "size n/a", sm["legacy_tables"], sm["legacy_decisions"],
                                                                                              " -> run: python3 -m paper_agent db-maintain plan" if (sm["legacy_tables"] or sm["legacy_decisions"]) else "", sm["last"] or "never"))
+        from . import backup as _bk
+        pr = _bk.projection(conn, path, ["/var/backups/paper-agent", os.path.join(os.path.dirname(path), "backups")], utcnow().strftime("%Y-%m-%dT%H:%M:%S"))
+        grow = ("growing %.1f MB/day" % pr["growth_mb_day"]) if pr["growth_mb_day"] is not None else "growth not measured yet (needs two daily backups)"
+        left = (" | at this rate the disk lasts about %d more days%s" % (pr["days_left"], " -> LOWER the news / log retention (Settings -> Database)" if pr["days_left"] < 120 else "")) if pr["days_left"] is not None else ""
+        out("[disk] database %.0f MB, %s | backups use %.0f MB | %.1f GB free%s" % (pr["db_mb"], grow, pr["backups_mb"], pr["free_mb"] / 1024.0, left))
     except Exception as e:  # noqa: BLE001
         out("[database] check failed: %s" % e)
     # ---- dashboard-managed settings

@@ -381,7 +381,7 @@ def read_one(conn, uid: str, title: str, summary: str, url: str, published: Opti
         status = "SKIPPED: %s" % why
     if not paras and summary:
         paras = [summary]
-    res = lens.analyze(title, paras, published, names_by_ticker, market_cap) if paras else lens.analyze(title, [], published, names_by_ticker, market_cap)
+    res = lens.analyze(title, paras, published, names_by_ticker, market_cap, url=url or "") if paras else lens.analyze(title, [], published, names_by_ticker, market_cap, url=url or "")
     res["via"], res["status"], res["domain"] = ("page" if via in ("article", "ld+json") else "snippet"), status, d
     try:
         conn.execute("INSERT OR REPLACE INTO article_reads(uid,url,fetched_at,status,http,via,chars,domain,analysis_json) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -478,6 +478,22 @@ def merge(a: dict, res: Dict, mode: str, tickers: List[str]) -> str:
 _NEWS_PRIORITY = re.compile(r"\b(?:earnings|results|quarter|guidance|outlook|forecast|acquire|acquisition|merger|contract|award|fda|approval|downgrade|upgrade|investigation|recall|bankruptcy|buyback|dividend)\b", re.I)
 
 
+def prefetch_pages(urls: List[str], fetcher: Optional[Callable], workers: int, budget_s: float, timeout: float, clock: Callable[[], float] = time.monotonic):
+    """Download the pages side by side (NETWORK ONLY: no database, no analysis). Returns {url: parallel.Outcome}; an outcome's value is ("robots", None) when the site asks bots to stay away,
+    otherwise ("page", (html, final_url)). A real fetch asks robots.txt first, exactly as read_one does; a test's fake fetcher never does."""
+    from . import parallel
+    uniq = list(dict.fromkeys(u for u in urls if u))
+
+    def job(u: str):
+        def fn():
+            if fetcher is None and not robots_allows(u):
+                return ("robots", None)
+            return ("page", (fetcher or fetch_html)(u, timeout))
+        return {"key": u, "host": urllib.parse.urlsplit(u).netloc.lower(), "fn": fn}
+    outs = parallel.run_jobs([job(u) for u in uniq], workers=workers, per_host=2, deadline_s=budget_s, clock=clock)
+    return {u: o for u, o in zip(uniq, outs)}
+
+
 def enrich(conn, universe, cfg: dict, pre: list, now, fetcher: Optional[Callable] = None, clock: Callable[[], float] = time.time) -> Dict:
     """Between reading the headlines and deciding what is a candidate: read the article behind the items worth reading, within the budget, and fold it into each item's analysis.
     ``pre`` is evidence.process_new_news' list of (news row, analysis, published, age_h, stale, matches); analyses are updated in place."""
@@ -500,8 +516,20 @@ def enrich(conn, universe, cfg: dict, pre: list, now, fetcher: Optional[Callable
         cands.append((prio, n, a, pub, tick))
     stats["considered"] = len(cands)
     cands.sort(key=lambda x: -x[0])
+    # 1. (database reads) which of the best-ranked items will actually be downloaded   2. (network only, side by side) download them   3. (analysis and database writes) one at a time, in rank order
+    planned = [i for i, c in enumerate(cands) if i < cap and (c[1]["url"] or "") and skip_reason(conn, c[1]["url"] or "", now) is None]
+    pages = prefetch_pages([cands[i][1]["url"] for i in planned], fetcher, int((cfg.get("runtime") or {}).get("fetch_workers", 6)), max(1.0, deadline - clock()), float(rc.get("timeout_seconds", 8)), clock)
+    stats["pages_fetched"] = sum(1 for o in pages.values() if o.ok and o.value[0] == "page")
     for i, (prio, n, a, pub, tick) in enumerate(cands):
-        fetch_ok = i < cap and clock() < deadline
+        got = pages.get(n["url"] or "") if i in planned else None
+        fetch_ok = i < cap and (got is None or not got.timed_out) and (clock() < deadline or got is not None)
+        use_fetcher, use_robots = fetcher, None
+        if got is not None and fetch_ok:
+            def use_fetcher(u, t=8, got=got):                              # the page was already downloaded: hand back exactly what the network said (or raise exactly what it raised)
+                if not got.ok:
+                    raise got.error
+                return got.value[1]
+            use_robots = (lambda u, got=got: not (got.ok and got.value[0] == "robots"))
         names = {t: _names_for(universe, t) for t in tick}
         cap_val = None
         try:
@@ -510,7 +538,7 @@ def enrich(conn, universe, cfg: dict, pre: list, now, fetcher: Optional[Callable
         except Exception:  # noqa: BLE001
             cap_val = None
         try:
-            res = read_one(conn, n["uid"], n["title"] or "", n["summary"] or "", n["url"] or "", pub, now, fetcher, cfg, names, cap_val, fetch_page=fetch_ok)
+            res = read_one(conn, n["uid"], n["title"] or "", n["summary"] or "", n["url"] or "", pub, now, use_fetcher, cfg, names, cap_val, fetch_page=fetch_ok, robots=use_robots)
             note = merge(a, res, mode, tick)
         except Exception:  # noqa: BLE001 - one odd article must not cost the others their reading
             stats["errors"] = stats.get("errors", 0) + 1

@@ -125,7 +125,7 @@ def validate(x: dict, now=None, max_age: float = 900) -> dict:
     return x
 
 
-def _budget_ok(conn, name: str, cfg: dict, now_s: float) -> bool:
+def _budget_ok(conn, name: str, cfg: dict, now_s: float, extra: int = 0) -> bool:
     lim = cfg["quotes"]["limits"].get(name)
     h = conn.execute("SELECT backoff_until FROM provider_health WHERE provider=?", (name,)).fetchone()
     if h and float(h["backoff_until"] or 0) > now_s:
@@ -135,7 +135,7 @@ def _budget_ok(conn, name: str, cfg: dict, now_s: float) -> bool:
     n, window = lim
     conn.execute("DELETE FROM provider_calls WHERE ts<?", (now_s - 86400,))
     c = conn.execute("SELECT COUNT(*) FROM provider_calls WHERE provider=? AND ts>?", (name, now_s - window)).fetchone()[0]
-    return c < n
+    return c + extra < n                                   # `extra`: calls already planned in this batch but not yet recorded
 
 
 def _run_provider(fn, ticker, fetch):
@@ -148,7 +148,8 @@ def _run_provider(fn, ticker, fetch):
         return obs(name, ticker, error=type(e).__name__)
 
 
-def consensus(conn, ticker: str, cfg: dict, now=None, providers: Optional[List[Callable]] = None, fetch: Callable = net.get_json, purpose: str = "exit", only: Optional[set] = None) -> dict:
+def consensus(conn, ticker: str, cfg: dict, now=None, providers: Optional[List[Callable]] = None, fetch: Callable = net.get_json, purpose: str = "exit", only: Optional[set] = None,
+              prefetched: Optional[dict] = None) -> dict:
     now = now or utcnow()
     now_s = now.timestamp()
     q = cfg["quotes"]
@@ -162,8 +163,13 @@ def consensus(conn, ticker: str, cfg: dict, now=None, providers: Optional[List[C
         if conn is not None and providers is None and not _budget_ok(conn, name, cfg, now_s):
             continue
         todo.append(fn)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(todo))) as ex:
-        results = list(ex.map(lambda f: _run_provider(f, ticker, fetch), todo))
+    warm = bool(prefetched) and any(k[0] == ticker for k in prefetched)
+    if warm:
+        # answers already fetched side by side with those of the other stocks: use exactly those, and only for providers the plan allowed (it already spent their rate budget)
+        results = [prefetched[(ticker, _NAMES.get(f.__name__, f.__name__.upper()))] for f in todo if (ticker, _NAMES.get(f.__name__, f.__name__.upper())) in prefetched]
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(todo))) as ex:
+            results = list(ex.map(lambda f: _run_provider(f, ticker, fetch), todo))
     for r in results:
         r = validate(r, now)
         if r["error"] == "DISABLED_NO_KEY":
@@ -264,21 +270,53 @@ def probe(conn, cfg: dict, now=None, fetch: Callable = net.get_json) -> dict:
     return {"checked": sorted(x["provider"] for x in c["observations"]), "status": c["status"]}
 
 
-def get_quote(conn, ticker: str, cfg: dict, purpose: str = "exit", now=None, providers=None, fetch: Callable = net.get_json) -> dict:
-    """Fresh consensus quote (cached for a few seconds so entry+exit checks in one cycle don't double-spend rate limits)."""
-    now = now or utcnow()
+def fresh_cached(conn, ticker: str, cfg: dict, purpose: str, now) -> Optional[dict]:
+    """The consensus quote made in the last 20 seconds, if there is one (so entry and exit checks in one cycle do not double-spend rate limits)."""
     max_age = float(cfg["quotes"]["entry_max_age_seconds"] if purpose == "entry" else cfg["quotes"]["max_age_seconds"])
     row = conn.execute("SELECT * FROM quote_consensus WHERE ticker=? AND status='PASS' ORDER BY id DESC LIMIT 1", (ticker,)).fetchone()
-    if row and providers is None:
+    if row:
         c_at = parse_ts(row["created"])
         qc = conn.execute("SELECT quoted_at FROM quote_cache WHERE ticker=?", (ticker,)).fetchone()
         qa = parse_ts(qc[0]) if qc else None
         if c_at and qa and (now - c_at).total_seconds() < 20 and (now - qa).total_seconds() <= max_age:
             return {"ticker": ticker, "status": "PASS", "price": row["consensus_price"], "quoted_at": iso(qa), "age_seconds": (now - qa).total_seconds(),
                     "execution_eligible": bool(market_state(now)["execution"]), "providers_used": json.loads(row["providers_json"] or "[]"), "provider_count": row["provider_count"], "session": market_state(now)["session"]}
-    c = consensus(conn, ticker, cfg, now, providers, fetch, purpose)
+    return None
+
+
+def get_quote(conn, ticker: str, cfg: dict, purpose: str = "exit", now=None, providers=None, fetch: Callable = net.get_json, prefetched: Optional[dict] = None) -> dict:
+    """Fresh consensus quote (cached for a few seconds so entry+exit checks in one cycle don't double-spend rate limits)."""
+    now = now or utcnow()
+    if providers is None:
+        hit = fresh_cached(conn, ticker, cfg, purpose, now)
+        if hit:
+            return hit
+    c = consensus(conn, ticker, cfg, now, providers, fetch, purpose, prefetched=prefetched)
     store(conn, c, now)
     return c
+
+
+def prefetch(conn, tickers: List[str], cfg: dict, now, fetch: Callable = net.get_json, workers: int = 6, purpose: str = "exit", deadline_s: float = 20.0) -> dict:
+    """Ask every quote provider about every stock SIDE BY SIDE instead of stock by stock. NETWORK ONLY in the threads; this function plans in the caller's order (so a free-tier provider's rate budget goes
+    to the first stocks in the list, exactly as it would one at a time) and returns {(ticker, provider): observation}. consensus() then makes its decision from these answers with the same code as ever.
+    Stocks with a fresh cached consensus are skipped, so nothing is fetched that get_quote would not have fetched."""
+    from . import parallel
+    now_s = now.timestamp()
+    pending: Dict[str, int] = {}
+    jobs = []
+    for t in dict.fromkeys(tickers):
+        if fresh_cached(conn, t, cfg, purpose, now):
+            continue
+        for fn in PROVIDERS:
+            name = _NAMES.get(fn.__name__, fn.__name__.upper())
+            if not _budget_ok(conn, name, cfg, now_s, extra=pending.get(name, 0)):
+                continue
+            pending[name] = pending.get(name, 0) + 1
+            jobs.append({"key": (t, name), "host": name, "fn": (lambda fn=fn, t=t: _run_provider(fn, t, fetch))})
+    # one stock already fetched all its providers at once; the gain is doing SEVERAL STOCKS at once, so allow 3 requests per provider concurrently (each server sees at most 3), capped at 16 threads
+    eff = min(16, len(jobs), max(workers, 3 * len({j["host"] for j in jobs})))
+    outs = parallel.run_jobs(jobs, workers=eff, per_host=3, deadline_s=deadline_s)
+    return {o.key: o.value for o in outs if o.ok}
 
 
 def valuation_price(conn, ticker: str, now=None, max_age_hours: float = 72) -> Optional[dict]:

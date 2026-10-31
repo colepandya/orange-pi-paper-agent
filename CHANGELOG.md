@@ -1,3 +1,15 @@
+# Build 38  (strategy S3)
+* **Faster, responsive cycles: network waiting is shared** (docs/PARALLEL.md). Feeds, article pages, price refresh and the quotes for exits and entries are fetched side by side (default 6 at once, at most 2 per server, 3 per quote provider);
+  parsing, storing and every decision stay one at a time in a fixed order, so the database is exactly what it would have been one-at-a-time (tested). One slow or failing feed no longer delays the others; each feed's time is recorded
+  (Sources table "Took (s)"). Setting `runtime.fetch_workers` (1 = the old behaviour). The median cycle was 59 s, 78% of it collecting feeds one by one.
+* **Opinion cancellations fixed (decision rule: S2 -> S3).** On the owner's live data 2 of 7 "opinion / list article" cancellations were real ideas (an AWS earnings story, a Kimco FFO beat). A single stray word ("zacks rank", "motley fool",
+  "reasons to", "opinion", "column") made an article opinion. Now it needs a label / listicle / advice-style title, an opinion URL section, or two DIFFERENT first-person cues. FFO / AFFO are read as REIT earnings,
+  and a sentence opening "A quarter ago, ..." is history (the prior quarter was being read as the current result).
+* **Backups cannot fill the disk.** A backup is refused (and the service shows as failed) when free space is under twice the database or 500 MB; the installer keeps 3 full copies instead of 5; the daily size is recorded and `doctor` prints a
+  `[disk]` line with growth per day and how many days of disk are left, and says what to lower when it is under 120 days. (Daily backups were already compressed; the uncompressed full copies are the installer's.)
+* **Quieter forecasts:** a waiting BUY that is re-forecast every cycle rewrites its row in place when nothing material changed (same verdict, edge within 0.3 points, same target / stop / horizon) instead of adding a near-identical row each time (one idea had 113).
+* Everything in builds 32-37 is included.
+
 # Build 37  (strategy S2)
 * **Review of the real Friday 30 Oct open: why 8 queued BUYs were held until they expired.** SPY really did close down 1.37%, so the market gate worked. What was wrong was what counted as the shock:
   - the classifier also reads the feed SUMMARY, so a crypto hack whose summary said "halts withdrawals" became a bank run (financial_stress_event, -0.85), and an opinion column and a West Bank raids story became war escalation;

@@ -25,7 +25,7 @@ DEFAULTS: Dict[str, Any] = {
         "ruin_loss_pct": 0.20, "max_stress_loss_pct": 0.20, "min_ev_net": 0.006, "min_confidence": 0.45, "max_new_per_cycle": 0, "veto_adverse_news": True, "allow_add_to_position": False, "rotation_min_hold_hours": 6, "full_size_edge": 0.5, "veto_news_direction": -0.35, "veto_news_magnitude": 0.30, "shock_direction": -0.6, "shock_hold_hours": 6, "shock_min_sources": 2, "shock_market_drop_pct": 0.01, "shock_applies_to": "after_decision", "max_gap_down_pct": 0.03, "max_gap_up_pct": 0.05,
         "max_spread_pct": 0.02, "min_adv_usd": 2_000_000,
     },
-    "runtime": {"min_available_memory_mb": 120, "max_load_per_core": 1.5, "pihole_health_required": False,
+    "runtime": { "fetch_workers": 6,"min_available_memory_mb": 120, "max_load_per_core": 1.5, "pihole_health_required": False,
                 "bind_host": "0.0.0.0", "bind_port": 8088, "contact_email": "paper-agent@example.invalid",
                 "cycle_budget_seconds": 300, "require_password": False, "allowed_hosts": [], "pause_file": os.path.join(STATE_DIR, "PAUSE_TRADES"), "lock_file": os.path.join(STATE_DIR, "cycle.lock")},
     "quotes": {"min_providers": 1, "max_deviation": 0.005, "max_age_seconds": 180, "entry_max_age_seconds": 90,

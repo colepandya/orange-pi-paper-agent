@@ -235,10 +235,11 @@ def _sources_table(c, cfg) -> str:
     """Feeds that are switched off are shown as OFF (they are not fetched), not as failures with a stale error."""
     off = sources.disabled_ids(cfg)
     rows = list(c.execute("SELECT * FROM source_health ORDER BY failures DESC,name"))
-    live = [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", r["last_status"], r["failures"], r["items_total"], (r["last_error"] or "")[:60]] for r in rows if r["source_id"] not in off]
-    dead = [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", "OFF (Settings)", "-", r["items_total"], "switched off by you: not fetched"] for r in rows if r["source_id"] in off]
+    took = lambda r: ("%.1f" % (r["last_ms"] / 1000.0)) if r["last_ms"] is not None else "-"          # noqa: E731
+    live = [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", r["last_status"], r["failures"], r["items_total"], took(r), (r["last_error"] or "")[:60]] for r in rows if r["source_id"] not in off]
+    dead = [[r["name"], to_nz(r["last_success"], "%d %b %H:%M") if r["last_success"] else "never", "OFF (Settings)", "-", r["items_total"], "-", "switched off by you: not fetched"] for r in rows if r["source_id"] in off]
     note = ("<p class=mut>%d feed(s) are switched off in Settings and are <b>not being fetched</b>; they are listed last for reference only.</p>" % len(dead)) if dead else ""
-    return note + table(["Source", "Last success", "Status", "Failures", "Items", "Error"], live + dead)
+    return note + table(["Source", "Last success", "Status", "Failures", "Items", "Took (s)", "Error"], live + dead)
 
 
 def page_decisions(c, cfg, s, q):

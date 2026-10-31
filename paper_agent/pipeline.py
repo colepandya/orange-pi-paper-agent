@@ -153,7 +153,8 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
         conn.execute("UPDATE cycle_runs SET finished=?,status='SKIPPED',report_json=? WHERE id=?", (iso(), json.dumps(report), run_id))
         _CKPT = None
         return report
-    quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json))
+    warm: dict = {}                                                          # provider answers fetched side by side ahead of the entry and exit stages (see _warm_quotes)
+    quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json, prefetched=warm))
     thesis.seed(conn)
     report["strategy"] = _stage(report, "strategy", stamp.record, conn, cfg, now)
     icfg = cfg["intelligence"]
@@ -195,7 +196,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     held = [r[0] for r in conn.execute("SELECT DISTINCT ticker FROM positions WHERE status='OPEN'")]
 
     def collect():
-        out = sources.collect(conn, [s for s in srcs if icfg["gdelt_enabled"] or s["type"] != "gdelt"], deps.fetch, clock=lambda: now.timestamp(), sleep=deps.sleep)
+        out = sources.collect(conn, [s for s in srcs if icfg["gdelt_enabled"] or s["type"] != "gdelt"], deps.fetch, clock=lambda: now.timestamp(), sleep=deps.sleep, workers=int(cfg["runtime"].get("fetch_workers", 6)))
         names = list(dict.fromkeys(held + [r[0] for r in conn.execute("SELECT ticker FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_CAPACITY')")]))[: icfg["finnhub_company_news_max"]]
         extra = 0
         if os.getenv("FINNHUB_API_KEY") and db.due(conn, "company_news", 0.25, now):
@@ -274,6 +275,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
 
     # ---- capital allocation
     cands = cands + trader.thesis_candidates(conn, cfg, reg, universe, now)
+    warm.update(_stage(report, "quote_prefetch", _warm_quotes, conn, cfg, deps, now, _quote_wishlist(conn, cands)) or {})
     ent = _stage(report, "entries", trader.run_entries, conn, cfg, universe, cands, reg, now, quote_fn, deps.series_fetch if deps.series_fetch else None, intel, t_start + budget * 1.2)
     report["entries"] = ent
 
@@ -312,6 +314,23 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     return report
 
 
+def _quote_wishlist(conn, cands: list) -> List[str]:
+    """Whose prices the entry and exit stages will most likely ask for, MOST IMPORTANT FIRST (so a rate-limited provider's budget goes where it matters): what we hold, then the waiting BUYs by edge,
+    then this cycle's new candidates."""
+    held = [r[0] for r in conn.execute("SELECT DISTINCT ticker FROM positions WHERE status='OPEN' ORDER BY id")]
+    waiting = [r[0] for r in conn.execute("SELECT ticker FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') ORDER BY ev_net DESC, id LIMIT 12")]
+    return list(dict.fromkeys(held + waiting + [c["ticker"] for c in cands[:12]]))
+
+
+def _warm_quotes(conn, cfg: dict, deps, now, tickers: List[str]) -> dict:
+    """Fetch the quotes for these stocks side by side, only while orders can execute and only for real quote providers (a test's own quote function is left alone). Anything missing falls back to
+    the ordinary stock-by-stock lookup, so this can only make the same decision sooner."""
+    workers = int((cfg.get("runtime") or {}).get("fetch_workers", 6))
+    if deps.quote_fn or workers <= 1 or not tickers or not market_state(now)["execution"]:
+        return {}
+    return quotes.prefetch(conn, tickers, cfg, now, deps.fetch_json, workers)
+
+
 def run_guard(conn, cfg: dict, deps: Optional[Deps] = None, now=None) -> dict:
     """Fast path every ~2 min: only manage exits on fresh quotes. Does nothing outside regular hours."""
     deps = deps or Deps()
@@ -320,5 +339,6 @@ def run_guard(conn, cfg: dict, deps: Optional[Deps] = None, now=None) -> dict:
         return {"skipped": "market %s" % market_state(now)["session"]}
     if not conn.execute("SELECT 1 FROM positions WHERE status='OPEN' LIMIT 1").fetchone():
         return {"skipped": "no open positions"}
-    quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json))
+    warm = _warm_quotes(conn, cfg, deps, now, [r[0] for r in conn.execute("SELECT DISTINCT ticker FROM positions WHERE status='OPEN' ORDER BY id")])
+    quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json, prefetched=warm))
     return executor.run(conn, cfg, now, quote_fn)

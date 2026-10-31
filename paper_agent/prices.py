@@ -30,9 +30,16 @@ def symbols_of_interest(conn, limit: int) -> List[str]:
     return out[:max(1, int(limit))]
 
 
-def refresh_symbol(conn, ticker: str, fetch: Callable, now, extended: bool = True) -> Optional[dict]:
+def fetch_chart(ticker: str, fetch: Callable, extended: bool = True):
+    """NETWORK ONLY (safe to run side by side): the raw chart payload for one symbol."""
     url = md.CHART_EXT % (urllib.parse.quote(ticker), "true" if extended else "false")
     payload, _ = fetch(url, headers={"Accept": "application/json"})
+    return payload
+
+
+def refresh_symbol(conn, ticker: str, fetch: Callable, now, extended: bool = True, payload=None) -> Optional[dict]:
+    if payload is None:
+        payload = fetch_chart(ticker, fetch, extended)
     bar = md.parse_last_bar(payload)
     if not bar:
         return None
@@ -62,12 +69,20 @@ def run(conn, cfg: dict, now=None, fetch: Optional[Callable] = None, max_seconds
     syms = symbols_of_interest(conn, int(p.get("max_symbols", 25)))
     updated = failed = 0
     stopped = ""
-    for s in syms:
-        if time.time() - t0 > max_seconds:
+    from . import parallel
+    ext = bool(p.get("extended_hours", True))
+    # 1. NETWORK (side by side, at most 2 at a time and about 6 a second, below the ~3 a second it already sustained one at a time x2)   2. DATABASE, one symbol at a time in the original order
+    workers = int((cfg.get("runtime") or {}).get("fetch_workers", 6))
+    outs = parallel.run_jobs([{"key": s, "host": "chart", "fn": (lambda s=s: fetch_chart(s, fetch, ext))} for s in syms], workers=workers,
+                             per_host=2, min_gap=({"chart": 0.15} if workers > 1 else {}), deadline_s=max_seconds)
+    for s, o in zip(syms, outs):
+        if o.timed_out:
             stopped = "time budget"
             break
         try:
-            if refresh_symbol(conn, s, fetch, now, bool(p.get("extended_hours", True))):
+            if not o.ok:
+                raise o.error
+            if refresh_symbol(conn, s, fetch, now, ext, payload=o.value):
                 updated += 1
             else:
                 failed += 1

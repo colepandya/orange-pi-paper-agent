@@ -15,6 +15,7 @@ docs/LIMITS.md
 docs/MISSED_TRADES.md
 docs/OMEGA_MAPPING.md
 docs/OPERATIONS.md
+docs/PARALLEL.md
 docs/REVIEW_FINDINGS.md
 docs/SETTINGS.md
 docs/STRATEGY_FREEZE.md
@@ -58,6 +59,7 @@ paper_agent/net.py
 paper_agent/nlp.py
 paper_agent/notify.py
 paper_agent/opportunity.py
+paper_agent/parallel.py
 paper_agent/performance.py
 paper_agent/pipeline.py
 paper_agent/portfolio.py
@@ -114,6 +116,7 @@ tests/__init__.py
 tests/fake_internet.py
 tests/helpers.py
 tests/soak_twenty_days.py
+tests/test_build38.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py
 tests/test_disabled_feeds.py
@@ -135,6 +138,9 @@ tests/test_lens.py
 tests/test_live_findings.py
 tests/test_maintain.py
 tests/test_open_blockers.py
+tests/test_parallel.py
+tests/test_parallel_collect.py
+tests/test_parallel_quotes.py
 tests/test_performance.py
 tests/test_polish.py
 tests/test_preflight.py

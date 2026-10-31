@@ -218,6 +218,66 @@ class TestFalseAlarmsFoundInRealNews(unittest.TestCase):
         self.assertLess(new["direction"], -0.1)
 
 
+class TestOpinionNeedsStrongEvidence(unittest.TestCase):
+    """Found on the owner's live data: 2 of the 7 'opinion / list article' cancellations were real ideas (an AWS earnings story, a Kimco FFO beat). A single stray word was enough: 'zacks rank',
+    'motley fool', 'reasons to', 'opinion', 'column'. Now opinion needs a label / listicle / advice-style title, an opinion URL section, or two DIFFERENT first-person cues."""
+
+    KIM = ("Kimco Realty (KIM) Surpasses Q3 FFO Estimates", [
+        "Kimco Realty (KIM) came out with quarterly funds from operations (FFO) of $0.42 per share, beating the Zacks Consensus Estimate of $0.41 per share. This compares to FFO of $0.40 per share a year ago.",
+        "These figures are adjusted for non-recurring items. This quarterly report represents an earnings surprise of +2.44%. A quarter ago, it was expected that this real estate investment trust would post FFO of $0.41 per share when it actually produced FFO of $0.43.",
+        "Over the last four quarters, the company has surpassed consensus FFO estimates four times. Kimco Realty shares have added about 8% since the beginning of the year versus the S&P 500's gain of 15%.",
+        "Kimco currently has a Zacks Rank #3 (Hold), which means it is expected to perform in line with the market in the near future. Here's why investors should keep an eye on the stock."])
+    AWS = ("AWS will be a $1T business, Jassy says \u2014 but first, it will spend big", [
+        "Amazon Web Services revenue increased 39 percent from the year-ago quarter, a trend of steady growth for the sixth straight quarter, Amazon reported on Thursday.",
+        "In his opinion, Amazon CEO Andy Jassy said the cloud unit could become a $1 trillion business over time, though capital spending will rise sharply to get there.",
+        "The spending column on the balance sheet will grow, and for now investors should expect margins to stay under pressure, analysts said after the report."])
+
+    def test_a_zacks_earnings_recap_is_a_report_and_its_ffo_beat_is_read(self):
+        r = lens.analyze(*self.KIM, THU)
+        self.assertEqual(r["type"], "report")                                                           # 'Zacks Rank' and "Here's why" in the body no longer make it opinion
+        e = fact(r, "eps_surprise")
+        self.assertEqual((e["actual"], e["estimate"]), (0.42, 0.41))                                    # FFO is the REIT earnings measure
+        self.assertGreater(r["direction"], 0.15)
+
+    def test_hard_news_that_happens_to_contain_the_word_opinion_or_column_is_a_report(self):
+        r = lens.analyze(*self.AWS, THU)
+        self.assertEqual(r["type"], "report")
+        self.assertIn("growth", kinds(r))
+        self.assertGreater(r["direction"], 0.0)
+
+    def test_a_publisher_name_or_a_stray_phrase_is_not_evidence(self):
+        for text in ("The company reported results. Shares were featured by the Motley Fool on Tuesday.", "There are three reasons to expect margins to recover, executives told analysts.",
+                     "The analysis: revenue rose 8% as the firm reported on Monday.", "\"I think we can beat that next quarter,\" the chief executive said on a call."):
+            self.assertEqual(lens.classify_type("Acme reports quarterly results", text), "report", text)
+
+    def test_the_same_cue_twice_is_one_cue_not_two(self):
+        self.assertEqual(lens.classify_type("Acme results", "\"I think we can do it,\" said the CEO. Later he added: \"I think margins will recover.\""), "report")
+        self.assertEqual(lens.classify_type("Acme results", "\"I think we can do it,\" said the CEO. \"We believe margins will recover,\" he added."), "opinion")
+
+    def test_ffo_is_read_as_the_reits_earnings_even_without_the_words_per_share(self):
+        r = lens.analyze("Kimco reports", ["Kimco reported FFO of $0.42 versus the consensus estimate of $0.41 for the third quarter."], THU)
+        e = fact(r, "eps_surprise")
+        self.assertEqual((e["actual"], e["estimate"]), (0.42, 0.41))
+        r2 = lens.analyze("Prologis reports", ["Prologis posted core FFO of $1.40, below the consensus estimate of $1.50, and lowered its outlook."], THU)
+        self.assertLess(r2["direction"], -0.3)
+
+    def test_real_opinion_is_still_opinion(self):
+        self.assertEqual(lens.classify_type("Opinion: why the Fed is wrong", "Rates should fall."), "opinion")                            # an explicit label
+        self.assertEqual(lens.classify_type("Here's why I'd buy Nvidia before earnings", "Nvidia reported strong demand."), "opinion")      # an advice-style title
+        self.assertEqual(lens.classify_type("5 reasons to buy this stock now", "Text."), "opinion")                                         # a listicle
+        self.assertEqual(lens.classify_type("Is Apple stock a buy?", "Is it a buy at today's price? Should you buy it now?"), "opinion")
+        self.assertEqual(lens.classify_type("Rates will fall", "Text about rates.", "https://www.theguardian.com/commentisfree/2026/oct/30/rates"), "opinion")   # an opinion section in the URL
+        self.assertEqual(lens.classify_type("Acme outlook", "I think the stock is cheap. In my view the market is wrong about the outlook."), "opinion")         # two different first-person cues
+        self.assertEqual(lens.classify_type("Rates will fall", "Text about rates.", "https://www.reuters.com/markets/rates-2026-10-30/"), "report")
+
+    def test_a_press_release_with_opinion_words_stays_a_release(self):
+        self.assertEqual(lens.classify_type("Acme announces results", "SAN JOSE /PRNewswire/ -- Acme today announced record results, in our view a strong quarter. I think so too."), "release")
+
+    def test_the_reader_passes_the_url_so_an_opinion_section_is_recognised(self):
+        from paper_agent import reader
+        self.assertEqual(reader.lens.analyze("Rates will fall", ["Text about rates and the economy."], None, None, None, url="https://x.com/opinion/a")["type"], "opinion")
+
+
 class TestWhatKindOfTextIsIt(unittest.TestCase):
     def test_types(self):
         self.assertEqual(lens.analyze("Here's why I'd buy Nvidia stock before earnings", ["In my view, Nvidia is one of the best stocks to buy right now. I think the company will beat estimates again."])["type"], "opinion")

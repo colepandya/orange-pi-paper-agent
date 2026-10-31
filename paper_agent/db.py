@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS lessons(id INTEGER PRIMARY KEY,created TEXT,category 
 CREATE TABLE IF NOT EXISTS rule_stats(rule_key TEXT PRIMARY KEY,wins INTEGER DEFAULT 0,losses INTEGER DEFAULT 0,total_pnl REAL DEFAULT 0,updated TEXT);
 CREATE TABLE IF NOT EXISTS earnings_calendar(ticker TEXT NOT NULL,date TEXT NOT NULL,hour TEXT,fetched TEXT,PRIMARY KEY(ticker,date));
 CREATE TABLE IF NOT EXISTS quote_cache(ticker TEXT PRIMARY KEY,price REAL NOT NULL,source TEXT NOT NULL,quoted_at TEXT NOT NULL,updated_epoch REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS source_health(source_id TEXT PRIMARY KEY,name TEXT,last_attempt TEXT,last_success TEXT,last_status TEXT,failures INTEGER DEFAULT 0,backoff_until REAL DEFAULT 0,items_total INTEGER DEFAULT 0,last_error TEXT);
+CREATE TABLE IF NOT EXISTS source_health(source_id TEXT PRIMARY KEY,name TEXT,last_attempt TEXT,last_success TEXT,last_status TEXT,failures INTEGER DEFAULT 0,backoff_until REAL DEFAULT 0,items_total INTEGER DEFAULT 0,last_error TEXT,last_ms INTEGER);
 CREATE TABLE IF NOT EXISTS position_forecast_plans(
  id INTEGER PRIMARY KEY AUTOINCREMENT,position_id INTEGER NOT NULL,decision_id INTEGER NOT NULL,created TEXT NOT NULL,
  plan_version TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,event_type TEXT NOT NULL,forecast_decision TEXT NOT NULL,

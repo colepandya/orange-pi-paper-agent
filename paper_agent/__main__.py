@@ -205,7 +205,15 @@ def main(argv=None) -> int:
         print(universe_mod.refresh(os.path.join(CONFIG_DIR, "watchlist.json")))
         return 0
     if args.cmd == "backup":
-        print(backup_mod.backup(DB_PATH, os.path.join(STATE_DIR, "backups")))
+        try:
+            print(backup_mod.backup(DB_PATH, os.path.join(STATE_DIR, "backups")))
+        except RuntimeError as e:
+            print(str(e))
+            return 1                                                                 # the service shows as failed: a skipped backup must be seen, not silent
+        try:
+            backup_mod.record_size(db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"]), utcnow().strftime("%Y-%m-%dT%H:%M:%S"))
+        except Exception:  # noqa: BLE001 - the growth record is a nicety; the backup itself succeeded
+            pass
         return 0
     if args.cmd == "serve":
         from . import dashboard

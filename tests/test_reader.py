@@ -404,11 +404,17 @@ class TestTheBudgetedStep(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
 
     def test_the_time_budget_stops_downloads_but_not_the_cheap_snippet_reading(self):
-        ticks = iter([0, 0, 100, 100, 100, 100, 100, 100, 100, 100])             # 1st call sets the deadline (25 s), 2nd is item 1 (in budget), then the budget is gone
+        t = [0.0]                                                                                      # a clock that moves only when a download is slow
+
+        def slow(url, timeout=8):
+            self.calls.append(url)
+            t[0] += 100.0                                                                              # the first download alone spends the whole 25-second budget
+            return page(LONG), url
         pre = [pre_item(i, "NVIDIA earnings beat number %d" % i) for i in range(4)]
-        st = reader.enrich(self.c, self.u, self.cfg, pre, NOW, self.fetcher, clock=lambda: next(ticks))
-        self.assertEqual(len(self.calls), 1)                                                          # the 25-second budget was used up after the first
-        self.assertEqual(st["read"], 4)
+        st = reader.enrich(self.c, self.u, self.cfg, pre, NOW, slow, clock=lambda: t[0])
+        self.assertEqual(len(self.calls), 1)                                                          # the budget was used up after the first download
+        self.assertEqual(st["read"], 4)                                                               # but every item was still read (the other three from their snippets)
+        self.assertEqual((st["page"], st["snippet"]), (1, 3))
 
     def test_what_is_never_read(self):
         pre = [pre_item(0, "NVIDIA earnings beat", stale=True), pre_item(1, "NVIDIA earnings beat again", scope="macro"), pre_item(2, "8-K - NVIDIA CORP (0001045810) (Filer)"), pre_item(3, "NVIDIA earnings beat v2", url=""),

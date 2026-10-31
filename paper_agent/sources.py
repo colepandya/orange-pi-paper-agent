@@ -57,18 +57,49 @@ def _gdelt_url(query: str, timespan: str = "6h", maxrecords: int = 50) -> str:
         {"query": query, "mode": "artlist", "maxrecords": maxrecords, "format": "json", "sort": "datedesc", "timespan": timespan})
 
 
-def fetch_source(src: dict, fetch: Callable = net.get, conn=None) -> Tuple[List[dict], int]:
+def host_of(url: str) -> str:
+    try:
+        return urllib.parse.urlsplit(url).netloc.lower()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def request_for(src: dict, conn=None) -> dict:
+    """WHAT to ask the network for this source: {"args": (...), "kw": {...}} exactly as it will be passed to fetch(). No network and no writes (it only reads the saved ETag),
+    so it is safe to do for every source first and fetch them all side by side afterwards."""
     typ = src["type"]
-    hdrs: Dict[str, str] = {}
-    if conn is not None and typ in ("rss", "atom", "sec_atom"):
-        r = conn.execute("SELECT etag,last_modified FROM source_state WHERE source_id=?", (src["id"],)).fetchone()
-        if r:
-            if r["etag"]:
-                hdrs["If-None-Match"] = r["etag"]
-            if r["last_modified"]:
-                hdrs["If-Modified-Since"] = r["last_modified"]
     if typ in ("rss", "atom", "sec_atom"):
-        body, status, rh = fetch(src["url"], headers=hdrs, timeout=20, max_bytes=8_000_000)
+        hdrs: Dict[str, str] = {}
+        if conn is not None:
+            r = conn.execute("SELECT etag,last_modified FROM source_state WHERE source_id=?", (src["id"],)).fetchone()
+            if r:
+                if r["etag"]:
+                    hdrs["If-None-Match"] = r["etag"]
+                if r["last_modified"]:
+                    hdrs["If-Modified-Since"] = r["last_modified"]
+        return {"args": (src["url"],), "kw": {"headers": hdrs, "timeout": 20, "max_bytes": 8_000_000}}
+    if typ in ("federal_register", "openfda"):
+        return {"args": (src["url"],), "kw": {"timeout": 20}}
+    if typ == "usaspending":
+        today = utcnow().date()
+        payload = {"filters": {"time_period": [{"start_date": (today - dt.timedelta(days=5)).isoformat(), "end_date": today.isoformat()}], "award_type_codes": ["A", "B", "C", "D"]},
+                   "fields": ["Award ID", "Recipient Name", "Start Date", "Award Amount", "Awarding Agency", "Description"], "page": 1, "limit": 100, "subawards": False}
+        return {"args": (src["url"],), "kw": {"headers": {"Content-Type": "application/json"}, "data": json.dumps(payload).encode(), "timeout": 25}}
+    if typ == "gdelt":
+        return {"args": (_gdelt_url(src["query"], src.get("timespan", "6h"), src.get("max", 50)),), "kw": {"timeout": 25}}
+    if typ == "finnhub_general":
+        key = os.getenv("FINNHUB_API_KEY", "")
+        if not key:
+            raise net.FetchError("DISABLED_NO_KEY")
+        return {"args": ("https://finnhub.io/api/v1/news?category=general&token=" + urllib.parse.quote(key),), "kw": {"timeout": 15}}
+    raise ValueError("unknown source type " + typ)
+
+
+def parse_response(src: dict, resp: tuple, conn=None) -> Tuple[List[dict], int]:
+    """Turn what the network returned (body, status, headers) into items. This is where the saved ETag is written, so it belongs with the database work, in the caller's order."""
+    typ = src["type"]
+    body, status, rh = resp
+    if typ in ("rss", "atom", "sec_atom"):
         if status == 304:
             return [], 304     # healthy and unchanged - NOT a failure
         if conn is not None and (rh.get("etag") or rh.get("last-modified")):
@@ -86,7 +117,6 @@ def fetch_source(src: dict, fetch: Callable = net.get, conn=None) -> Tuple[List[
             items = keep
         return items, status
     if typ == "federal_register":
-        body, status, _ = fetch(src["url"], timeout=20)
         j = json.loads(body)
         out = []
         for x in j.get("results", j.get("documents", [])):
@@ -95,7 +125,6 @@ def fetch_source(src: dict, fetch: Callable = net.get, conn=None) -> Tuple[List[
                         "url": x.get("html_url") or x.get("pdf_url", ""), "published": x.get("filed_at") or x.get("publication_date") or ""})
         return out, status
     if typ == "openfda":
-        body, status, _ = fetch(src["url"], timeout=20)
         out = []
         for x in json.loads(body).get("results", []):
             out.append({"title": "%s recall: %s" % (x.get("recalling_firm", ""), (x.get("product_description", "") or "")[:140]),
@@ -103,10 +132,6 @@ def fetch_source(src: dict, fetch: Callable = net.get, conn=None) -> Tuple[List[
                         "url": "https://www.fda.gov/safety/recalls-market-withdrawals-safety-alerts/enforcement-reports", "published": x.get("report_date") or ""})
         return out, status
     if typ == "usaspending":
-        today = utcnow().date()
-        payload = {"filters": {"time_period": [{"start_date": (today - dt.timedelta(days=5)).isoformat(), "end_date": today.isoformat()}], "award_type_codes": ["A", "B", "C", "D"]},
-                   "fields": ["Award ID", "Recipient Name", "Start Date", "Award Amount", "Awarding Agency", "Description"], "page": 1, "limit": 100, "subawards": False}
-        body, status, _ = fetch(src["url"], headers={"Content-Type": "application/json"}, data=json.dumps(payload).encode(), timeout=25)
         out = []
         for x in json.loads(body).get("results", []):
             amt = x.get("Award Amount")
@@ -115,7 +140,6 @@ def fetch_source(src: dict, fetch: Callable = net.get, conn=None) -> Tuple[List[
                         "url": "https://www.usaspending.gov/award/" + str(x.get("Award ID", "")), "published": x.get("Start Date") or ""})
         return out, status
     if typ == "gdelt":
-        body, status, _ = fetch(_gdelt_url(src["query"], src.get("timespan", "6h"), src.get("max", 50)), timeout=25)
         try:
             j = json.loads(body.decode("utf-8", "replace") or "{}")
         except ValueError:
@@ -125,12 +149,14 @@ def fetch_source(src: dict, fetch: Callable = net.get, conn=None) -> Tuple[List[
             out.append({"title": a.get("title", ""), "summary": "%s %s" % (a.get("domain", ""), a.get("sourcecountry", "")), "url": a.get("url", ""), "published": a.get("seendate") or ""})
         return out, status
     if typ == "finnhub_general":
-        key = os.getenv("FINNHUB_API_KEY", "")
-        if not key:
-            raise net.FetchError("DISABLED_NO_KEY")
-        body, status, _ = fetch("https://finnhub.io/api/v1/news?category=general&token=" + urllib.parse.quote(key), timeout=15)
         return [{"title": a.get("headline", ""), "summary": strip_html(a.get("summary", "")), "url": a.get("url", ""), "published": a.get("datetime") or ""} for a in json.loads(body)[:60]], status
     raise ValueError("unknown source type " + typ)
+
+
+def fetch_source(src: dict, fetch: Callable = net.get, conn=None) -> Tuple[List[dict], int]:
+    """One source, start to finish, one after another: plan, fetch, parse. (collect() does the same in three phases so the fetching can run side by side.)"""
+    req = request_for(src, conn if src["type"] in ("rss", "atom", "sec_atom") else None)
+    return parse_response(src, fetch(*req["args"], **req["kw"]), conn)
 
 
 def finnhub_company_news(ticker: str, fetch: Callable = net.get, days: int = 2) -> List[dict]:
@@ -144,7 +170,7 @@ def finnhub_company_news(ticker: str, fetch: Callable = net.get, days: int = 2) 
 
 
 # ------------------------------------------------------------------------------------------ health / scheduling
-def record_health(conn, src: dict, status, error=None, count: int = 0, clock: Callable = time.time) -> None:
+def record_health(conn, src: dict, status, error=None, count: int = 0, clock: Callable = time.time, ms: Optional[int] = None) -> None:
     """Stamp health with the SAME clock source_due() reads (a real-clock stamp under an injected clock made sources look permanently 'not due')."""
     t = iso(dt.datetime.fromtimestamp(clock(), dt.timezone.utc))
     r = conn.execute("SELECT failures FROM source_health WHERE source_id=?", (src["id"],)).fetchone()
@@ -154,10 +180,10 @@ def record_health(conn, src: dict, status, error=None, count: int = 0, clock: Ca
         back, success = clock() + min(21600, 300 * (2 ** min(failures, 6))), None
     else:
         failures, back, success = 0, 0, t
-    conn.execute("INSERT INTO source_health(source_id,name,last_attempt,last_success,last_status,failures,backoff_until,items_total,last_error) VALUES(?,?,?,?,?,?,?,?,?) "
+    conn.execute("INSERT INTO source_health(source_id,name,last_attempt,last_success,last_status,failures,backoff_until,items_total,last_error,last_ms) VALUES(?,?,?,?,?,?,?,?,?,?) "
                  "ON CONFLICT(source_id) DO UPDATE SET name=excluded.name,last_attempt=excluded.last_attempt,last_success=COALESCE(excluded.last_success,source_health.last_success),"
-                 "last_status=excluded.last_status,failures=excluded.failures,backoff_until=excluded.backoff_until,items_total=source_health.items_total+excluded.items_total,last_error=excluded.last_error",
-                 (src["id"], src["name"], t, success, str(status), failures, back, count, (str(error)[:300] if error else None)))
+                 "last_status=excluded.last_status,failures=excluded.failures,backoff_until=excluded.backoff_until,items_total=source_health.items_total+excluded.items_total,last_error=excluded.last_error,last_ms=excluded.last_ms",
+                 (src["id"], src["name"], t, success, str(status), failures, back, count, (str(error)[:300] if error else None), ms))
 
 
 def disabled_ids(cfg: Optional[dict], srcs: Optional[List[dict]] = None) -> set:
@@ -208,16 +234,27 @@ GDELT_GAP_SECONDS, GDELT_MAX_PER_CYCLE = 5.5, 3        # GDELT asks for <= 1 req
 
 
 def collect(conn, sources: List[dict], fetch: Callable = net.get, clock: Callable = time.time, max_items: int = 100, only_ids: Optional[set] = None,
-            sleep: Callable = time.sleep) -> dict:
-    tot = {"sources_ok": 0, "fetch_failures": 0, "skipped": 0, "unchanged": 0, "new": 0, "errors": []}
+            sleep: Callable = time.sleep, workers: int = 1, deadline_s: float = 90.0) -> dict:
+    """Poll every source that is due. Three phases, so the slow part (waiting for servers) can run side by side while everything that touches the database stays in ONE place, in a FIXED order:
+    1. PLAN (database reads): which sources are due, and exactly what to ask each.  2. FETCH (network only, `workers` at a time, at most 2 per server, GDELT one per 5.5 s).
+    3. PARSE + STORE (database writes) one source at a time in the original order, so the result is the same whichever server answered first. workers=1 is the old one-after-another behaviour."""
+    from . import parallel
+    tot = {"sources_ok": 0, "fetch_failures": 0, "skipped": 0, "unchanged": 0, "new": 0, "errors": [], "slowest": []}
     gdelt_done = 0
 
     def last_attempt(src: dict) -> str:
         r = conn.execute("SELECT last_attempt FROM source_health WHERE source_id=?", (src["id"],)).fetchone()
         return (r[0] if r and r[0] else "")            # never polled sorts first
 
+    def failed(src: dict, e: BaseException, ms: Optional[int] = None) -> None:
+        code = getattr(e, "code", None) or type(e).__name__
+        record_health(conn, src, code, e, clock=clock, ms=ms)
+        tot["fetch_failures"] += 1
+        tot["errors"].append("%s:%s" % (src["id"], code))
+
     # fair rotation: with a per-cycle cap, the least-recently-polled GDELT feeds go first so none can be starved
     ordered = [s for s in sources if s["type"] != "gdelt"] + sorted((s for s in sources if s["type"] == "gdelt"), key=last_attempt)
+    plan: List[Tuple[dict, dict]] = []
     for src in ordered:
         if only_ids is not None and src["id"] not in only_ids:
             continue
@@ -228,21 +265,31 @@ def collect(conn, sources: List[dict], fetch: Callable = net.get, clock: Callabl
             if gdelt_done >= GDELT_MAX_PER_CYCLE:
                 tot["skipped"] += 1
                 continue
-            if gdelt_done:
-                sleep(GDELT_GAP_SECONDS)
             gdelt_done += 1
         try:
-            items, status = fetch_source(src, fetch, conn)
+            plan.append((src, request_for(src, conn)))
         except Exception as e:  # noqa: BLE001 - every failure mode must be isolated per source
-            code = getattr(e, "code", None) or type(e).__name__
-            record_health(conn, src, code, e, clock=clock)
-            tot["fetch_failures"] += 1
-            tot["errors"].append("%s:%s" % (src["id"], code))
+            failed(src, e)
+    jobs = [{"key": src["id"], "host": host_of(req["args"][0]), "fn": (lambda req=req: fetch(*req["args"], **req["kw"]))} for src, req in plan]
+    gaps = {host_of(req["args"][0]): GDELT_GAP_SECONDS for src, req in plan if src["type"] == "gdelt"}
+    t_fetch = time.monotonic()
+    outcomes = parallel.run_jobs(jobs, workers=workers, per_host=2, min_gap=gaps, deadline_s=deadline_s, sleep=sleep)
+    tot["fetch_seconds"] = round(time.monotonic() - t_fetch, 1)
+    for (src, req), out in zip(plan, outcomes):
+        ms = int(out.seconds * 1000)
+        if not out.ok:
+            failed(src, out.error, ms)
             continue
-        record_health(conn, src, status, count=len(items), clock=clock)
+        try:
+            items, status = parse_response(src, out.value, conn)
+        except Exception as e:  # noqa: BLE001
+            failed(src, e, ms)
+            continue
+        record_health(conn, src, status, count=len(items), clock=clock, ms=ms)
         if status == 304:
             tot["unchanged"] += 1
             continue
         tot["sources_ok"] += 1
         tot["new"] += store_items(conn, src, items[:max_items], dt.datetime.fromtimestamp(clock(), dt.timezone.utc))      # ingestion time on the SAME clock as "is it due"
+    tot["slowest"] = ["%s %.1fs" % (o.key, o.seconds) for o in sorted(outcomes, key=lambda o: -o.seconds)[:3]]
     return tot

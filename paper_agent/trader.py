@@ -131,7 +131,8 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     c["ref_price"] = ref
     f = ev.build(conn, c, cfg, regime, now, universe)
     with db.tx(conn):
-        fid = ev.persist(conn, f, None, c.get("event_id"), now)
+        prev = conn.execute("SELECT * FROM forecasts WHERE decision_id=? ORDER BY id DESC LIMIT 1", (existing_decision,)).fetchone() if existing_decision else None
+        fid = ev.refresh(conn, prev["id"], f, now) if (prev and ev.materially_same(prev, f)) else ev.persist(conn, f, None, c.get("event_id"), now)      # a retry that changed nothing rewrites its row, not adds one
         did = existing_decision or _decision(conn, c, "PROPOSED", "BUY" if f["verdict"] == "BUY" else "NO_TRADE", reason, score, now, fid, f["ev_net"], None, "", f["thesis_key"])
         conn.execute("UPDATE forecasts SET decision_id=? WHERE id=?", (did, fid))
         if not existing_decision:
