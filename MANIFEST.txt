@@ -190,6 +190,7 @@ tests/test_review_fixes.py
 tests/test_rotation.py
 tests/test_schema_drift.py
 tests/test_settings_page.py
+tests/test_settings_redesign.py
 tests/test_settings_ui.py
 tests/test_shock_rules.py
 tests/test_short_gaps.py

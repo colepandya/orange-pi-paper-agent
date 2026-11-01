@@ -10,8 +10,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from paper_agent import config, settings as S, settings_ui as U  # noqa: E402
 
 
-def page(cfg):
-    return U.page_settings(cfg, cfg, {}, [], {}, {}, None)
+def page(cfg, section="all"):
+    """The page as the dashboard renders it. The all-settings view is the complete form (every setting, one Save)."""
+    return U.page_settings(cfg, cfg, {"section": section}, [], {}, {}, None)
 
 
 def posted(html):
@@ -38,13 +39,17 @@ class TestEverySettingIsOnThePage(unittest.TestCase):
         self.assertLessEqual({f.group for f in S.FIELDS}, set(S.GROUP_ORDER), "a settings group is defined but would never be shown")
         missing = [f.path for f in S.FIELDS if f.name not in self.html]
         self.assertEqual(missing, [])
-        for g in S.GROUP_ORDER:
-            self.assertIn("<h2>%s</h2>" % g, self.html)
+        self.assertEqual(U.layout_problems(), [])                                                    # and each is placed under a heading exactly once
+        for s in U.SECTION_META:
+            if s["kind"] in ("settings", "feeds"):
+                self.assertIn("id='sec-%s'>" % s["id"], self.html)
 
     def test_the_swing_group_is_there_with_all_its_controls(self):
         sw = [f for f in S.FIELDS if f.group == "Swing strategy"]
         self.assertEqual(len(sw), len(self.cfg["strategy"]))                        # one control per strategy key
-        self.assertLess(self.html.index("<h2>Swing strategy</h2>"), self.html.index("<h2>Execution</h2>"))
+        self.assertLess(self.html.index("Stops, targets &amp; exits"), self.html.index("Short selling"))
+        for f in sw:
+            self.assertIn(f.name, self.html)                                                            # every strategy control is on the exits page
 
     def test_saving_the_untouched_page_is_clean(self):
         _new, errors, _w = S.apply_form(posted(self.html), self.cfg, self.cfg, {})

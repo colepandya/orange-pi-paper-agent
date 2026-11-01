@@ -41,11 +41,12 @@ class TestZebraStripes(unittest.TestCase):
     def test_the_system_and_settings_tables_are_all_ordinary_rows_that_get_it(self):
         c, cfg = H.fresh_db(), H.cfg()
         system = dashboard.render(c, cfg, "system", {})
-        settings = dashboard.render(c, cfg, "settings", {}, {"authed": True})
+        settings = dashboard.render(c, cfg, "settings", {"s": ["all"]}, {"authed": True})         # the all-settings view carries the feeds table
         for page in (system, settings):
             self.assertIn("tr:nth-child(2n+3) td{background:var(--stripe)}", page)
-            self.assertGreater(page.count("<tr>"), 10)
-        self.assertGreater(settings.count("<table"), 5)
+        self.assertGreater(system.count("<tr>"), 10)
+        self.assertGreaterEqual(settings.count("<table"), 1)                                         # the settings themselves are rows in section cards (not table rows); the tables that remain are ordinary
+        self.assertNotIn("<tr class", settings)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 A 2-4 week trial only measures something if the strategy stays the same while it runs. Two things could quietly change it, and both are now controlled.
 
-## 1. The system no longer rewrites itself (Settings -> Refresh times -> "What the system does with what it learns")
+## 1. The system no longer rewrites itself (Settings -> Reasoning engine -> Learning from results -> "What the system does with what it learns")
 * **observe (default)**: it keeps learning from resolved predictions, but only RECORDS what it would change. Probability calibration, event-type power, move sizes and thesis priors are stored as
   `proposed:*`; per-source hit/miss counts are stored apart as `observed:<source>`. Decisions do not read either, so they are exactly as before.
 * **apply**: the old behaviour. It rewrites its own probabilities, move sizes, thesis priors and source credibility as results arrive.

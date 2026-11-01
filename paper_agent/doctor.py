@@ -85,7 +85,7 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
         from . import backup as _bk
         pr = _bk.projection(conn, path, ["/var/backups/paper-agent", os.path.join(os.path.dirname(path), "backups")], utcnow().strftime("%Y-%m-%dT%H:%M:%S"))
         grow = ("growing %.1f MB/day" % pr["growth_mb_day"]) if pr["growth_mb_day"] is not None else "growth not measured yet (needs two daily backups)"
-        left = (" | at this rate the disk lasts about %d more days%s" % (pr["days_left"], " -> LOWER the news / log retention (Settings -> Database)" if pr["days_left"] < 120 else "")) if pr["days_left"] is not None else ""
+        left = (" | at this rate the disk lasts about %d more days%s" % (pr["days_left"], " -> LOWER the news / log retention (Settings -> Security, alerts & storage -> Database)" if pr["days_left"] < 120 else "")) if pr["days_left"] is not None else ""
         out("[disk] database %.0f MB, %s | backups use %.0f MB | %.1f GB free%s" % (pr["db_mb"], grow, pr["backups_mb"], pr["free_mb"] / 1024.0, left))
     except Exception as e:  # noqa: BLE001
         out("[database] check failed: %s" % e)
@@ -178,7 +178,7 @@ def run(conn, cfg: dict, config_dir: str, fetch: Callable = net.get, fetch_json:
         out("[schedule] " + ", ".join("%s: configured %d / running %d %s" % (k, v["configured"], v["applied"], "ok" if v["in_sync"] else "DRIFT") for k, v in ss.items()))
         for k, v in ss.items():
             if not v["in_sync"]:
-                issue("MEDIUM", "%s is set to %d but systemd is running %d" % (k, v["configured"], v["applied"]), "Settings -> Services -> Apply schedule now")
+                issue("MEDIUM", "%s is set to %d but systemd is running %d" % (k, v["configured"], v["applied"]), "Settings -> Services & timers -> Apply schedule now")
     except Exception:  # noqa: BLE001
         pass
     # ---- decision funnel: why are (or are not) news items becoming decisions?

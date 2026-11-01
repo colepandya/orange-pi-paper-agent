@@ -14,5 +14,5 @@ All are DELAYED about 15 minutes. So a chain is never treated as "the price now"
 Check them from the Pi at any time: `cd /opt/paper-agent && sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent optionsprobe NVDA`
 It prints each feed's status, speed and contract count, then the call and put the bot would pick and the price it would pay.
 
-If none answers the bot says so: the option is priced by the model and labelled MODEL (Settings -> Instruments can forbid that: then the stock is traded instead). The Positions page shows each feed's health and how far the model is from the real market.
+If none answers the bot says so: the option is priced by the model and labelled MODEL (Settings -> Options -> Where the prices come from can forbid that: then the stock is traded instead). The Positions page shows each feed's health and how far the model is from the real market.
 These feeds are public, undocumented surfaces that can change without notice; that is why there are four and why failure is a normal, handled case.

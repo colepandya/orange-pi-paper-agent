@@ -244,7 +244,7 @@ def store(conn, c: dict, now=None, cache: bool = True, backoff: bool = True) -> 
 
 
 def probe(conn, cfg: dict, now=None, fetch: Callable = net.get_json) -> dict:
-    """Keep the provider table TRUE: a cheap SPY check of every configured provider on a schedule you set (Settings -> Execution), market open or closed.
+    """Keep the provider table TRUE: a cheap SPY check of every configured provider on a schedule you set (Settings -> Prices & quotes), market open or closed.
     Providers with hourly/daily budgets (Alpha Vantage: ~20 a day) are checked at most every 3 hours: the trade path needs those calls more than a health check does."""
     now = now or utcnow()
     mins = float((cfg.get("quotes") or {}).get("probe_minutes", 10) or 0)

@@ -1,7 +1,7 @@
 # Operations guide
 
 ## Is it ready for market open?
-`sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent preflight` (or Settings -> Test connections -> **Pre-open checklist**).
+`sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent preflight` (or Settings -> Checks & tests -> **Pre-open checklist**).
 It checks services, timer schedule, memory/disk, that cycles and the exit guard are actually running, that news is flowing, that company recognition works on the REAL
 watchlist, that >= 2 quote providers return data, and (while the market is open) that two providers agree on a fresh price. Output ends with **READY** or the exact blockers.
 US regular session = 9:30-16:00 New York = about 2:30-9:00 am NZ time (3:30-10:00 am after the US clocks change). Freshness can only be proven while the market is open:
@@ -22,13 +22,13 @@ did or did not become a candidate (duplicate story, macro event, no company reco
 `python3 -m paper_agent requeue` lists them; `requeue --apply` re-opens them for the next cycle. Only decisions rejected by eligibility-score-by-age, the old news veto or a non-shock hold qualify.
 
 ## Article reader
-See docs/ARTICLE_READER.md. Settings -> Article reader: off / shadow / guard / full.
+See docs/ARTICLE_READER.md. Settings -> Reading the news -> Reading full articles: off / shadow / guard / full.
 
 ## Database clean-up
 See docs/DATABASE.md. `db-maintain plan` is always safe; `db-maintain apply` backs up, archives and verifies before it removes anything.
 
 ## Quote providers table (System tab)
-Checked every 10 minutes (Settings -> Execution), market open or closed. "Answering; prices are old" is normal when the market is closed. "Last fresh price" is the last time a provider's price was recent enough to trade on.
+Checked every 10 minutes (Settings -> Prices & quotes -> Quote quality), market open or closed. "Answering; prices are old" is normal when the market is closed. "Last fresh price" is the last time a provider's price was recent enough to trade on.
 
 ## Performance tab
 Every closed trade, analysed: results by how it ended, by kind of news, by hold time, by time of day and by stock, with the verdict in plain words. It will not judge fewer than ~20 trades. Click "Why?" on any trade to see the full reasoning.
@@ -38,18 +38,18 @@ Swing trades stay out of earnings reports and are sold before the close if one w
 After-the-fact articles ("Why X stock dropped...") are ignored as catalysts.
 
 ## Swing strategy
-In and out within ~1-3 sessions: tight stops, small repeatable targets, profits protected (break-even lock after +1%, then a trailing stop). Every number is a dashboard setting (Settings -> Swing strategy).
+In and out within ~1-3 sessions: tight stops, small repeatable targets, profits protected (break-even lock after +1%, then a trailing stop). Every number is a dashboard setting (Settings -> Stops, targets & exits, and Entry rules).
 This is a risk profile, not a promise: there is no guarantee of 1-2% a day. Judge it by the closed positions and their exit reasons.
 
 ## Last look, world events, prices after hours
-A queued BUY is re-checked at the open against later news about the company (cancel), market-wide shocks (hold) and overnight gaps (cancel) - Settings -> Risk limits.
-Pre-market / after-hours prices refresh on your schedule (Settings -> Refresh times) for valuation and early warning only; trades still need a fresh verified quote (one source is enough).
+A queued BUY is re-checked at the open against later news about the company (cancel), market-wide shocks (hold) and overnight gaps (cancel) - Settings -> Safety checks before buying.
+Pre-market / after-hours prices refresh on your schedule (Settings -> Prices & quotes -> Price refresh) for valuation and early warning only; trades still need a fresh verified quote (one source is enough).
 Decisions -> Why? explains any decision in plain English.
 
 ## Unattended reports (you do not have to be awake)
 Four times per trading day (08:45 / 09:45 / 12:30 / 16:10 New York time) a report is written: **VERDICT: OK / ATTENTION / FAILED**, what opened and closed, BUYs still waiting and exactly why, errors with file and line,
 then the full checklist and funnel. Read it on the dashboard **Reports** tab (http://<pi>:8088/?tab=reports), or `cat /var/lib/paper-agent/reports/latest.txt`.
-For a phone notification: install the free **ntfy** app, subscribe to a long random topic name, and enter it at Settings -> System -> "Phone push". FAILED reports are sent as urgent.
+For a phone notification: install the free **ntfy** app, subscribe to a long random topic name, and enter it at Settings -> Security, alerts & storage -> Phone alerts. FAILED reports are sent as urgent.
 Write one on demand: `python3 -m paper_agent report`.
 
 ## Old errors and false flags
@@ -74,7 +74,7 @@ with a trailing exit - or the system re-forecasts and *extends the hold*, which 
 The cycle has a time limit (10 min) and a memory cap. Before build 15, trade candidates lived only in memory between the evidence stage and the entries stage, so a cycle that
 was killed in between (slow network calls during company refresh, out-of-memory, a restart) kept the events but **lost every candidate**, silently.
 Now: every candidate is written to a durable queue the moment it is created (same transaction as its event); slow enrichment stops early after ~40% of the time budget
-(Settings -> System -> Cycle time budget); each candidate and each headline is isolated so one bad item cannot block the rest; every stage is checkpointed so a killed cycle shows
+(Settings -> Schedule & Pi limits -> Protecting the Pi -> Cycle time budget); each candidate and each headline is isolated so one bad item cannot block the rest; every stage is checkpointed so a killed cycle shows
 the stage it died in; and cycles that never finished are labelled KILLED. `funnel` / the Funnel tab / `preflight` report all of this.
 If a build older than 15 was running when it happened, run `python3 -m paper_agent recover --hours 24`: it re-evaluates the unrecorded events from that period with the current rules and
 queues the candidates that are still inside the 24h trade window (the installer does this automatically).

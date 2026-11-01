@@ -21,5 +21,5 @@ EV = sum(P(scenario) x clip(return, -stop x 1.5, +target)) - costs. The old fore
 
 ## Where to see it
 Positions (Side column, options table), Results -> "By instrument" (trades, win rate, P&L, average, hold; borrow fees), Decisions -> "related companies".
-Switch any instrument off in Settings -> Instruments; doing so starts a new measurement period (it is part of the strategy stamp).
+Switch any instrument off in Settings -> Short selling, Options or Related companies; doing so starts a new measurement period (it is part of the strategy stamp).
 Rollback of the whole build to the old behaviour: `shorts_enabled=false, options_enabled=false, graph.enabled=false, plan_consistent_ev=false, open_delay_minutes=0, corr_block=1.01` (tested: identical to build 38).

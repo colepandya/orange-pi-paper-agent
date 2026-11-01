@@ -184,10 +184,10 @@ class TestDashboardIntegration(TS.HTTPHarness, unittest.TestCase):
         self.req("POST", "/settings/save", {"csrf": tok, "f.risk.max_position_pct": "8"})
         m = S.load_meta()["risk.max_position_pct"]
         self.assertEqual(m["by"], "user")
-        _, _, page = self.req("GET", "/?tab=settings")
+        _, _, page = self.req("GET", "/?tab=settings&s=all")
         self.assertIn("changed", page)
         self.assertIn("by you", page)
-        self.assertIn("Recent setting changes", page)
+        self.assertIn("Recent setting changes", self.req("GET", "/?tab=settings&s=history")[2])
 
     def test_release_suggestion_is_shown_and_can_be_accepted_or_dismissed(self):
         tok, _ = self.csrf()
@@ -208,7 +208,7 @@ class TestDashboardIntegration(TS.HTTPHarness, unittest.TestCase):
         tok, _ = self.csrf()
         self.req("POST", "/settings/secrets", {"csrf": tok, "secret.ANTHROPIC_API_KEY": TS.SECRET})
         self.assertEqual(S.load_meta()["secret.ANTHROPIC_API_KEY"]["by"], "user")
-        _, _, page = self.req("GET", "/?tab=settings")
+        _, _, page = self.req("GET", "/?tab=settings&s=keys")
         self.assertIn("updated", page)
         self.assertNotIn(TS.SECRET, page)
 

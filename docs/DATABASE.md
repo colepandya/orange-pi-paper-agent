@@ -16,7 +16,7 @@ BEFORE dropping anything, refuses to run while the US market is open (`--force` 
 Positions, the ledger, the current app's decisions, forecasts, evidence, portfolio snapshots (the drawdown peak is read from them), companies, market data, theses. A table the current code still mentions is kept.
 Events/news that any decision, queue row, evidence or forecast points at are kept regardless of age.
 
-## Weekly (automatic, Saturday 10:00 New York time, Settings -> Database)
+## Weekly (automatic, Saturday 10:00 New York time, Settings -> Security, alerts & storage -> Database)
 Only retention: news/events older than 30 days (nothing live points at them), run logs and narrative history older than 30 days (the newest state of every thesis is kept), successful-cycle reports older than 14 days shrunk
 to a summary (failed cycles are kept in full). It NEVER archives or drops legacy tables: that is a deliberate, one-off decision.
 

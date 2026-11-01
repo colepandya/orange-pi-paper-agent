@@ -2,7 +2,7 @@
 
 A rules-and-data engine that does what the LLM used to do. No language model, no key, no network, no cost. It is the ONLY engine; the old LLM files remain in the code base but nothing calls them.
 
-## What it may DO: the influence setting (Settings -> System)
+## What it may DO: the influence setting (Settings -> Reasoning engine -> What it may do)
 | Mode | What happens |
 |---|---|
 | off | The engine does not run. The bot behaves as it did before the engine existed. |

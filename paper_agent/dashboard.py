@@ -623,7 +623,7 @@ def render(c, cfg, tab: str, q: Dict, ctx: Optional[dict] = None) -> str:
             base = config.load_config(with_overrides=False)
             from . import pipeline
             health = {r["source_id"]: dict(r) for r in c.execute("SELECT source_id,last_status,failures,last_success FROM source_health")}
-            inner = settings_ui.page_settings(cfg, base, ctx, pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status(), health)
+            inner = settings_ui.page_settings(cfg, base, dict(ctx, query=q), pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status(), health)
         return layout(inner, tab, cfg, ctx)
     fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q), "reports": lambda: page_reports(c, cfg, s, q), "performance": lambda: page_performance(c, cfg, s, q),
           "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s, q), "system": lambda: page_system(c, cfg, s, q)}.get(tab, lambda: page_overview(c, cfg, s))
@@ -938,8 +938,9 @@ class Handler(BaseHTTPRequestHandler):
         from . import pipeline
         base = config.load_config(with_overrides=False)
         new, errors, warnings = S.apply_form(form, cfg, base, {s["id"]: s.get("interval", 600) for s in pipeline.load_sources(base)})
+        view = settings_ui.valid_view(form.get("_section"))                     # which section the form came from (checked against the known ids): the page returns there
         if errors:
-            return self._settings_page(400, cfg, sess, {"errors": errors, "warnings": warnings, "raw": form})
+            return self._settings_page(400, cfg, sess, {"errors": errors, "warnings": warnings, "raw": form, "section": view, "find": form.get("_find", "")[:60]})
         ov = S.overrides_for(new, base)
         S.save_overrides_tracked(ov, "user")                       # stamps every changed setting with (time, who)
         changed = sorted(k for k in (f.path for f in S.FIELDS) if S.get_path(new, k) != S.get_path(cfg, k))
@@ -955,7 +956,7 @@ class Handler(BaseHTTPRequestHandler):
             msg += " Restart the dashboard for the new port."
         if warnings:
             msg += " Note: " + " ".join(warnings)
-        return self._redirect(self._flash_url(msg))
+        return self._redirect(self._flash_url(msg) + settings_ui.view_suffix(view, form.get("_find", "")))
 
     def _test_llm(self, cfg, tier: str) -> str:
         from . import event_intel, pipeline
@@ -963,7 +964,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             client = llm_client.LLMClient(c, cfg)
             if not client.enabled(tier):
-                return "LLM is OFF for the %s tier: enable it in the LLM analyst settings and save a key for its provider." % tier
+                return "LLM is OFF for the %s tier: enable it under Settings -> Language-model analyst (retired) and save a key for its provider." % tier
             r = event_intel.analyze(client, pipeline.load_universe(), {"title": "Lockheed Martin wins $2.4 billion Pentagon contract for missile defense", "summary": "The Navy awarded the multi-year contract.", "tickers": []}, tier)
             u = client.usage_summary()
             last = c.execute("SELECT model,input_tokens,output_tokens,cost_usd,ok,error FROM llm_usage ORDER BY id DESC LIMIT 1").fetchone()

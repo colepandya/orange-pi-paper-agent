@@ -125,12 +125,13 @@ class TestDeadFeedCleanup(unittest.TestCase):
 
     def test_settings_page_shows_feed_status_and_the_button(self):
         cfg = H.cfg()
-        html = settings_ui.page_settings(cfg, cfg, {"csrf": "tok"}, self.SRCS, {}, {}, self.HEALTH)
+        ctx = {"csrf": "tok", "section": "feeds"}
+        html = settings_ui.page_settings(cfg, cfg, ctx, self.SRCS, {}, {}, self.HEALTH)
         self.assertIn("failing x5 (404)", html)
         self.assertIn(">OK<", html)
-        self.assertIn("not polled yet", settings_ui.page_settings(cfg, cfg, {"csrf": "tok"}, self.SRCS, {}, {}, {}))
+        self.assertIn("not polled yet", settings_ui.page_settings(cfg, cfg, ctx, self.SRCS, {}, {}, {}))
         self.assertIn("Disable these 1 feeds", html)
-        self.assertNotIn("Disable these", settings_ui.page_settings(cfg, cfg, {"csrf": "tok"}, self.SRCS, {}, {}, {}))
+        self.assertNotIn("Disable these", settings_ui.page_settings(cfg, cfg, ctx, self.SRCS, {}, {}, {}))
 
 
 if __name__ == "__main__":

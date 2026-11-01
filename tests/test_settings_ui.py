@@ -340,7 +340,7 @@ class TestDashboardWithPassword(HTTPHarness, unittest.TestCase):
         cookie = self.setup_admin()
         st, _, page = self.req("GET", "/?tab=settings", cookie=cookie)
         self.assertEqual(st, 200)
-        self.assertIn("Risk limits", page)
+        self.assertIn("Position sizing", page)
         self.assertEqual(self.req("POST", "/login", {"password": "wrong password"})[0], 401)
         st, h, _ = self.req("POST", "/login", {"password": "correct horse battery"})
         self.assertEqual(st, 303)
@@ -381,9 +381,10 @@ class TestDashboardWithPassword(HTTPHarness, unittest.TestCase):
         self.assertEqual(st, 303)
         self.assertEqual(jload(config.SETTINGS_PATH), {"intelligence": {"llm_enabled": True}, "risk": {"max_position_pct": 0.08}, "schedule": {"cycle_minutes": 15}})
         self.assertEqual(jload(os.path.join(config.CONTROL_DIR, "request.json"))["args"]["cycle_minutes"], 15)
-        _, page = self.csrf(cookie)
+        page = self.req("GET", "/?tab=settings&s=all", cookie=cookie)[2]
         self.assertIn('value="8"', page)
         self.assertIn("changed (default 10 %)", page)
+        self.assertIn("Changed from the defaults (3)", self.req("GET", "/?tab=settings", cookie=cookie)[2])
 
     def test_invalid_settings_are_rejected_with_reasons_and_nothing_is_written(self):
         cookie = self.setup_admin()
@@ -406,9 +407,11 @@ class TestDashboardWithPassword(HTTPHarness, unittest.TestCase):
         self.assertNotIn(SECRET, h["location"])
         self.assertEqual(stat.S_IMODE(os.stat(config.SECRETS_PATH).st_mode), 0o600)
         self.assertEqual(os.environ["ANTHROPIC_API_KEY"], SECRET)                 # live in the running dashboard immediately
-        _, _, page = self.req("GET", "/?tab=settings", cookie=cookie)
+        _, _, page = self.req("GET", "/?tab=settings&s=keys", cookie=cookie)
         self.assertNotIn(SECRET, page)
         self.assertIn("2345", page)
+        for view in ("", "&s=all", "&s=history", "&s=services", "&s=checks"):
+            self.assertNotIn(SECRET, self.req("GET", "/?tab=settings" + view, cookie=cookie)[2])      # on no settings view
         for tab in dashboard.TABS:
             if tab != "settings":
                 self.assertNotIn(SECRET, self.req("GET", "/?tab=" + tab)[2])
@@ -481,7 +484,7 @@ class TestDashboardOpenByDefault(HTTPHarness, unittest.TestCase):
     def test_settings_open_with_no_login_and_no_login_buttons(self):
         st, _, page = self.req("GET", "/?tab=settings")
         self.assertEqual(st, 200)
-        for needle in ("Risk limits", "API keys", "Services", "Pause trading"):
+        for needle in ("Position sizing", "API keys", "Services", "Pause trading"):
             self.assertIn(needle, page)
         self.assertNotIn("Log out", page)
         self.assertNotIn(">Log in<", page)
@@ -514,9 +517,10 @@ class TestDashboardOpenByDefault(HTTPHarness, unittest.TestCase):
         tok, _ = self.csrf()
         self.req("POST", "/settings/secrets", {"csrf": tok, "secret.ANTHROPIC_API_KEY": SECRET})
         self.assertEqual(S.read_secrets()["ANTHROPIC_API_KEY"], SECRET)
-        _, _, page = self.req("GET", "/?tab=settings")
+        _, _, page = self.req("GET", "/?tab=settings&s=keys")
         self.assertNotIn(SECRET, page)
         self.assertIn("2345", page)
+        self.assertNotIn(SECRET, self.req("GET", "/?tab=settings&s=all")[2])                           # and nowhere else on the settings screen
         reqf = os.path.join(config.CONTROL_DIR, "request.json")
         self.req("POST", "/service", {"csrf": tok, "action": "restart", "unit": "ssh.service"})
         self.assertFalse(os.path.exists(reqf))
@@ -581,12 +585,13 @@ class TestDashboardOpenByDefault(HTTPHarness, unittest.TestCase):
         for sid, st, fails in (("imf", "404", 5), ("state", "403", 9), ("good", "200", 0)):
             c.execute("INSERT INTO source_health(source_id,name,last_status,failures,last_success) VALUES(?,?,?,?,?)", (sid, sid, st, fails, iso_now if fails == 0 else None))
         c.close()
-        tok, page = self.csrf()
+        tok, _ = self.csrf()
+        page = self.req("GET", "/?tab=settings&s=feeds")[2]
         self.assertIn("Disable these 1 feeds", page)
         self.assertEqual(self.req("POST", "/settings/disable-dead", {})[0], 403)                      # still needs the CSRF token
         self.assertEqual(self.req("POST", "/settings/disable-dead", {"csrf": tok})[0], 303)
         self.assertEqual(jload(config.SETTINGS_PATH), {"source_overrides": {"imf": {"enabled": False}}})   # state (403) and good feeds untouched
-        self.assertNotIn("Disable these", self.req("GET", "/?tab=settings")[2])
+        self.assertNotIn("Disable these", self.req("GET", "/?tab=settings&s=feeds")[2])
 
     def test_a_password_can_be_switched_on_from_settings_later(self):
         tok, _ = self.csrf()

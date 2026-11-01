@@ -21,5 +21,5 @@ It reads decisions and writes only its own tables (`intraday_bars`, `intraday_st
 * Not simulated: exits driven by news (thesis broken, adverse evidence), the earnings-overnight rule, and bearish ideas (the book is long-only; they are counted, not simulated).
 * Data: Yahoo's 5-minute chart (regular session only), fetched for the stocks of recent ideas (default 20 a cycle), kept for the log-retention period. If a symbol cannot be fetched it is retried after an hour.
 
-## Settings (Settings -> Missed-trade analysis)
+## Settings (Settings -> Reasoning engine -> Missed-trade analysis)
 Enabled; look-back days (default 5); stocks fetched per cycle (default 20); time budget per run (default 40 s). These are measurement settings: they are not part of the strategy stamp.

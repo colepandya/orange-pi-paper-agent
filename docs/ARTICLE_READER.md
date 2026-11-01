@@ -10,7 +10,7 @@ FDA outcomes, short-seller reports, cyber incidents, executive exits, strikes / 
 It understands negation ("did not miss"), hedging ("in talks", "could", "reportedly"), attribution ("an analyst said"), history ("last year"), losses as negative numbers (a narrower loss is a beat), and the difference between
 news, a press release, an opinion piece, a list article, sponsored content and a call transcript. It notices when the lead says the news happened days ago, and which company an article is actually about.
 
-## Modes (Settings -> Article reader)
+## Modes (Settings -> Reading the news -> Reading full articles)
 | mode | what the article may do |
 |---|---|
 | off | nothing: headlines and snippets only |
@@ -25,7 +25,7 @@ New funnel reasons: `article_disagrees`, `stale_in_article`. The Decisions -> "W
 Public web addresses only (a link can never make the Pi probe your home network; every redirect is re-checked); http/https on ports 80/443; **robots.txt is honoured**; an honest User-Agent with your contact email;
 1.5 MB and 8 s limits; at most 8 articles and 25 seconds per cycle (best-ranked first: earnings, outlook, deals, ratings...); a site that keeps refusing us is left alone for 24 hours; social / video / SEC / government pages are never fetched.
 Paywalled pages are not bypassed: the wall text is dropped, a teaser's real lead is kept, and a wall-only page falls back to the feed snippet.
-Only the extracted facts are stored (about 3 KB per article), never the article text. They are cleaned up with the news (Settings -> Database).
+Only the extracted facts are stored (about 3 KB per article), never the article text. They are cleaned up with the news (Settings -> Security, alerts & storage -> Database).
 
 ## Honest limits
 It is narrower than an LLM: it only reports what it can verify with patterns, and says nothing about the rest. Many sites will refuse or paywall us, so a share of articles will be read from the feed snippet only. On your

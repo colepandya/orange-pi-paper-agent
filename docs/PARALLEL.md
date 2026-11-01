@@ -12,5 +12,5 @@ rule is kept, a hard overall deadline cuts off a server that hangs, and one fail
 | Price refresh (`prices.run`) | the chart downloads (about 6 a second) | storing, in symbol order |
 | Quotes for exits and entries (`quotes.prefetch`) | every provider for every stock, ahead of the stage | the consensus logic itself is unchanged; free-tier budgets are spent in priority order while planning |
 
-Setting: Settings -> Refresh times -> "Network requests in flight at once" (default 6; 1 = the old one-after-another behaviour). The Sources table shows how long each feed took.
+Setting: Settings -> Schedule & Pi limits -> Protecting the Pi -> "Network requests in flight at once" (default 6; 1 = the old one-after-another behaviour). The Sources table shows how long each feed took.
 Not shared, by design: decisions, exits, anything that writes. Candidates for later: company-profile refresh, Finnhub company news, missed-trade price fetch.
