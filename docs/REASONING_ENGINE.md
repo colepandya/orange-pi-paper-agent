@@ -27,5 +27,14 @@ Each claim was checked against the code. **Right and acted on:** deterministic o
 **Found by this audit that the review did not:** a byline ("Simon Sharwood / The Register") matched Simon Property Group; the reasoning record was never linked to its event; a cached red-team review ignored news that arrived after it.
 **Not done yet:** a labelled corpus beyond about a dozen cases, an entity-history table, partner and country relationships, Form 4 transaction parsing, a promotion/rollback workflow for rules (the scorecard supplies the evidence; changing a rule's mode is a config edit).
 
+## Measured accuracy (build 43)
+Two labelled sets run as tests (tests/test_accuracy.py). The DEVELOPMENT set (76 cases, rules were tuned against it) scores 100%; the HELD-OUT set (49 cases, written afterwards with different wording) scored 84% before tuning and 98% after. The gap between those two numbers is the honest warning: the development score flatters the engine. Categories: direction for the company, who gains and loses in a deal or lawsuit, the state of the story, negation, hedging, history, opinion pieces and other non-events, filings, and macro drivers. Real-data audit: on 700 of the owner's material news items it analysed about 60% and abstained on the rest.
+Full-chain replay on the owner's 84 real ideas (guard mode): 2% blocked, 71% at full size, average size x0.93.
+
+## Denial, SEC arithmetic and freshness (build 43)
+* A denial applies only to the proposition and companies it negates, at the time it was made, unless later confirmed (tests/test_build43_scope.py).
+* A twelve-month SEC figure exists only if it can be built reliably; otherwise it is reported UNAVAILABLE with the reason and never replaced by an old annual figure (tests/test_facts_ttm.py). Each figure shows the period, filing date and retrieval time; `ask why` shows them.
+* Weak fundamentals can only make a trade smaller (at most 15%) and only when relevant to the catalyst and holding period.
+
 ## Honest limits
 Everything it knows comes from rules and starter data (relations.json, macro_exposures.json) written from public knowledge, and from your own price history. It will miss what an unusual sentence implies. It abstains rather than guess: about 40% of recent news items. Whether any of this improves returns is unproven; the scorecard is how that gets decided.

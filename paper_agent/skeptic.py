@@ -19,6 +19,7 @@ from . import db, facts as facts_mod, nlp, redteam
 from .timeutil import iso, parse_ts
 
 CLASSES = ("info", "confidence", "size", "hold", "veto")
+SAME_RELEASE_HOURS = 2.0                                                                                   # news within this many hours of the story an idea came from is the same announcement, not "newer news"
 HARD_VETO = {"denied", "stale_catalyst", "wrong_company", "duplicate_catalyst", "contradiction_factual", "contradiction_superseded"}
 RULES: Dict[str, dict] = {
     "priced_in": {"cls": "size", "mult": 0.8, "label": "a good part of the move has already happened"},
@@ -34,6 +35,8 @@ RULES: Dict[str, dict] = {
     "aging_news": {"cls": "confidence", "mult": 1.0, "label": "the news is hours old"},
     "wrong_company": {"cls": "veto", "mult": 1.0, "label": "the company is only mentioned, it is not the subject"},
     "duplicate_catalyst": {"cls": "veto", "mult": 1.0, "label": "the same story already produced an idea for this company"},
+    "weak_subject": {"cls": "size", "mult": 0.85, "label": "the company is one of several named, not clearly the subject"},
+    "valuation": {"cls": "info", "mult": 1.0, "label": "the stock looks expensive against its reported numbers"},
     "crowded_theme": {"cls": "size", "mult": 0.85, "label": "the theme is crowded or fading"},
     "against_strong_theme": {"cls": "size", "mult": 0.85, "label": "shorting against a strong theme"},
     "weak_source": {"cls": "size", "mult": 0.8, "label": "the source is not very credible"},
@@ -43,7 +46,8 @@ RULES: Dict[str, dict] = {
     "thin_edge": {"cls": "confidence", "mult": 1.0, "label": "the edge after costs is thin"},
     "thin_volume": {"cls": "size", "mult": 0.85, "label": "trading volume is thin"},
     "horizon_mismatch": {"cls": "size", "mult": 0.8, "label": "most of the event's effect falls outside the trade window"},
-    "fundamentals": {"cls": "size", "mult": 0.9, "label": "the company's reported numbers argue against it"},
+    "fundamentals": {"cls": "size", "mult": 0.95, "label": "the company's reported numbers argue against it"},
+    "fundamentals_direct": {"cls": "veto", "mult": 1.0, "label": "the catalyst is itself a financing or solvency event and the reported numbers are severe"},
     "residual": {"cls": "info", "mult": 1.0, "label": "no specific objection found"},
 }
 FAMILY = {"earnings_beat": "results", "earnings_miss": "results", "guidance_raise": "results", "guidance_cut": "results", "contract_win": "contracts", "contract_loss": "contracts", "regulatory_action": "regulatory",
@@ -52,6 +56,14 @@ FAMILY = {"earnings_beat": "results", "earnings_miss": "results", "guidance_rais
 SEGMENT = re.compile(r"\b(segment|division|unit|business|cloud|data ?cent(?:er|re)|automotive|gaming|advertising|china|europe|asia|international|services|hardware)\b", re.I)
 DENY = re.compile(r"\b(denies|denied|dismiss(?:es|ed)|no plans to|not planning|rejects?|false report|unfounded|walks? back|retracts?|withdraws?)\b", re.I)
 RUMOR = re.compile(r"\b(reportedly|according to (?:people|sources)|people familiar|sources (?:say|said)|rumou?rs?|in talks|exploring|weighing)\b", re.I)
+
+
+def _f(x, default: float = 0.0) -> float:
+    try:
+        v = float(x)
+        return v if v == v and abs(v) != float("inf") else default
+    except (TypeError, ValueError):
+        return default
 
 
 def _tokens(s: str) -> set:
@@ -71,7 +83,7 @@ def classify_contradiction(cand: dict, other, side: float, event_time: dt.dateti
         return None                                                                                      # the same story, re-run or syndicated
     fam_c, fam_o = FAMILY.get(cand.get("event_type")), FAMILY.get(other["event_type"])
     t_o = parse_ts(other["created"])
-    later = t_o > event_time
+    later = t_o > event_time + dt.timedelta(hours=SAME_RELEASE_HOURS)                                     # a story inside the same-release window is the same announcement, not newer news
     strong = other["credibility"] >= 0.85 and other["magnitude"] >= 0.7
     if DENY.search(other["headline"] or "") and (fam_c is None or fam_c == fam_o or RUMOR.search(cand.get("headline") or "")):
         return {"rule": "contradiction_factual", "severity": 0.9, "why": "a denial or withdrawal: " + (other["headline"] or "")[:100]}
@@ -86,7 +98,7 @@ def classify_contradiction(cand: dict, other, side: float, event_time: dt.dateti
 
 
 def contradictions(conn, cand: dict, side: float, now, hours: int = 48) -> List[dict]:
-    event_time = now - dt.timedelta(hours=float(cand.get("age_hours") or 0))
+    event_time = now - dt.timedelta(hours=_f(cand.get("age_hours")))
     rows = conn.execute("SELECT headline,direction,magnitude,credibility,event_type,created,cluster_id FROM events WHERE created>=? AND created<=? AND stale=0 AND tickers_json LIKE ? AND magnitude>=0.35 AND credibility>=0.5 "
                         "AND gate IS NOT 'stale' AND gate IS NOT 'too_many_companies' AND event_type NOT IN ('price_recap','opinion_piece','general_news','sec_filing') ORDER BY id DESC LIMIT 40",
                         (iso(now - dt.timedelta(hours=hours)), iso(now), '%"' + cand["ticker"] + '"%')).fetchall()
@@ -101,6 +113,20 @@ def contradictions(conn, cand: dict, side: float, now, hours: int = 48) -> List[
     return sorted(out, key=lambda c: -c["severity"])
 
 
+# which weaknesses in the reported numbers bear on WHICH catalysts and how long a trade is held: (catalyst families where it is directly relevant, shortest holding period in sessions at which it matters for any other catalyst)
+FUND_RELEVANCE = {"shrinking_revenue": ({"results"}, 10), "loss_making": ({"results"}, 10), "margin_squeeze": ({"results"}, 10), "earnings_quality": ({"results"}, 10),
+                  "dilution": ({"capital", "results"}, 8), "burning_cash": ({"capital", "distress", "results"}, 8), "low_liquidity": ({"capital", "distress"}, 10), "thin_interest_cover": ({"capital", "distress", "results"}, 10),
+                  "negative_equity": ({"capital", "distress"}, 15), "debt_above_cash": ({"capital", "distress"}, 10), "high_leverage": ({"capital", "distress"}, 10)}
+SHORT_FUND = {"fast_growth": ({"results", "operations"}, 8), "strong_balance_sheet": ({"results", "distress", "capital"}, 8)}
+SEVERE_SOLVENCY = {"burning_cash", "low_liquidity", "negative_equity", "thin_interest_cover"}
+
+
+def fund_relevant(flag: str, family: Optional[str], horizon: float, short: bool = False) -> bool:
+    """A weak balance sheet matters to a two-day trade on a contract win much less than to one on an earnings beat or a financing event. Relevant if the catalyst's family is one it directly bears on, or the trade is long enough."""
+    fams, min_h = (SHORT_FUND if short else FUND_RELEVANCE).get(flag, (set(), 10 ** 6))
+    return (family in fams) or horizon >= min_h
+
+
 def _band(h: float) -> str:
     return "immediate" if h <= 1 else "short" if h <= 5 else "medium" if h <= 20 else "long"
 
@@ -112,7 +138,7 @@ def window_share(profile: Dict[str, float], horizon_days: float) -> float:
             + profile.get("medium", 0.0) * min(1.0, max(0.0, (h - 5) / 15.0)) + profile.get("long", 0.0) * min(1.0, max(0.0, (h - 20) / 70.0)))
 
 
-def review(conn, cfg: dict, cand: dict, f: dict, comp: dict, th: dict, regime: dict, now, decision_id: Optional[int] = None) -> Optional[dict]:
+def review(conn, cfg: dict, cand: dict, f: dict, comp: dict, th: dict, regime: dict, now, decision_id: Optional[int] = None, persist: bool = True) -> Optional[dict]:
     from . import reasoning as R
     if decision_id:
         r = conn.execute("SELECT review_json,created FROM redteam_reviews WHERE decision_id=? ORDER BY id DESC LIMIT 1", (decision_id,)).fetchone()
@@ -121,6 +147,8 @@ def review(conn, cfg: dict, cand: dict, f: dict, comp: dict, th: dict, regime: d
             newer = newer or (conn.execute("SELECT 1 FROM reasoning_events WHERE created>? AND tickers_json LIKE ? LIMIT 1", (r["created"], '%"' + cand["ticker"] + '"%')).fetchone() if _has(conn, "reasoning_events") else None)
             if not newer:                                                                                  # a review is reused for retries ONLY while nothing new about the company has arrived since it was made
                 return json.loads(r["review_json"])
+    if not cand.get("ticker"):
+        return None                                                                                        # nothing to review
     side = -1.0 if f.get("verdict") == "SHORT" else 1.0
     inp = f.get("inputs") or {}
     bears: List[dict] = []
@@ -129,20 +157,24 @@ def review(conn, cfg: dict, cand: dict, f: dict, comp: dict, th: dict, regime: d
         spec = RULES[rule]
         bears.append({"point": point or spec["label"], "severity": round(max(0.0, min(1.0, sev)), 2), "evidence": evidence[:300], "rule": rule, "action": spec["cls"], "mult": spec["mult"] if mult is None else mult})
 
-    pi = float(inp.get("priced_in") or 0.0)
+    pi = _f(inp.get("priced_in"))
     if pi >= 0.10:
         bear("fully_priced_in", 0.85, "the stock already moved %.0f%% in the event's direction over 5 days" % (pi / 0.8 * 100))
     elif pi >= 0.03:
         bear("priced_in", min(0.8, pi * 6), "the stock already moved %.1f%% in the event's direction over 5 days" % (pi / 0.8 * 100))
+    seen_rules = set()
     for c in contradictions(conn, cand, side, now)[:3]:
-        bear(c["rule"], c["severity"], c["why"])
+        # several stories saying the same opposite thing are ONE fact: only the strongest of each kind shrinks the trade, the rest are listed as evidence
+        bear(c["rule"], c["severity"], c["why"], mult=None if c["rule"] not in seen_rules else 1.0)
+        seen_rules.add(c["rule"])
     text = cand.get("headline") or ""
-    st, _, hits = R.report_status(text)
-    if st == "rumor":
+    den = _denial_for(conn, cand)
+    st, _, hits = R.report_status(R.mask_denial(text, den) if den else text)
+    if den and den.get("applies"):
+        bear("denied", 0.9, "%s: %s" % (den.get("why", "a denial"), (den.get("span") or "")[:90]))
+    elif st == "rumor":
         bear("rumor", 0.55, hits[0] if hits else "unconfirmed-source wording")
-    elif st == "denied":
-        bear("denied", 0.9, hits[0] if hits else "denial wording")
-    age = float(cand.get("age_hours") or 0)
+    age = _f(cand.get("age_hours"))
     if age > 36:
         bear("stale_catalyst", 0.9, "the news is %.0f hours old" % age)
     elif age > 12:
@@ -150,8 +182,13 @@ def review(conn, cfg: dict, cand: dict, f: dict, comp: dict, th: dict, regime: d
     if cand.get("event_id") and cand.get("origin") in (None, "event"):
         rec = conn.execute("SELECT roles_json FROM reasoning_events WHERE event_ref=? ORDER BY id DESC LIMIT 1", (cand["event_id"],)).fetchone() if _has(conn, "reasoning_events") else None
         roles = json.loads(rec[0]) if rec and rec[0] else {}
-        if cand["ticker"] in roles and roles[cand["ticker"]] < 0.3:
-            bear("wrong_company", 0.85, "role confidence %.2f: the company is only mentioned" % roles[cand["ticker"]])
+        mine = roles.get(cand["ticker"])
+        if mine is not None and mine < 0.3:
+            others = [v for k, v in roles.items() if k != cand["ticker"]]
+            if others and max(others) >= 0.6:                                                                # the real subject is another company in the same story
+                bear("wrong_company", 0.85, "role confidence %.2f while another company in the story is the clear subject (%.2f)" % (mine, max(others)))
+            else:
+                bear("weak_subject", 0.4, "role confidence %.2f: one of several companies named" % mine)
         own = conn.execute("SELECT cluster_id FROM events WHERE id=?", (cand["event_id"],)).fetchone()
         if own and own["cluster_id"]:
             dup = conn.execute("SELECT d.id FROM decisions d JOIN events e ON e.id=d.event_id WHERE d.ticker=? AND e.cluster_id=? AND d.event_id!=? AND d.created>=? AND d.status IN ('EXECUTED','AWAITING_MARKET','VETOED','RISK_REJECTED') LIMIT 1",
@@ -163,48 +200,65 @@ def review(conn, cfg: dict, cand: dict, f: dict, comp: dict, th: dict, regime: d
         bear("crowded_theme", 0.5 if state == "Overcrowded" else 0.4, "thesis state %s" % state, point="the theme is %s" % state.lower())
     if side < 0 and state in ("Strong", "Active"):
         bear("against_strong_theme", 0.5, "thesis state %s" % state, point="shorting against a %s theme" % state.lower())
-    if (cand.get("credibility") or 1.0) < 0.5:
-        bear("weak_source", 0.4, "credibility %.2f" % cand["credibility"])
+    if _f(cand.get("credibility"), 1.0) < 0.5:
+        bear("weak_source", 0.4, "credibility %.2f" % _f(cand.get("credibility"), 1.0))
     if cand.get("independent_sources") == 1 and not cand.get("primary_source"):
         bear("single_source", 0.2, "no other independent outlet carries it")
     reg = (regime or {}).get("regime")
     if (reg == "risk_off" and side > 0) or (reg == "risk_on" and side < 0):
         bear("regime", 0.35, "regime %s" % reg)
-    stop, vol = abs(float(f.get("stop_return") or 0)), float(inp.get("vol_daily") or 0)
+    stop, vol = abs(_f(f.get("stop_return"))), _f(inp.get("vol_daily"))
     if vol and stop and stop < 1.2 * vol:
         bear("noisy_stop", 0.45, "stop %.1f%% vs a typical daily move of %.1f%%" % (stop * 100, vol * 100))
-    if float(f.get("ev_net") or 0) < 0.012:
-        bear("thin_edge", 0.3, "expected %.1f%%" % (float(f.get("ev_net") or 0) * 100))
+    if _f(f.get("ev_net")) < 0.012:
+        bear("thin_edge", 0.3, "expected %.1f%%" % (_f(f.get("ev_net")) * 100))
     adv = (comp or {}).get("adv_usd")
     if adv and adv < 5e7:
         bear("thin_volume", 0.3, "$%.0fM a day" % (adv / 1e6))
     prof = R.HORIZON_PROFILE.get(cand.get("event_type"))
-    if prof and f.get("horizon_days"):
-        w = window_share(prof, float(f["horizon_days"]))
+    if prof and _f(f.get("horizon_days")) > 0:
+        w = window_share(prof, _f(f.get("horizon_days")))
         if w < 0.35:
-            bear("horizon_mismatch", 0.45, "%s news acts mostly over %s; this trade is held %d sessions, so only %.0f%% of its effect falls inside the window" % ((cand.get("event_type") or "").replace("_", " "), max(prof, key=prof.get), float(f["horizon_days"]), w * 100))
+            bear("horizon_mismatch", 0.45, "%s news acts mostly over %s; this trade is held %d sessions, so only %.0f%% of its effect falls inside the window" % ((cand.get("event_type") or "").replace("_", " "), max(prof, key=prof.get), _f(f.get("horizon_days")), w * 100))
     fx = facts_mod.get(conn, cand["ticker"]) if _has(conn, "company_facts") else None
-    if fx:
-        for fl in fx.get("flags", []):
-            if side > 0 and fl["severity"] > 0 and fl["flag"] != "fast_growth":
-                bear("fundamentals", fl["severity"], "SEC data: " + fl["text"], point="the numbers it reports: " + fl["text"])
-            elif side < 0 and fl["flag"] == "fast_growth":
-                bear("fundamentals", 0.35, "SEC data: " + fl["text"], point="shorting a fast-growing company: " + fl["text"])
-        if side < 0 and fx.get("net_income_ttm", -1) > 0 and (fx.get("net_debt") is not None and fx["net_debt"] < 0):
-            bear("fundamentals", 0.3, "SEC data: profitable with more cash than debt", point="shorting a profitable company with net cash")
+    valuation_view = "unknown"
+    fam, hz = FAMILY.get(cand.get("event_type")), _f(f.get("horizon_days"))
+
+    def fresh_ev(fl: dict, extra: str = "") -> str:
+        return "SEC data: %s (period ended %s, filed %s, retrieved %s)%s" % (fl["text"], fl.get("period_end") or "?", fl.get("filed") or "?", (fx.get("retrieved") or fx.get("fetched") or "?")[:10], extra)
+
+    if fx and not fx.get("stale"):                                                                           # numbers older than about 14 months are not used to judge anything
+        usable = [fl for fl in fx.get("flags", []) if fl.get("severity", 0) > 0 and not (fl.get("period_end") and (now.date() - (facts_mod._date(fl["period_end"]) or now.date())).days > facts_mod.STALE_DAYS)]
+        if side > 0:
+            rel = [fl for fl in usable if fund_relevant(fl["flag"], fam, hz)]
+            for fl in sorted(rel, key=lambda x: -x["severity"])[:3]:                                         # at most the three worst, and only those that bear on THIS catalyst and THIS holding period
+                bear("fundamentals", fl["severity"], fresh_ev(fl), point="the numbers it reports: " + fl["text"])
+            severe = {fl["flag"] for fl in usable} & SEVERE_SOLVENCY
+            if fam in ("capital", "distress") and len(severe) >= 2:
+                bear("fundamentals_direct", 0.8, "SEC data: %s; the catalyst itself is a %s event" % (", ".join(sorted(severe)), fam), point="a financing or solvency catalyst on a company whose numbers show " + ", ".join(sorted(severe)))
+        else:
+            for fl in fx.get("flags", []):
+                if fl["flag"] in SHORT_FUND and fund_relevant(fl["flag"], fam, hz, short=True):
+                    bear("fundamentals", 0.35 if fl["flag"] == "fast_growth" else 0.3, fresh_ev(fl), point=("shorting a fast-growing company: " if fl["flag"] == "fast_growth" else "shorting a company that is ") + fl["text"])
+        v = facts_mod.valuation(fx, (comp or {}).get("market_cap"), (comp or {}).get("updated"), now)
+        if v:
+            valuation_view = v[0]
+            if v[0] == "rich" and side > 0:
+                d = v[2]
+                bear("valuation", 0.25, "SEC data: %s (market value as of %s, revenue to %s filed %s)" % (v[1], d["market_value_as_of"][:10], d.get("revenue_period_end") or "?", d.get("revenue_filed") or "?"))
     if not bears:
         bear("residual", 0.15, "the residual risk is the model being wrong")
     bulls = []
     sc = f.get("scenarios") or {}
-    if sc and sc.get("bull", {}).get("ret", 0) > 2.0 * abs(sc.get("bear", {}).get("ret", 0) or 1e-9):
+    if isinstance(sc, dict) and sc and _f((sc.get("bull") or {}).get("ret")) > 2.0 * abs(_f((sc.get("bear") or {}).get("ret")) or 1e-9):
         bulls.append({"point": "the upside case is more than twice the downside case", "strength": 0.5})
     if state in ("Strong", "Active") and side > 0:
         bulls.append({"point": "the theme is %s" % state.lower(), "strength": 0.45})
-    if (cand.get("credibility") or 0) >= 0.75:
+    if _f(cand.get("credibility")) >= 0.75:
         bulls.append({"point": "the source is credible", "strength": 0.4})
     if st == "confirmed":
         bulls.append({"point": "the event is confirmed, not a rumour", "strength": 0.45})
-    if cand.get("independent_sources", 0) >= 2:
+    if _f(cand.get("independent_sources")) >= 2:
         bulls.append({"point": "%d independent outlets carry it" % cand["independent_sources"], "strength": 0.4})
     falsifiers = []
     if stop:
@@ -215,15 +269,34 @@ def review(conn, cfg: dict, cand: dict, f: dict, comp: dict, th: dict, regime: d
     vetoing = [b for b in bears if b["action"] == "veto"]
     holding = [b for b in bears if b["action"] == "hold"]
     worst = max((b["severity"] for b in bears), default=0.0)
-    conviction = max(0.0, min(1.0, float(f.get("confidence") or 0.5) * (1.0 - 0.5 * worst) + 0.1 * len(bulls)))
+    conviction = max(0.0, min(1.0, (_f(f.get("confidence"), 0.5) or 0.5) * (1.0 - 0.5 * worst) + 0.1 * len(bulls)))
     fatal = bool(vetoing or holding)
-    obj = {"bear_points": bears, "bull_points": bulls, "fatal_flaw": fatal, "fatal_reason": (vetoing or holding)[0]["evidence"] or (vetoing or holding)[0]["point"] if fatal else "", "valuation_view": "unknown",
-           "conviction": conviction, "falsifiers": falsifiers, "review_in_days": int(f.get("horizon_days") or 10)}
+    obj = {"bear_points": bears, "bull_points": bulls, "fatal_flaw": fatal, "fatal_reason": (vetoing or holding)[0]["evidence"] or (vetoing or holding)[0]["point"] if fatal else "", "valuation_view": valuation_view,
+           "conviction": conviction, "falsifiers": falsifiers, "review_in_days": int(_f(f.get("horizon_days"), 10) or 10)}
     rv = redteam.validate(obj)
-    if rv:
+    if rv and persist:                                                                                     # a QUESTION (the dashboard's Ask box runs on a read-only connection) must never write
         conn.execute("INSERT INTO redteam_reviews(created,ticker,decision_id,net_conviction,fatal_flaw,valuation_view,gate,review_json) VALUES(?,?,?,?,?,?,?,?)",
                      (iso(now), cand["ticker"], decision_id, rv["net_conviction"], int(rv["fatal_flaw"]), rv["valuation_view"], "", json.dumps(rv, sort_keys=True)))
     return rv
+
+
+def _denial_for(conn, cand: dict) -> Optional[dict]:
+    """Is THIS company's idea undermined by a denial? Only a denial of the story's own event, about this company, counts. The analyst's logged reading is used when it exists; otherwise the headline is parsed."""
+    from . import reasoning as R
+    t = cand["ticker"]
+    if cand.get("event_id") and _has(conn, "reasoning_events"):
+        r = conn.execute("SELECT denied_json FROM reasoning_events WHERE event_ref=? AND denied_json IS NOT NULL ORDER BY id DESC LIMIT 1", (cand["event_id"],)).fetchone()
+        try:
+            d = json.loads(r[0]) if r and r[0] else None
+        except ValueError:
+            d = None
+        if d:
+            if d.get("applies") and t not in (d.get("tickers") or []):
+                return dict(d, applies=False, kind="other_entity", why="the denial is about %s, not %s" % (",".join(d.get("tickers") or []) or "another company", t))
+            return d
+    nm = conn.execute("SELECT name FROM companies WHERE ticker=?", (t,)).fetchone() if _has(conn, "companies") else None
+    names = [t] + ([nm[0]] if nm and nm[0] else [])
+    return R.denial_scope(cand.get("headline") or "", [t], None, cand.get("event_type"), names=lambda x: names)
 
 
 def _has(conn, t: str) -> bool:
@@ -232,6 +305,7 @@ def _has(conn, t: str) -> bool:
 
 def _evaluate(rv: dict, cfg: dict, mode: str) -> dict:
     ok, mult, reasons = True, 1.0, []
+    fund = 1.0                                                                                             # weak fundamentals together can make a trade at most 15% smaller
     floor = float(cfg["intelligence"].get("redteam_min_conviction", 0.45))
     for b in rv["bear_points"]:
         rule, cls = b.get("rule", "residual"), b.get("action", "info")
@@ -240,9 +314,15 @@ def _evaluate(rv: dict, cfg: dict, mode: str) -> dict:
             reasons.append("%s: %s" % (rule.replace("_", " "), b["evidence"] or b["point"]))
         elif cls in ("size", ) and mode in ("guard", "active"):
             m = float(b.get("mult", 1.0))
-            if m < 1.0:
+            if rule == "fundamentals":
+                fund *= m
+            elif m < 1.0:
                 mult *= m
                 reasons.append("%s: size x%.2f" % (rule.replace("_", " "), m))
+    if fund < 1.0 and mode in ("guard", "active"):
+        capped = max(0.85, fund)
+        mult *= capped
+        reasons.append("fundamentals: size x%.2f%s" % (capped, " (capped)" if capped > fund else ""))
     if mode == "active" and rv["net_conviction"] < floor:
         ok = False
         reasons.append("net conviction %.2f below %.2f" % (rv["net_conviction"], floor))

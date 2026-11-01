@@ -174,7 +174,7 @@ CREATE INDEX IF NOT EXISTS ix_revisions ON forecast_revisions(ticker,ts DESC);
 CREATE TABLE IF NOT EXISTS company_filings(accession TEXT PRIMARY KEY,ticker TEXT NOT NULL,form TEXT,filed TEXT,items TEXT,processed TEXT,ok INTEGER DEFAULT 0,extraction_json TEXT);
 CREATE INDEX IF NOT EXISTS ix_filings_ticker ON company_filings(ticker,filed DESC);
 CREATE TABLE IF NOT EXISTS reasoning_events(id INTEGER PRIMARY KEY,created TEXT,news_uid TEXT,event_ref INTEGER,mode TEXT,engine TEXT,ref_version TEXT,event_type TEXT,state TEXT,novelty TEXT,evidence_status TEXT,
-  materiality TEXT,independent_sources INTEGER,abstained INTEGER,abstain_reason TEXT,direction REAL,magnitude REAL,certainty REAL,components_json TEXT,horizons_json TEXT,roles_json TEXT,tickers_json TEXT,analysis_json TEXT,trace_json TEXT);
+  materiality TEXT,independent_sources INTEGER,abstained INTEGER,abstain_reason TEXT,direction REAL,magnitude REAL,certainty REAL,components_json TEXT,horizons_json TEXT,roles_json TEXT,tickers_json TEXT,analysis_json TEXT,trace_json TEXT,denied_json TEXT);
 CREATE INDEX IF NOT EXISTS ix_reasoning_uid ON reasoning_events(news_uid);
 CREATE INDEX IF NOT EXISTS ix_reasoning_ref ON reasoning_events(event_ref);
 CREATE TABLE IF NOT EXISTS prediction_paths(prediction_id INTEGER,horizon INTEGER,ret REAL,abn_spy REAL,abn_sector REAL,mfe REAL,mae REAL,t_mfe INTEGER,t_mae INTEGER,first_hit TEXT,first_hit_day INTEGER,gap REAL,computed_at TEXT,PRIMARY KEY(prediction_id,horizon));

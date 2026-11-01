@@ -191,7 +191,12 @@ class TestOtherObjections(Base):
                        (iso(NOW - dt.timedelta(hours=3)), "Acme sues Beta", 0.8, 0.9, 0.9, "litigation", '["ACME","BETA"]', "company", "Wire"))
         self.c.execute("INSERT INTO reasoning_events(created,news_uid,event_ref,roles_json) VALUES(?,?,?,?)", (iso(NOW), "u", 500, json.dumps({"ACME": 0.9, "NVDA": 0.2})))
         self.c.commit()
-        self.assertEqual(self.rules(self.rv(cand=cd(event_id=500)))["wrong_company"]["action"], "veto")
+        self.assertEqual(self.rules(self.rv(cand=cd(event_id=500)))["wrong_company"]["action"], "veto")                   # another company in the same story is the clear subject
+        self.c.execute("UPDATE reasoning_events SET roles_json=?", (json.dumps({"NVDA": 0.2, "AMD": 0.3, "TSM": 0.25}),))
+        self.c.commit()
+        r = self.rules(self.rv(cand=cd(event_id=500)))
+        self.assertNotIn("wrong_company", r)                                                                               # nobody is the clear subject: NVIDIA is one of several named
+        self.assertEqual(r["weak_subject"]["action"], "size")
 
     def test_the_same_story_must_not_produce_a_second_idea_for_the_same_company(self):
         self.c.execute("INSERT INTO events(id,created,headline,direction,magnitude,credibility,event_type,tickers_json,scope,source,stale,cluster_id) VALUES(11,?,?,?,?,?,?,?,?,?,0,77)", (iso(NOW - dt.timedelta(hours=3)), "NVIDIA beats", 0.8, 0.9, 0.9, "earnings_beat", '["NVDA"]', "company", "A"))
@@ -256,7 +261,8 @@ class TestTheCanonicalRecord(Base):
         rows = {r["news_uid"]: r for r in self.c.execute("SELECT * FROM reasoning_events")}
         self.assertEqual(rows["u1"]["abstained"], 0)
         self.assertEqual(rows["u2"]["abstained"], 1)
-        self.assertIn("opinion piece", rows["u2"]["abstain_reason"])
+        self.assertTrue(rows["u2"]["abstain_reason"])                                                      # it says WHY it said nothing
+        self.assertTrue(any(w in rows["u2"]["abstain_reason"] for w in ("opinion", "stock picks")))
         self.assertTrue(json.loads(rows["u1"]["trace_json"]))
         self.assertEqual(json.loads(rows["u1"]["roles_json"])["NVDA"] > 0, True)
 

@@ -254,9 +254,17 @@ def derive(conn, cfg: dict, cands: List[dict], universe=None, now=None, per_cycl
     min_mag, min_conf = float(g.get("min_event_magnitude", 0.45)), float(g.get("min_event_conf", 0.60))
     per_event, discount, min_w = int(g.get("max_derived_per_event", 4)), float(g.get("derived_discount", 0.75)), float(g.get("min_edge_weight", 0.20))
     allow_corr = bool(g.get("trade_on_correlation", False))
-    have = {c["ticker"] for c in cands}
     out: List[dict] = []
-    for c in sorted(cands, key=lambda x: -(abs(x.get("direction", 0)) * x.get("magnitude", 0))):
+
+    def num(x):
+        try:
+            v = float(x)
+            return v if v == v else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+    clean = [dict(c, direction=num(c.get("direction")), magnitude=num(c.get("magnitude")), conf=num(c.get("conf"))) for c in (cands or []) if isinstance(c, dict) and c.get("ticker")]
+    have = {c["ticker"] for c in clean}
+    for c in sorted(clean, key=lambda x: -(abs(x["direction"]) * x["magnitude"])):
         if len(out) >= per_cycle:
             break
         if c.get("origin") not in (None, "event") or c.get("magnitude", 0) < min_mag or c.get("conf", 0) < min_conf or abs(c.get("direction", 0)) < 0.3:

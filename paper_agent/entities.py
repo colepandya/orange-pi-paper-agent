@@ -101,6 +101,8 @@ BODY_ONLY = 0.6            # a company named ONLY in the body (while the headlin
 COUNTERPARTY = 0.6         # "... with Microsoft", "... on Google Gemini": the counterparty, not the subject
 COUNTERPARTY_WORDS = {"with", "from", "via", "using", "on", "atop", "through", "alongside"}
 
+NATIONALITY_WORDS = set("""british canadian chinese japanese german french indian korean swiss australian european asian african latin western eastern northern southern central royal imperial irish scottish
+ welsh english dutch spanish italian russian brazilian mexican israeli turkish saudi korean taiwanese singaporean norwegian swedish danish finnish polish""".split())    # nationality and region adjectives start many headlines and name no company: they may not stand ALONE as a company's brand (but "British American Tobacco" still matches by its full or two-word name)
 GENERIC_FIRST |= DESCRIPTOR_WORDS | PRODUCT_WORDS
 
 CLEAN_TAIL = re.compile(r"\b(inc|incorporated|corp|corporation|co|company|ltd|limited|plc|holdings|holding|group|sa|nv|ag|lp|llc|the|com|dot|class [a-c]|new)\b", re.I)
@@ -154,7 +156,7 @@ class Universe:
             for v in [meta.get("name", "")] + list(meta.get("aliases", []) or []) + [clean] + multi:
                 if len(norm(v)) >= 4 and not (len(norm(v).split()) == 1 and (norm(v) in GENERIC_FIRST or norm(v) in self.common or norm(v) in GIVEN_NAMES or norm(v) in SURNAMES or norm(v) in PLACE_NAMES)):
                     add(v, t, 0.65)
-            if first and len(first) >= 5 and first not in GENERIC_FIRST and first not in self.common and first not in GIVEN_NAMES and first not in SURNAMES and first not in PLACE_NAMES and first_counts[first] == 1:
+            if first and len(first) >= 5 and first not in GENERIC_FIRST and first not in NATIONALITY_WORDS and first not in self.common and first not in GIVEN_NAMES and first not in SURNAMES and first not in PLACE_NAMES and first_counts[first] == 1:
                 add(first, t, 0.70)                                   # a distinctive, UNIQUE, non-dictionary first word: "Garmin", "Palantir", "Wendy's"
         for brand, t in BRANDS.items():
             if t in self.watch:

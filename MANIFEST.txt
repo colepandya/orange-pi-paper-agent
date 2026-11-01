@@ -132,11 +132,16 @@ systemd/paper-agent-update.timer
 tests/__init__.py
 tests/fake_internet.py
 tests/helpers.py
+tests/reasoning_corpus.py
+tests/reasoning_heldout.py
 tests/soak_twenty_days.py
+tests/test_accuracy.py
 tests/test_build38.py
 tests/test_build39.py
 tests/test_build42.py
 tests/test_build42b.py
+tests/test_build43.py
+tests/test_build43_scope.py
 tests/test_cleanup.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py
@@ -147,6 +152,7 @@ tests/test_engines.py
 tests/test_envmerge.py
 tests/test_error_baseline.py
 tests/test_explain.py
+tests/test_facts_ttm.py
 tests/test_fake_internet.py
 tests/test_filings.py
 tests/test_funnel.py
@@ -174,9 +180,11 @@ tests/test_prices.py
 tests/test_quote_health.py
 tests/test_reader.py
 tests/test_reader_display.py
+tests/test_readonly_populated.py
 tests/test_reasoning.py
 tests/test_recall.py
 tests/test_regressions.py
+tests/test_release_scripts.py
 tests/test_report.py
 tests/test_review_fixes.py
 tests/test_rotation.py

@@ -91,7 +91,9 @@ assert d.execute("pragma integrity_check").fetchone()[0] == "ok"; print("db back
 PY
 fi
 cp -a /etc/paper-agent "$B/etc-paper-agent" 2>/dev/null || true
-[[ -d /opt/paper-agent/app ]] && cp -a /opt/paper-agent "$B/opt-paper-agent" || true
+if [[ -d /opt/paper-agent/paper_agent || -d /opt/paper-agent/app ]]; then      # the program being replaced (v5 keeps it in paper_agent/; this used to test only for the old v4 folder, so the code was never saved and a rollback had nothing to restore)
+  cp -a /opt/paper-agent "$B/opt-paper-agent" || { echo "FAIL: could not save a copy of the current program, so there would be no way back. Nothing has been changed."; exit 1; }
+fi
 mkdir -p "$B/units"; cp -a /etc/systemd/system/paper-agent* "$B/units/" 2>/dev/null || true
 systemctl list-units 'paper-agent*' --all --no-legend 2>/dev/null | awk '{print $1}' > "$B/active-units.txt" || true
 

@@ -39,10 +39,11 @@ RUMOR = re.compile(r"\b(reportedly|according to (?:people|sources|a person)|peop
 PLAN = re.compile(r"\b(plans? to|set to|expected to|poised to|intends? to|will (?:acquire|buy|build|launch|cut|raise)|aims? to|looking to|proposes?)\b", re.I)
 CONFIRMED = re.compile(r"\b(announced?|announces|reported|reports|said in a (?:filing|statement)|filed|confirmed?|completed?|agreed|signed|approved|declared|raises|raised|cuts|cut|lowers|lowered|beats?|missed|misses|posted|awarded|wins|won|launched|recalls?)\b", re.I)
 DENIAL = re.compile(r"\b(denies|denied|dismiss(?:es|ed)|no plans to|not planning|rejects?|rejected|false report|unfounded|walks? back|retracts?)\b", re.I)
-ACQUIRE = re.compile(r"\b(to acquire|acquires|will acquire|agrees? to (?:buy|acquire)|to buy|buys|bids? for|offers? to buy|takeover (?:bid )?(?:of|for)|to take over|merge[sd]? with)\b", re.I)
+ACQUIRE = re.compile(r"\b((?:could|may|might|would|will|to|set to|plans? to|tries to|seeks? to) (?:buy|acquire|purchase|take over|bid for)|to acquire|acquires|will acquire|agrees? to (?:buy|acquire)|to buy|buys|bids? for|offers? to buy|takeover (?:bid )?(?:of|for)|to take over|merge[sd]? with)\b", re.I)
+WIN_AGAINST = re.compile(r"\b(wins?|won|prevails?|triumphs?)\b[^.;]{0,50}\bagainst\b", re.I)
 SUE = re.compile(r"\b(sues|suing|files? (?:a )?(?:lawsuit|complaint|suit) against|charges|fines|penali[sz]es|investigates|probes)\b", re.I)
-UP = re.compile(r"\b(surge[sd]?|jump(?:s|ed)?|soar(?:s|ed)?|rall(?:y|ies|ied)|climb(?:s|ed)?|ris(?:e|es|en)|rose|higher|hike[sd]?|spik(?:e|es|ed)|tighten\w*|restrict\w*|ban(?:s|ned)?|curbs?)\b", re.I)
-DOWN = re.compile(r"\b(fall(?:s|en)?|fell|plunge[sd]?|drop(?:s|ped)?|slump(?:s|ed)?|tumbl\w+|declin\w+|lower|cut(?:s)?|slid\w*|eas(?:e|es|ed)|lift(?:s|ed)?|slash\w*)\b", re.I)
+UP = re.compile(r"\b(?:(?:record|all-time|multi-year|new|\w+-month|\w+-year) highs?|surge[sd]?|jump(?:s|ed)?|soar(?:s|ed)?|rall(?:y|ies|ied)|climb(?:s|ed)?|ris(?:e|es|en)|rose|higher|hike[sd]?|spik(?:e|es|ed)|tighten\w*|restrict\w*|ban(?:s|ned)?|curbs?)\b", re.I)
+DOWN = re.compile(r"\b(?:(?:record|all-time|multi-year|new|\w+-month|\w+-year) lows?|fall(?:s|en)?|fell|plunge[sd]?|drop(?:s|ped)?|slump(?:s|ed)?|tumbl\w+|declin\w+|lower|cut(?:s)?|slid\w*|eas(?:e|es|ed)|lift(?:s|ed)?|slash\w*)\b", re.I)
 
 # ---- macro exposures: data, not code (config/macro_exposures.json): each driver has CHANNELS (group, sign, confidence, mechanism, lag, horizon); channels for one group are netted
 _MACRO_CACHE: Dict[str, object] = {}
@@ -125,7 +126,7 @@ def _label(m: float) -> str:
 
 # ---- the canonical record: what STATE the event is in, how NEW it is, how MATERIAL, how many INDEPENDENT sources, and which time horizons it acts over
 STATE_RX = [("denied", DENIAL), ("rumored", RUMOR), ("rejected", re.compile(r"\b(rejects?|rejected|blocks?|blocked|vetoed|turned down)\b", re.I)), ("completed", re.compile(r"\b(completes?|completed|closes?|closed|finali[sz]es?|finali[sz]ed)\b", re.I)),
-            ("approved", re.compile(r"\b(approves?|approved|clears?|cleared|green-?lights?)\b", re.I)), ("pending", re.compile(r"\b(pending|awaiting|subject to (?:regulatory )?approval)\b", re.I)),
+            ("approved", re.compile(r"\b(approves?|approved|clears?|cleared|clearance|green-?lights?|(?:wins?|gets?|receives?|secures?|obtains?) (?:\w+ ){0,2}approval)\b", re.I)), ("pending", re.compile(r"\b(pending|awaiting|subject to (?:regulatory )?approval)\b", re.I)),
             ("agreed", re.compile(r"\b(agrees?|agreed|signs?|signed|definitive agreement)\b", re.I)), ("proposed", re.compile(r"\b(proposes?|proposal|plans? to|offers? to|bids? for|to acquire|to buy)\b", re.I))]
 NOVELTY_RX = [("correction", re.compile(r"\b(correction|corrects?|corrected|amended|amends|restates?|restated|revised|updates? (?:earlier|previous))\b", re.I)),
               ("recap", re.compile(r"\b(recap|wrap|round-?up|stocks to watch|what to know|how (?:\w+ ){0,3}(?:stocks|shares) (?:fared|moved))\b", re.I)), ("update", re.compile(r"\b(update[sd]?|follow-?up|after earlier)\b", re.I))]
@@ -141,7 +142,16 @@ HORIZON_PROFILE = {"earnings_beat": {"immediate": .55, "short": .30, "medium": .
                    "bankruptcy_distress": {"immediate": .40, "short": .30, "medium": .20, "long": .10}, "war_escalation": {"immediate": .50, "short": .30, "medium": .15, "long": .05}}
 
 
-def event_state(text: str) -> str:
+def event_state(text: str, title: Optional[str] = None) -> str:
+    """The state of the story. The HEADLINE decides when it says anything; a denial or rejection mentioned only in the body is about something else and does not make the story 'denied'."""
+    for name, rx in STATE_RX:
+        if title is not None and rx.search(title):
+            return name
+    if title is not None:
+        for name, rx in STATE_RX:
+            if name not in ("denied", "rejected") and rx.search(text):
+                return name
+        return "reported"
     for name, rx in STATE_RX:
         if rx.search(text):
             return name
@@ -185,6 +195,163 @@ def ref_version(conn) -> str:
     return hashlib.sha1(("%s|%s|%s" % (db.param(conn, "relations_hash") or "", macro_drivers()[0], ENGINE_VERSION)).encode()).hexdigest()[:10]
 
 
+# ---- a second, independent reading of the WORDING that understands negation, hedging and time (the deterministic event reader counts cue words; "did not cut its dividend" and "a year ago it cut" fool a counter)
+_G = r"(?:its |the |their |full-year |annual |quarterly |year |profit |revenue |sales |earnings |first-quarter |second-quarter |third-quarter |fourth-quarter )*"
+POLARITY = [(re.compile(p, re.I), w) for p, w in (
+    (r"\b(beat|beats|topped|tops|exceeded|exceeds|surpassed|outperformed)\b", .6),
+    (r"\b(raise[sd]?|raising|lift(?:s|ed)|boost(?:s|ed)|hike[sd]?|increase[sd]?) " + _G + r"(?:\w+ ){0,2}(guidance|outlook|forecast|dividend|target)", .7),
+    (r"\b(record|strong|robust|solid|better-than-expected|stellar|blowout) (?:[\w-]+ )?(profit|revenue|results|earnings|sales|growth|quarter|demand)", .6),
+    (r"\b(blocks?|blocked|vetoe[sd]?|rejects?|rejected|turns? down)\b", -.5),
+    (r"\b(surge[sd]?|soar(?:s|ed)?|jump(?:s|ed)?|rall(?:y|ies|ied)|climb(?:s|ed)?|spike[sd]?|rocket(?:s|ed)?)\b", .5),
+    (r"\b(win|wins|won|awarded|secures?|secured|lands?|clinches?) (?:a |an |the |its )?(?:\w+ ){0,3}(contract|deal|order|award)", .6),
+    (r"\b(approv(?:e|es|ed|al|ing)|clears?|cleared|clearance|green-?lights?)\b", .5),
+    (r"\bupgrad(?:es|ed)\b", .45), (r"\b(buyback|repurchase)\b", .45), (r"\b(unveils?|launch(?:es|ed)|introduces?)\b", .3),
+    (r"\b(miss(?:es|ed)?|missing|fell short|falls short|disappoint\w*)\b", -.6),
+    (r"\b(cut|cuts|slash(?:es|ed)?|lower(?:s|ed)?|reduce[sd]?|trim(?:s|med)?|withdraw(?:s|n)?|suspend(?:s|ed)?|scrap(?:s|ped)?) " + _G + r"(?:\w+ ){0,2}(guidance|outlook|forecast|dividend|target)", -.7),
+    (r"\b(loss|losses|loss-making)\b", -.5), (r"\b(plunge[sd]?|tumble[sd]?|slump(?:s|ed)?|sink(?:s)?|sank|crash(?:es|ed)?|tank(?:s|ed)?|nosedive[sd]?)\b", -.55),
+    (r"\b(fall(?:s|en)?|fell|drop(?:s|ped)?|declin\w+|slid\w*|sag\w*)\b", -.3), (r"\brecall(?:s|ed)?\b", -.55),
+    (r"\b(probe|investigation|investigat\w+|subpoena\w*|antitrust|lawsuit|sued|sues|fined?|fines|penalt\w+|charged)\b", -.45),
+    (r"\b(resign(?:s|ed|ation)?|steps? down|ousted|fired)\b", -.4), (r"\b(bankruptcy|insolven\w+|default(?:s|ed)?|going concern|delist\w+)\b", -.8),
+    (r"\b(halts?|halted|shutdown|outage|fire|explosion|cyber ?attack|breach|ransomware|hacked)\b", -.5), (r"\bdowngrad(?:es|ed)\b", -.45),
+    (r"\b(layoffs?|job cuts?|lays? off)\b", -.3), (r"\b(warn(?:s|ed|ing)|profit warning)\b", -.5),
+    (r"\b(lose[sd]?|loses|lost) (?:a |an |the |its )?(?:\w+ ){0,3}(contract|customer|deal|order|client)", -.6))]
+NEGATOR = re.compile(r"\b(not|no|never|without|avoid(?:s|ed|ing)?|avert(?:s|ed)?|sidestep(?:s|ped)?|dodge[sd]?|escape[sd]?|skirt(?:s|ed)?|rules? out|ruled out|unlikely to|fails? to|failed to|ends?|ended)\b|n't\b", re.I)
+EXPECT_RX = re.compile(r"\b(?:analysts?|economists?|traders?|investors?|wall street|the street)\s+(?:expect|forecast|predict|project|anticipate|see|look for)s?\b|\b(?:preview|ahead of (?:its )?(?:earnings|results)|what to expect)\b", re.I)
+HEDGE_RX = re.compile(r"\b(may|might|could|would|possibly|potentially|if|likely to|expects? to)\b")                         # lower-case on purpose: "May" is a month
+HIST_RX = re.compile(r"\b(a year ago|years? ago|last (?:year|quarter|spring|summer|autumn|fall|winter|month|week)|previously|earlier this year|in (?:19|20)\d\d|had (?:cut|warned|missed|lost|fallen)|has since|since recovered|which (?:cut|warned|missed|fell|lost))\b", re.I)
+SPAM_RX = re.compile(r"\b(market (?:report|size|research|analysis|forecast|outlook)|cagr|industry report|market share report|key players)\b", re.I)
+LISTICLE_RX = re.compile(r"\b(?:these|those|top|best|\d+) (?:\d+ )?(?:stocks?|etfs?|companies|shares)\b|\bstocks? to (?:buy|watch|avoid|sell)\b|\b(?:buy|sell) (?:this|these) stocks?\b", re.I)
+RECAP_TITLE = re.compile(r"\b(midday movers|premarket movers|after-?hours movers|movers:|biggest moves|top gainers|top losers|stocks making|stock market today|market wrap|what to watch|stocks to watch|winners and losers)\b", re.I)
+PROMO_RX = re.compile(r"\b(well[- ]positioned|poised for|confident (?:in|about|of)|optimistic|excited (?:about|to)|committed to|remains focused|pleased to)\b", re.I)
+CLAUSE_BREAK = re.compile(r"[;,.]|\bwhich\b|\bthat\b|\bbut\b|\bwhile\b|\bhowever\b", re.I)
+
+
+def polarity(text: str) -> dict:
+    """Direction read from the WORDING with negation (a cue preceded by not/no/avoids flips and shrinks), hedging (may, could, if halve it) and time (a cue in a clause that is history counts for almost nothing).
+    -> {score -1..1, cues [(phrase, raw, adjusted, why)], adjusted: whether negation, hedging or history changed anything}"""
+    cues, tot, adjusted = [], 0.0, False
+    for rx, w in POLARITY:
+        for m in rx.finditer(text):
+            lo = max(0, m.start() - 48)
+            before = text[lo:m.start()]
+            br = None
+            for b in CLAUSE_BREAK.finditer(before):
+                br = b
+            before = before[br.end():] if br else before                                                       # only the words in the same clause
+            adj, why = w, []
+            if NEGATOR.search(before[-34:]):
+                adj, why = -0.4 * w, why + ["negated"]
+            elif HEDGE_RX.search(before[-30:]):
+                adj, why = 0.5 * w, why + ["hedged"]
+            after = text[m.end():m.end() + 44]
+            nb = CLAUSE_BREAK.search(after)
+            clause = before + m.group(0) + (after[:nb.start()] if nb else after)                               # the cue's OWN clause: history in a neighbouring clause says nothing about it
+            if HIST_RX.search(clause):
+                adj, why = 0.15 * adj, why + ["history"]
+            adjusted = adjusted or bool(why)
+            cues.append((m.group(0)[:40], w, round(adj, 3), ",".join(why)))
+    if not cues:
+        return {"score": 0.0, "cues": [], "adjusted": False}
+    ws = sorted((c[2] for c in cues), key=abs, reverse=True)
+    tot = ws[0] + 0.3 * sum(ws[1:4])
+    return {"score": max(-1.0, min(1.0, tot)), "cues": cues, "adjusted": adjusted}
+
+
+# ---- DENIAL, scoped: a denial negates ONE proposition about SPECIFIC companies at a SPECIFIC time. It does not make a whole story "denied".
+DENY_VERB = re.compile(r"\b(?:deny|denies|denied|denying|refut(?:e|es|ed|ing)|walks? back|walked back|retract(?:s|ed)?|false report|unfounded|baseless|no plans? to|(?:has|have) no (?:plans?|intention|intent) to|"
+                       r"(?:dismiss(?:es|ed)|rejects?|rejected|dispute[sd]?) (?:the |a |an |any |these |those )?(?:\w+ )?(?:report|reports|rumou?rs?|claims?|speculation|allegations?|suggestions?|stories|story))\b", re.I)
+SOFT_DENIER = re.compile(r"\b(dismiss(?:es|ed)|rejects?|rejected|dispute[sd]?)\b", re.I)                         # these need a company (or its spokesperson) as the speaker: a JUDGE dismissing a claim is not a denial
+SPEAKER_RX = re.compile(r"\b(the company|management|spokes\w+|ceo|cfo|chairman|executives?|officials?|it|he|she|they|a representative|the firm)\b", re.I)
+UNRELATED_RX = re.compile(r"\b(unrelated|separate|different|other|earlier|previous|prior|old)\b", re.I)
+DETAIL_WORDS = re.compile(r"\b(price|prices|valuation|value|amount|size|terms?|timing|date|figure|number|premium|per share|reported \$|\$\s?\d|\d+(?:\.\d+)?\s?%)", re.I)
+STORY_REF = re.compile(r"\b(report|reports|rumou?rs?|speculation|claims?|allegations?|story|stories|article|suggestion|talk of)\b|^\s*(?:it|that|this|the (?:deal|talks|offer|plan|bid|merger|sale))\b", re.I)
+CONFIRM_AFTER = re.compile(r"\b(confirm(?:s|ed|ing)?|acknowledg(?:es|ed)|admit(?:s|ted)?|concede[sd]?|later said|now says|reversed course|backtrack(?:s|ed)?|in fact)\b", re.I)
+CLAIMANT_RX = re.compile(r"((?:[A-Z][\w&.\-]*\s+){0,2}[A-Z][\w&.\-]*)['\u2019]s (?i:claim|report|allegation|accusation|lawsuit|suit|assertion|statement|rumou?r)|(?i:claim|report|allegation|accusation|lawsuit|suit) (?i:by|from) ((?:[A-Z][\w&.\-]*\s*){1,3})")
+DENY_END = re.compile(r"[;,.]|\b(?:which|that|but|while|however|as|after|amid|following|because|since|despite|though|although|over)\b", re.I)         # where the DENIED proposition ends
+EVENT_CUES = {"merger_acquisition": r"acqui|buy|bid\b|takeover|merger|deal|talks|offer|\bsale\b|sell|stake", "litigation": r"lawsuit|sued|\bsuit\b|claim|allegation|settle|patent|breach", "regulatory_action": r"probe|investigat|fine|penalt|charge|antitrust|violation",
+              "earnings_beat": r"result|earnings|profit|loss|guidance|outlook|forecast|revenue|sales|dividend", "guidance_cut": r"result|earnings|profit|guidance|outlook|forecast|revenue|sales|dividend", "guidance_raise": r"result|earnings|profit|guidance|outlook|forecast|revenue|sales|dividend",
+              "earnings_miss": r"result|earnings|profit|loss|guidance|outlook|forecast|revenue|sales|dividend", "production_disruption": r"fire|outage|halt|shutdown|explosion|disruption|production", "recall": r"recall|defect|safety", "cyber_incident": r"breach|hack|attack|ransom|cyber|outage",
+              "bankruptcy_distress": r"bankrupt|insolven|default|restructur|going concern|liquidity", "leadership_change": r"resign|step down|depart|appoint|ceo|cfo", "contract_win": r"contract|award|order|deal", "contract_loss": r"contract|customer|order|deal"}
+
+
+def denial_scope(text: str, tickers: List[str], universe=None, etype: Optional[str] = None, names=None) -> dict:
+    """What, exactly, is denied, and about whom?  -> {applies, kind, tickers, why, span}.
+    kind: central (the story's own event is denied: it applies, to the companies named in the denied clause), detail (a side detail such as the price is denied but the event stands), other (a different proposition, e.g. 'denies wrongdoing'
+    in a story about a fine), historical (a past denial), superseded (denied, then confirmed later), other_entity (the denial is about companies not in this story), none.
+    The claimant (\"Acme's claim that Beta ...\") is NOT denied by Beta's denial of the claim's content."""
+    out = {"applies": False, "kind": "none", "tickers": [], "why": "", "span": ""}
+    namef = names or (lambda t: _names(universe, t))
+    best = None
+    for m in DENY_VERB.finditer(text):
+        cs = 0
+        for b in CLAUSE_BREAK.finditer(text[max(0, m.start() - 140):m.start()]):
+            cs = max(0, m.start() - 140) + b.end()
+        sent_end = len(text)
+        for b in re.finditer(r"[.;!?]", text[m.end():]):
+            sent_end = m.end() + b.start()
+            break
+        nb = DENY_END.search(text[m.end() + 1:sent_end])
+        clause_end = m.end() + 1 + nb.start() if nb else sent_end
+        speaker = text[cs:m.start()]
+        prop = text[m.end():clause_end]
+        prop_ext = text[m.end():sent_end]
+        span = text[cs:sent_end].strip()
+        verb = m.group(0)
+        if SOFT_DENIER.match(verb) and not (SPEAKER_RX.search(speaker) or any(_first_pos(speaker, namef(t)) >= 0 for t in tickers)):
+            continue                                                                                       # a judge or a regulator dismissing a claim is not the company denying it
+        if HIST_RX.search(text[cs:clause_end]) or re.search(r"\b(?:once|previously|formerly) (?:denied|said)\b", text[cs:clause_end], re.I):
+            cand = {"applies": False, "kind": "historical", "tickers": [], "why": "a past denial (%s)" % (HIST_RX.search(text[cs:clause_end]) or re.search(r"once|previously|formerly", text[cs:clause_end], re.I)).group(0), "span": span}
+            best = best or cand
+            continue
+        cue = re.compile(EVENT_CUES.get(etype or "", r"acqui|buy|deal|talks|result|earnings|guidance|lawsuit|probe|recall|bankrupt"), re.I)
+        has_event = bool(cue.search(prop))
+        has_story = bool(STORY_REF.search(prop))
+        has_detail = bool(DETAIL_WORDS.search(prop))
+        if UNRELATED_RX.search(prop) and not has_event:
+            has_event = False
+        if has_detail and not has_event:
+            best = best or {"applies": False, "kind": "detail", "tickers": [], "why": "a detail (%s) is denied, not the event itself" % DETAIL_WORDS.search(prop).group(0), "span": span}
+            continue
+        if not (has_event or has_story) or (UNRELATED_RX.search(prop) and not has_story):
+            best = best or {"applies": False, "kind": "other", "tickers": [], "why": "what is denied (%s) is not this story's event" % (prop.strip()[:40] or "it"), "span": span}
+            continue
+        claimants = set()
+        for cm in CLAIMANT_RX.finditer(text[cs:sent_end]):
+            nm = (cm.group(1) or cm.group(2) or "").strip().lower()
+            for t in tickers:
+                if any(n and (n.lower() in nm or nm in n.lower()) for n in namef(t)):
+                    claimants.add(t)
+        region = speaker + " " + prop_ext
+        scope = [t for t in tickers if t not in claimants and _first_pos(region, namef(t)) >= 0]
+        if not scope:
+            earlier = text[:m.start()]
+            scope = [t for t in tickers if t not in claimants and _first_pos(earlier, namef(t)) >= 0] or ([t for t in tickers if t not in claimants] if len(tickers) == 1 else [])
+        if not scope:
+            best = best or {"applies": False, "kind": "other_entity", "tickers": [], "why": "the denial is about companies not in this story", "span": span}
+            continue
+        # later confirmation of the same thing replaces the denial; confirmation BEFORE a denial does not (the later statement wins)
+        after = text[m.end():]
+        cf = CONFIRM_AFTER.search(after)
+        if cf and (cue.search(after[cf.end():cf.end() + 90]) or re.search(r"\b(it|the (?:deal|talks|report|plan|offer|bid|merger|sale))\b", after[cf.end():cf.end() + 60], re.I) or any(_first_pos(after[cf.end():cf.end() + 90], namef(t)) >= 0 for t in scope)):
+            best = {"applies": False, "kind": "superseded", "tickers": scope, "why": "denied, then confirmed (%s)" % cf.group(0), "span": span, "after": after[cf.start():]}
+            break
+        return {"applies": True, "kind": "central", "tickers": scope, "why": "the story's own event is denied (%s)" % verb.lower(), "span": span}
+    return best or out
+
+
+def mask_denial(text: str, den: dict) -> str:
+    """The text the story should be READ from once the denial is accounted for: without a denial that is about something else, and, when a denial was followed by a confirmation, from the confirmation onward."""
+    if den.get("kind") == "superseded" and den.get("after"):
+        return den["after"]
+    return text.replace(den["span"], " ") if den.get("span") and den.get("kind") in ("detail", "other", "historical", "other_entity") else text
+
+
+def _confirmed_state(den: dict, text: str, title: Optional[str]) -> str:
+    """The state of a story whose denial was superseded: a company that confirms talks has made them a proposal, not a rumour or a denial."""
+    s = event_state(mask_denial(text, den), None)
+    return "proposed" if s in ("rumored", "denied", "reported") else s
+
+
 # ------------------------------------------------------------------------------------------------ small readers
 def report_status(text: str) -> Tuple[str, float, List[str]]:
     """confirmed / plan / rumor / denied / unclear, and how much that changes the certainty that the event is real."""
@@ -195,6 +362,12 @@ def report_status(text: str) -> Tuple[str, float, List[str]]:
     if RUMOR.search(text) and not re.search(r"\b(announced?|confirmed?|filed|said in a)\b", text, re.I):
         hits.append("unconfirmed-source wording (%s)" % RUMOR.search(text).group(0).lower())
         return "rumor", 0.5, hits
+    if EXPECT_RX.search(text) and not re.search(r"\b(announced?|confirmed?|filed|reported|posted|said in a)\b", text, re.I):
+        hits.append("an expectation, not a result (%s)" % EXPECT_RX.search(text).group(0).lower())
+        return "expected", 0.5, hits
+    if HEDGE_RX.search(text) and not re.search(r"\b(announced?|confirmed?|filed|said in a)\b", text, re.I):
+        hits.append("conditional wording (%s)" % HEDGE_RX.search(text).group(0))
+        return "hedged", 0.6, hits
     if CONFIRMED.search(text):
         hits.append("confirmed-event wording (%s)" % CONFIRMED.search(text).group(0).lower())
         return "confirmed", 0.92, hits
@@ -210,6 +383,30 @@ def _names(universe, t: str) -> List[str]:
         return [n for n in reader._names_for(universe, t) if n]
     except Exception:  # noqa: BLE001
         return [t]
+
+
+PLATFORM_RX = re.compile(r"\b(?:joins|joined|partners? with|launch(?:es|ed)? on|integrat\w+ with|powered by|built on|available on|on the|via|using|for)\s+(?:the |a |an )?$", re.I)
+
+
+def _mask_exchange(s: str) -> str:
+    try:
+        from . import entities as E
+        return E._EXCH_PHRASES.sub(" ", E._EX.sub(" ", s))                                                  # "(NASDAQ: GOOGL)" names the listing venue, not the company Nasdaq
+    except Exception:  # noqa: BLE001
+        return s
+
+
+def grounding(title: str, summary: str, universe, t: str) -> float:
+    """How firmly is this company the SUBJECT of the story? 1.0 when its name (or a cashtag or exchange tag) is in the headline, 0.7 when only in the body, 0.35 when nothing in the text names it (the matcher
+    guessed), and a company named only as a PLATFORM ('joins the Microsoft for Startups program', 'built on AWS') counts for little."""
+    names = _names(universe, t)
+    ht, ft = _mask_exchange(title or ""), _mask_exchange("%s %s" % (title or "", summary or ""))
+    tag = re.search(r"\$%s(?![A-Za-z])|\((?:NYSE|NASDAQ|NYSE American|AMEX|OTC)[^)]{0,12}\b%s\b" % (re.escape(t), re.escape(t)), (title or "") + " " + (summary or ""))
+    p = _first_pos(ht, names)
+    g = 1.0 if (p >= 0 or (tag and tag.start() < len(title or ""))) else 0.7 if (_first_pos(ft, names) >= 0 or tag) else 0.35
+    if p >= 0 and PLATFORM_RX.search(ht[max(0, p - 30):p]):
+        g *= 0.45
+    return g
 
 
 def _first_pos(text: str, names: List[str]) -> int:
@@ -240,7 +437,7 @@ def groups() -> Dict[str, List[str]]:
 
 
 # ------------------------------------------------------------------------------------------------ roles: who is acting on whom
-def resolve_roles(text: str, tickers: List[str], universe, sign: float, event_type: str) -> Tuple[Dict[str, Tuple[float, float, str]], List[str]]:
+def _resolve_roles(text: str, tickers: List[str], universe, sign: float, event_type: str, title: str = "", summary: str = "") -> Tuple[Dict[str, Tuple[float, float, str]], List[str]]:
     """{ticker: (sign, confidence, why)}: a takeover's TARGET gains and its acquirer is slightly hurt; the party SUED or fined loses and the one suing gains a little; otherwise every named company shares the event.
     Returns also the list of rules that fired."""
     out: Dict[str, Tuple[float, float, str]] = {}
@@ -258,6 +455,13 @@ def resolve_roles(text: str, tickers: List[str], universe, sign: float, event_ty
             for t in before:
                 out[t] = (-1.0, 0.4, "acquirer: pays a premium and takes on integration risk")
             return out, trace
+    m = WIN_AGAINST.search(text)
+    if m and len(tickers) >= 2:
+        before = [t for t in tickers if 0 <= pos[t] < m.start()]
+        after = [t for t in tickers if pos[t] > m.end()]
+        if before and after:
+            trace.append("roles: '%s' marks %s as the winner and %s as the loser" % (m.group(0)[:40].lower(), ",".join(before), ",".join(after)))
+            return dict([(t, (1.0, 0.85, "won the case or dispute")) for t in before] + [(t, (-1.0, 0.8, "lost the case or dispute")) for t in after]), trace
     m = SUE.search(text)
     if m and len(tickers) >= 2:
         cut = m.start()
@@ -278,6 +482,19 @@ def resolve_roles(text: str, tickers: List[str], universe, sign: float, event_ty
     return out, trace
 
 
+def resolve_roles(text: str, tickers: List[str], universe, sign: float, event_type: str, title: str = "", summary: str = "") -> Tuple[Dict[str, Tuple[float, float, str]], List[str]]:
+    """Roles (see _resolve_roles) with each company's confidence scaled by how firmly it is the SUBJECT of the story (grounding)."""
+    roles, trace = _resolve_roles(text, tickers, universe, sign, event_type)
+    t0, s0 = (title, summary) if title else (text, "")
+    out = {}
+    for t, (sg, conf, why) in roles.items():
+        g = grounding(t0, s0, universe, t)
+        out[t] = (sg, conf * g, why if g >= 0.99 else "%s; grounding %.2f (%s)" % (why, g, "named only in the body" if g >= 0.7 else "not named in the story" if g >= 0.3 else "named only as a platform"))
+        if g < 0.99:
+            trace.append("grounding: %s is %s (x%.2f)" % (t, "named only in the body or as a platform" if g >= 0.3 else "not named anywhere in the text: the entity matcher guessed", g))
+    return out, trace
+
+
 # ------------------------------------------------------------------------------------------------ the analyst
 def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[dict]:
     """item = {title, summary, analysis (the deterministic reading), tickers}. Returns the structured analysis (the schema event_intel.apply expects) or None when the evidence is too thin to say anything."""
@@ -294,6 +511,23 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
     adir, ldir = float(a.get("direction") or 0.0), float(lz.get("direction") or 0.0)
     direction = adir if abs(adir) >= 0.15 else ldir
     magnitude = float(a.get("magnitude") or lz.get("magnitude") or 0.0)
+    pr = polarity(text)
+    disagreement = False
+    if pr["cues"]:
+        p = pr["score"]
+        if pr["adjusted"] and (abs(direction) < 0.15 or direction * p <= 0 or abs(p) < abs(direction) - 0.2):
+            trace.append("wording reader (%s) overrides the event reader (%+.2f -> %+.2f): negation, hedging or history changes what the words mean" % ("; ".join("%s %s" % (c[0], c[3]) for c in pr["cues"] if c[3])[:90], direction, p))
+            direction = p
+        elif abs(direction) < 0.15 and abs(p) >= 0.25:
+            trace.append("the event reader saw no direction; the wording reader reads %+.2f from: %s" % (p, "; ".join(c[0] for c in pr["cues"][:3])))
+            direction = p
+        elif direction * p < 0 and abs(p) >= 0.35 and abs(direction) < 0.35:
+            trace.append("the event reader is weak (%+.2f) and the wording reader has a strong cue (%+.2f: %s): trusting the wording" % (direction, p, "; ".join(c[0] for c in pr["cues"][:2])))
+            direction = p
+        elif direction * p < 0 and abs(p) >= 0.35 and abs(direction) >= 0.35:
+            disagreement = True
+        if magnitude < 0.15 and abs(direction) >= 0.25:
+            magnitude = max(0.25, min(0.6, abs(direction) * 0.7))
     scope = a.get("scope") or "company"
     contradictions: List[str] = []
     if lz.get("mixed"):
@@ -306,11 +540,18 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
         pass
     if adir * ldir < 0 and abs(adir) >= 0.3 and abs(ldir) >= 0.3:
         contradictions.append("the event reading (%+.2f) and the article's own facts (%+.2f) point opposite ways" % (adir, ldir))
+    if disagreement:
+        contradictions.append("the two readings of the wording disagree (event reader %+.2f, wording reader %+.2f)" % (direction, pr["score"]))
     for c in contradictions:
         trace.append("contradiction: " + c)
 
     # 2. QUALIFY ---------------------------------------------------------------------------------------------
-    status, factor, hits = report_status(text)
+    den = denial_scope(text, tickers, universe, etype)
+    status, factor, hits = report_status(mask_denial(text, den))                                           # the rest of the story is read without a denial that is about something else
+    if den["applies"]:
+        status, factor, hits = "denied", 0.25, ["denial of the story's own event: " + den["why"]]
+    elif den["kind"] != "none":
+        hits = hits + ["a denial was found but it does not negate this story (%s: %s)" % (den["kind"], den["why"])]
     trace += ["status %s: %s" % (status, "; ".join(hits) or "no marker words")]
     certainty = float(a.get("confidence") or 0.6) * 0.5 + 0.5 * factor
     certainty *= {"opinion": 0.6, "promo": 0.5, "transcript": 0.8}.get(lz.get("type"), 1.0)
@@ -319,12 +560,11 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
         trace.append("the text describes old events (history wording)")
     if contradictions:
         certainty *= 0.8
-    if status == "denied":
-        direction = -direction * 0.3                                                                  # a denial mostly cancels the rumour it answers
+    deny_flip = set(den["tickers"]) if (den["applies"] and not any("negated" in c[3] for c in pr["cues"])) else set()
     certainty = _clip(certainty, 0.05, 0.97)
 
     # 3. WHO ---------------------------------------------------------------------------------------------------
-    sign = 1.0 if direction > 0 else -1.0 if direction < 0 else 0.0
+    sign = 0.0 if abs(direction) < 0.15 else (1.0 if direction > 0 else -1.0)                         # a reading this faint is "no direction", not a weak one
     quotes = []
     for f in (lz.get("facts") or [])[:3]:
         q = (f.get("text") or "").strip()
@@ -349,10 +589,12 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
     if etype == "merger_acquisition" and sign == 0:
         direction, sign = 0.5, 1.0                                                                       # a takeover reads as neutral to a word count, but somebody gains a premium
     if tickers and (sign != 0 or pattern):
-        roles, rtrace = resolve_roles(text, tickers, universe, sign, etype)
+        roles, rtrace = resolve_roles(text, tickers, universe, sign, etype, title, summary)
         trace += rtrace
         for t, (s, conf, why) in roles.items():
             cs = s                                                                                   # a role is absolute: +1 gains, -1 loses (the target, the party sued, or simply the event's direction)
+            if t in deny_flip:
+                cs, conf = -cs, conf * 0.3                                                           # a denial mostly cancels the rumour it answers, for the companies it is about and no others
             strength = 0.55 + 0.4 * min(1.0, abs(direction) or 0.5)
             put(t, cs, conf * strength, 1, "%s (%s)" % (why, etype.replace("_", " ")))
             first.append((t, cs, conf * strength))
@@ -414,12 +656,26 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
     # 6. DOUBT: abstain when there is nothing solid to say -----------------------------------------------------
     n_eff = len(beneficiaries) + len(losers)
     abstain = None
-    if etype in ("opinion_piece", "price_recap"):
+    if (title or "").rstrip().endswith("?"):
+        abstain = "a question headline is not a report"
+    elif SPAM_RX.search(title or ""):
+        abstain = "a market-research or advertising page, not news"
+    elif LISTICLE_RX.search(title or ""):
+        abstain = "a list of stock picks, not an event"
+    elif etype in ("opinion_piece", "price_recap"):
         abstain = "a %s is not an event" % etype.replace("_", " ")                                          # the deterministic reader's verdict: a stock pick or a price recap reports nothing new
     elif lz.get("type") in ("opinion", "promo") and not (lz.get("facts") or []):
         abstain = "an %s piece that reports no fact" % lz.get("type")                                     # a stock pick or an advertisement is not an event
     elif certainty < 0.3:
         abstain = "certainty %.2f is too low to act on" % certainty
+    elif RECAP_TITLE.search(title or "") and not pattern:
+        abstain = "a market recap, not an event"
+    elif PROMO_RX.search(text) and abs(pr["score"]) < 0.35 and not pattern and not (lz.get("facts") or []):
+        abstain = "a statement of optimism, not an event"
+    elif len(tickers) >= 4 and not pattern:
+        abstain = "a roundup naming %d companies" % len(tickers)
+    elif etype in ("general_news", "other") and abs(direction) < 0.35 and abs(pr["score"]) < 0.35 and not pattern and not (lz.get("facts") or []) and n_eff == 0:
+        abstain = "no reportable event (general news with no clear direction)"
     elif n_eff == 0 and scope not in ("macro", "sector"):
         abstain = "no company it concerns could be identified"
     elif sign == 0 and not narratives and n_eff == 0:
@@ -428,6 +684,8 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
         trace.append("abstained: " + abstain)
         item["_why_not"] = abstain
         item["_trace"] = trace[:14]
+        item["_denial"] = den
+        item["_state"], item["_novelty"] = ("denied" if den["applies"] else (_confirmed_state(den, text, title) if den["kind"] == "superseded" else event_state(mask_denial(text, den), title))), novelty_of(text)
         return None
 
     surprise = None
@@ -451,7 +709,7 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
     classification = float(a.get("confidence") or 0.6)
     truth = min(1.0, factor * (1.0 if (n_ind >= 2 or primary) else 0.92))
     role_conf = min(roles.values()) if roles else 0.0
-    out.update({"state": event_state(text), "novelty": novelty_of(text), "evidence_status": "primary" if primary else "corroborated" if n_ind >= 2 else "single_source", "independent_sources": n_ind, "primary_source": primary,
+    out.update({"state": "denied" if den["applies"] else (_confirmed_state(den, text, title) if den["kind"] == "superseded" else event_state(mask_denial(text, den), title if den["kind"] == "none" else mask_denial(title or "", den))), "denial": den, "novelty": novelty_of(text), "evidence_status": "primary" if primary else "corroborated" if n_ind >= 2 else "single_source", "independent_sources": n_ind, "primary_source": primary,
                 "materiality": materiality(magnitude, a.get("amount_usd"), comp_row["market_cap"] if comp_row else None, etype), "horizons": prof, "roles": roles,
                 "components": {"entity": 0.8 if tickers else 0.4, "classification": round(classification, 2), "truth": round(truth, 2), "role": round(role_conf, 2), "causal": round(max([e["confidence"] for e in ben + los if e["order"] >= 2] or [0.0]), 2),
                                "direction_p": round(0.5 + 0.45 * min(1.0, abs(direction)) * min(truth, classification), 3), "magnitude": round(float(lz.get("confidence") or 0.5), 2), "timing": round(max(prof.values()), 2),
@@ -463,12 +721,12 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
 def log_record(conn, cfg: dict, item: dict, intel: Optional[dict], mode: str, now) -> None:
     """Every analysis, including the ones it abstained on, is kept with the rules that produced it: the reasoning can be audited and replayed, and the scorecards can judge it."""
     row = intel or {}
-    conn.execute("INSERT INTO reasoning_events(created,news_uid,mode,engine,ref_version,event_type,state,novelty,evidence_status,materiality,independent_sources,abstained,abstain_reason,direction,magnitude,certainty,components_json,horizons_json,roles_json,tickers_json,analysis_json,trace_json) "
-                 "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                 (iso(now), item.get("uid"), mode, ENGINE_VERSION, row.get("ref_version") or ref_version(conn), row.get("event_type") or (item.get("analysis") or {}).get("event_type"), row.get("state"), row.get("novelty"), row.get("evidence_status"),
+    conn.execute("INSERT INTO reasoning_events(created,news_uid,mode,engine,ref_version,event_type,state,novelty,evidence_status,materiality,independent_sources,abstained,abstain_reason,direction,magnitude,certainty,components_json,horizons_json,roles_json,tickers_json,analysis_json,trace_json,denied_json) "
+                 "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                 (iso(now), item.get("uid"), mode, ENGINE_VERSION, row.get("ref_version") or ref_version(conn), row.get("event_type") or (item.get("analysis") or {}).get("event_type"), row.get("state") or item.get("_state"), row.get("novelty") or item.get("_novelty"), row.get("evidence_status"),
                   row.get("materiality"), row.get("independent_sources"), 0 if intel else 1, item.get("_why_not") if not intel else None, row.get("direction_market"), row.get("magnitude"), row.get("certainty"),
                   json.dumps(row.get("components") or {}), json.dumps(row.get("horizons") or {}), json.dumps(row.get("roles") or {}), json.dumps(item.get("tickers") or []), json.dumps(row, sort_keys=True, default=str) if intel else None,
-                  json.dumps(row.get("trace") or item.get("_trace") or [])))
+                  json.dumps(row.get("trace") or item.get("_trace") or []), json.dumps(row.get("denial") or item.get("_denial") or {})))
 
 
 def supersede(conn, tickers: List[str], etype: str, now, factor: float = 0.3) -> int:
@@ -528,10 +786,10 @@ def _recent_opposite(conn, ticker: str, sign: float, now, hours: int = 48) -> Li
     return [r for r in rows if r["direction"] * sign < -0.3]
 
 
-def review(conn, cfg: dict, client, cand: dict, f: dict, comp: dict, th: dict, regime: dict, now, decision_id: Optional[int] = None) -> Optional[dict]:
+def review(conn, cfg: dict, client, cand: dict, f: dict, comp: dict, th: dict, regime: dict, now, decision_id: Optional[int] = None, persist: bool = True) -> Optional[dict]:
     """The case against a trade (see skeptic.py). `client` is ignored: there is no LLM."""
     from . import skeptic
-    return skeptic.review(conn, cfg, cand, f, comp, th, regime, now, decision_id)
+    return skeptic.review(conn, cfg, cand, f, comp, th, regime, now, decision_id, persist)
 
 
 def gate(rv: dict, cfg: dict, mode: str = "guard") -> dict:
@@ -652,16 +910,27 @@ def _why(conn, cfg, q, ts, universe, now):
     sections.append(_sec("relationships", ["%s of %s (%.2f)%s" % (e["role"], t, e["weight"], (": " + e["note"]) if e["note"] else "") for e in nb] or ["no relationships recorded"]))
     fx = facts_mod.get(conn, t)
     if fx:
-        L = []
-        if fx.get("revenue_ttm"):
-            L.append("revenue $%.1fB (%s)%s" % (fx["revenue_ttm"] / 1e9, fx["basis"].get("revenue", ""), ", %+.0f%% on a year earlier" % (fx["revenue_growth"] * 100) if fx.get("revenue_growth") is not None else ""))
-        if fx.get("net_margin") is not None:
-            L.append("net margin %.1f%%%s" % (fx["net_margin"] * 100, ", operating margin %.1f%%" % (fx["op_margin"] * 100) if fx.get("op_margin") is not None else ""))
-        if fx.get("cash") is not None:
-            L.append("cash $%.1fB%s" % (fx["cash"] / 1e9, ", debt $%.1fB" % (fx["debt"] / 1e9) if fx.get("debt") is not None else ""))
-        if fx.get("share_growth") is not None:
-            L.append("share count %+.1f%% in a year" % (fx["share_growth"] * 100))
-        L += ["FLAG: " + f["text"] for f in fx.get("flags", []) if f["severity"] > 0]
+        L: List[str] = []
+        M = fx.get("metrics") or {}
+        got = (fx.get("retrieved") or fx.get("fetched") or "")[:10]
+
+        def line(label, key, fmt):
+            m = M.get(key)
+            if m:
+                L.append("%s: %s  [period ended %s, filed %s, %s; retrieved %s, %s days after the period ended]" % (label, fmt(m["value"]), m["period_end"], (m.get("filed") or "?")[:10], m["basis"], got, m.get("age_days", "?")))
+        line("revenue, twelve months", "revenue_ttm", lambda v: "$%.1fB" % (v / 1e9))
+        line("revenue growth", "revenue_growth", lambda v: "%+.0f%%" % (v * 100))
+        line("net income, twelve months", "net_income_ttm", lambda v: "$%.1fB" % (v / 1e9))
+        line("cash", "cash", lambda v: "$%.1fB" % (v / 1e9))
+        line("long-term debt", "debt_lt", lambda v: "$%.1fB" % (v / 1e9))
+        line("share count change", "share_growth", lambda v: "%+.1f%%" % (v * 100))
+        for fl in fx.get("flags", []):
+            if fl.get("severity", 0) > 0:
+                L.append("FLAG: %s  [period ended %s, filed %s]" % (fl["text"], fl.get("period_end") or "?", (fl.get("filed") or "?")[:10]))
+        for k, why in sorted((fx.get("unavailable") or {}).items())[:5]:
+            L.append("UNAVAILABLE %s: %s" % (k.replace("_", " "), why[:150]))
+        if fx.get("stale"):
+            L.append("these numbers are more than about 14 months old and are not used to judge anything")
         sections.append(_sec("reported financials (SEC data, as of %s)" % (fx.get("asof") or "?"), L or ["no usable figures"]))
     rr = conn.execute("SELECT created,state,novelty,evidence_status,materiality,certainty,abstained,abstain_reason FROM reasoning_events WHERE tickers_json LIKE ? ORDER BY id DESC LIMIT 1", ('%"' + t + '"%',)).fetchone() if conn.execute("SELECT 1 FROM sqlite_master WHERE name='reasoning_events'").fetchone() else None
     if rr:
@@ -679,12 +948,8 @@ def _why(conn, cfg, q, ts, universe, now):
 
 
 def _bears_only(conn, cfg, cand, f, now) -> dict:
-    """The red-team review without saving it (a question must not write to the audit log of real decisions)."""
-    mark = conn.execute("SELECT COALESCE(MAX(id),0) FROM redteam_reviews").fetchone()[0]
-    with db.tx(conn):
-        rv = review(conn, cfg, None, dict(cand, credibility=cand.get("credibility", 0.7)), f, {}, {}, {}, now, None)
-        conn.execute("DELETE FROM redteam_reviews WHERE id>?", (mark,))
-    return rv
+    """The red-team review for display: computed, never saved (a question must not write: the dashboard's connection is read-only, and it must not pollute the audit log of real decisions)."""
+    return review(conn, cfg, None, dict(cand, credibility=cand.get("credibility", 0.7)), f, {}, {}, {}, now, None, persist=False)
 
 
 def _news(conn, cfg, q, ts, universe, now):

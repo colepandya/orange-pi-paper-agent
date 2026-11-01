@@ -257,7 +257,12 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
 
     # ---- company facts: the numbers companies report to the SEC, read deterministically (a few companies a cycle, weekly each)
     def refresh_facts():
+        if not db.due(conn, "facts_block", 1.0, now):
+            return {"skipped": "SEC refused the last request: backing off for an hour"}
         done = {}
+        contact = (cfg.get("runtime") or {}).get("contact_email") or ""
+        if not contact or "example.invalid" in contact or "example.com" in contact:
+            done["_warning"] = "contact email is still the placeholder: set a real one in Settings (System) because SEC asks for it and may refuse anonymous requests"
         for t in facts_mod.due_tickers(conn, cfg, held, [c["ticker"] for c in cands], now, int(icfg.get("max_knowledge_refresh_per_cycle", 2)) + 1):
             if over_budget(0.5):
                 report.setdefault("budget", []).append("facts: stopped early at %ds" % (time.time() - t_start))
@@ -265,7 +270,10 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
             try:
                 done[t] = facts_mod.refresh(conn, cfg, t, universe.meta(t).get("cik"), deps.fetch_json, now, sleep=deps.sleep)
             except Exception as e:  # noqa: BLE001 - one company's failure must not stop the others
-                done[t] = {"error": "%s: %s" % (type(e).__name__, e)}
+                done[t] = {"error": "%s: %s%s" % (type(e).__name__, e, (" (HTTP %s)" % e.code) if getattr(e, "code", None) else "")}
+                if getattr(e, "code", None) in (403, 429):                                                   # SEC is refusing us: stop now, do not hammer it every cycle
+                    db.mark_run(conn, "facts_block", "", now)
+                    break
             db.mark_run(conn, "facts:" + t, "", now)
         return done
     report["facts"] = _stage(report, "facts", refresh_facts)

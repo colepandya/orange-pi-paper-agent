@@ -37,104 +37,7 @@ def quarters_of(vals, last_end=dt.date(2026, 6, 30)):
     return list(reversed(out))
 
 
-# ------------------------------------------------------------------------------------------------ SEC facts
-class TestFacts(unittest.TestCase):
-    def test_trailing_twelve_months_is_the_last_four_quarters_and_growth_compares_the_same_quarter_a_year_earlier(self):
-        q = quarters_of([100, 100, 100, 100, 110, 120, 130, 140])
-        t = F.ttm(q)
-        self.assertEqual(t[0], 500)
-        self.assertEqual(t[2], "last four quarters")
-        g = F.yoy(q)
-        self.assertAlmostEqual(g[0], 0.40, places=2)                                                      # 140 against 100 a year earlier
-
-    def test_a_restatement_replaces_the_original_figure(self):
-        q = quarters_of([100, 100, 100, 100])
-        q.append(dict(q[-1], val=60, filed="2026-12-01"))                                                  # the same quarter, filed again later
-        self.assertEqual(F.ttm(q)[0], 360)
-
-    def test_the_annual_figure_is_used_when_four_quarters_are_not_available(self):
-        a = [pt("2025-01-01", "2025-12-31", 400), pt("2024-01-01", "2024-12-31", 300)]
-        self.assertEqual(F.ttm(a)[:3:2], (400, "latest annual"))
-        self.assertAlmostEqual(F.yoy(a)[0], 400 / 300.0 - 1, places=4)
-
-    def test_the_flags_are_raised_by_plain_thresholds_and_each_carries_its_reason(self):
-        raw = {"revenue": quarters_of([100, 100, 100, 100, 90, 85, 80, 75]), "net_income": quarters_of([-5] * 8), "op_income": quarters_of([-3] * 8), "cfo": quarters_of([-4] * 8), "capex": quarters_of([2] * 8),
-               "cash": [pt(None, "2026-06-30", 50)], "debt": [pt(None, "2026-06-30", 400)], "shares": quarters_of([100, 100, 100, 100, 108, 110, 112, 115])}
-        raw["cash"][0].pop("start")
-        raw["debt"][0].pop("start")
-        f = F.summarize(raw, NOW)
-        flags = {x["flag"] for x in f["flags"]}
-        self.assertEqual(flags, {"shrinking_revenue", "loss_making", "debt_above_cash", "dilution", "burning_cash"})
-        self.assertLess(f["revenue_growth"], -0.2)
-        self.assertGreater(f["share_growth"], 0.1)
-        self.assertTrue(all(x["text"] for x in f["flags"]))
-
-    def test_a_healthy_company_raises_no_objection_and_a_fast_grower_is_noted(self):
-        raw = {"revenue": quarters_of([100, 100, 100, 100, 130, 135, 140, 150]), "net_income": quarters_of([20] * 8), "cash": [{"end": "2026-06-30", "val": 900}], "debt": [{"end": "2026-06-30", "val": 300}], "shares": quarters_of([100] * 8)}
-        f = F.summarize(raw, NOW)
-        self.assertEqual([x["flag"] for x in f["flags"] if x["severity"] > 0], [])
-        self.assertIn("fast_growth", [x["flag"] for x in f["flags"]])
-        self.assertEqual(f["net_debt"], -600)
-
-    def test_a_concept_the_company_does_not_use_falls_back_to_the_next_name_and_other_errors_are_not_swallowed(self):
-        calls = []
-
-        def fetch(url, headers=None, timeout=0):
-            calls.append(url)
-            if url.endswith("/Revenues.json"):
-                raise net.FetchError("not found", 404)
-            if url.endswith("/SalesRevenueNet.json"):
-                return {"units": {"USD": [pt("2025-01-01", "2025-12-31", 123)]}}, 200
-            raise net.FetchError("down", 500)
-        pts = F.fetch_concept(fetch, 1045810, "us-gaap", ["Revenues", "SalesRevenueNet"], {}, lambda s: None)
-        self.assertEqual(pts[0]["val"], 123)
-        self.assertEqual(len(calls), 2)
-        with self.assertRaises(net.FetchError):
-            F.fetch_concept(fetch, 1, "us-gaap", ["NetIncomeLoss"], {}, lambda s: None)
-
-    def test_refresh_stores_the_facts_and_due_tickers_respects_the_weekly_schedule_and_puts_held_first(self):
-        c = H.fresh_db()
-        series = {"Revenues": quarters_of([100] * 4 + [120, 130, 140, 150]), "NetIncomeLoss": quarters_of([-10] * 8)}
-
-        def fetch(url, headers=None, timeout=0):
-            name = url.rsplit("/", 1)[1][:-5]
-            if name in series:
-                return {"units": {"USD": series[name]}}, 200
-            raise net.FetchError("nf", 404)
-        out = F.refresh(c, H.cfg(), "ACME", 1, fetch, NOW)
-        self.assertTrue(out["ok"])
-        self.assertIn("loss_making", out["flags"])
-        self.assertEqual(F.get(c, "ACME")["ticker"], "ACME")
-        self.assertEqual(F.due_tickers(c, H.cfg(), ["ACME", "BETA"], ["NVDA", "ACME"], NOW + dt.timedelta(days=1)), ["BETA", "NVDA"])
-        self.assertEqual(F.due_tickers(c, H.cfg(), ["ACME"], [], NOW + dt.timedelta(days=8)), ["ACME"])
-        self.assertEqual(F.due_tickers(c, H.cfg(), [], ["A", "B", "C", "D", "E"], NOW, 2), ["A", "B"])
-        self.assertEqual(F.refresh(c, H.cfg(), "X", None, fetch, NOW), {"skipped": "no CIK for X"})
-
-    def test_the_sec_asks_for_a_contact_and_gets_one(self):
-        seen = {}
-
-        def fetch(url, headers=None, timeout=0):
-            seen.update(headers or {})
-            raise net.FetchError("nf", 404)
-        cfg = H.cfg()
-        cfg.setdefault("runtime", {})["contact_email"] = "me@example.org"
-        F.refresh(H.fresh_db(), cfg, "ACME", 1, fetch, NOW)
-        self.assertIn("me@example.org", seen["User-Agent"])
-
-    def test_the_red_team_uses_the_facts_for_a_long_and_a_short(self):
-        c = H.fresh_db()
-        c.execute("INSERT INTO company_facts(ticker,facts_json,updated) VALUES('NVDA',?,?)", (json.dumps({"flags": [{"flag": "dilution", "text": "the share count grew 12% in a year", "severity": 0.44}, {"flag": "fast_growth", "text": "revenue is up 40%", "severity": 0.0}],
-                                                                                                         "net_income_ttm": 5, "net_debt": -10}), iso(NOW)))
-        c.commit()
-        cfg = H.cfg()
-        long_rv = S.review(c, cfg, cd(), fc(), {}, {}, {}, NOW)
-        self.assertTrue(any(b["rule"] == "fundamentals" and "share count" in b["evidence"] for b in long_rv["bear_points"]))
-        self.assertFalse(any("fast-growing" in b["point"] for b in long_rv["bear_points"]))
-        short_rv = S.review(c, cfg, cd(direction=-0.8, event_type="guidance_cut", headline="NVIDIA cuts outlook"), fc("SHORT"), {}, {}, {}, NOW)
-        self.assertTrue(any("fast-growing" in b["point"] for b in short_rv["bear_points"]))
-        self.assertTrue(any("net cash" in b["point"] for b in short_rv["bear_points"]))
-
-
+# SEC facts: see test_build43.py (the reader was rebuilt in build 43)
 # ------------------------------------------------------------------------------------------------ outcome paths
 BARS = [{"day": "d1", "open": 101, "high": 103, "low": 100, "close": 102}, {"day": "d2", "open": 102, "high": 106, "low": 101, "close": 105}, {"day": "d3", "open": 105, "high": 107, "low": 99, "close": 100}]
 
@@ -503,7 +406,7 @@ class PipeBase(TL.Base):
         d1 = self.deps([(TL.NVDA_NEWS, "AI capex", TL.RF(TL.T_PRE - dt.timedelta(minutes=40)))])
         if contradict:
             def stub(item):
-                R.log_record(self.c, self.cfg, item, {"roles": {"NVDA": 0.15}, "event_type": "guidance_raise", "certainty": 0.6}, self.mode, item["now"])
+                R.log_record(self.c, self.cfg, item, {"roles": {"NVDA": 0.15, "AMD": 0.85}, "event_type": "guidance_raise", "certainty": 0.6}, self.mode, item["now"])
                 return None
             d1.analyst = stub
         r1 = pipeline.run_cycle(self.c, self.cfg, self.uni, TL.SRC, d1, TL.T_PRE)

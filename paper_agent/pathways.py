@@ -32,7 +32,23 @@ def _close_on_or_before(conn, symbol: str, day: str) -> Optional[float]:
 
 def measure(entry: float, sg: float, bs: List[dict], target: Optional[float], stop: Optional[float], horizon: int) -> Optional[dict]:
     """The pure calculation for one prediction and one horizon (no database): returns None until `horizon` sessions of data exist."""
-    if len(bs) < horizon or not entry:
+    entry = entry if isinstance(entry, (int, float)) and entry > 0 else 0
+    if not entry:
+        return None
+    fixed = []
+    for b in bs:
+        try:
+            cl = float(b["close"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if not cl > 0:
+            continue
+        hi = b.get("high") if isinstance(b.get("high"), (int, float)) and b.get("high") > 0 else cl
+        lo = b.get("low") if isinstance(b.get("low"), (int, float)) and b.get("low") > 0 else cl
+        op = b.get("open") if isinstance(b.get("open"), (int, float)) and b.get("open") > 0 else None
+        fixed.append({"day": b.get("day"), "open": op, "high": max(hi, cl, lo), "low": min(lo, cl, hi), "close": cl})                    # a missing high or low is repaired from the close
+    bs = fixed
+    if len(bs) < horizon:
         return None
     w = bs[:horizon]
     last = w[-1]["close"]
