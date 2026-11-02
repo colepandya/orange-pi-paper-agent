@@ -136,7 +136,14 @@ def neighbours(conn, eid: str, as_of: str, cap: int = 25) -> List[dict]:
     return out
 
 
-def _ticker(conn, eid: str) -> str:
+def _ticker(conn, eid: str, hint: str = "") -> str:
+    """The ticker for an entity. One issuer can have several (GOOG, GOOGL ...): when the relationship's own text names one of them ("NVDA supplies GOOGL"), that is the one meant; otherwise the primary."""
+    if hint:
+        names = [r[0] for r in conn.execute("SELECT value FROM kb_identifiers WHERE entity_id=? AND kind='ticker' AND valid_to IS NULL", (eid,))]
+        if len(names) > 1:
+            for w in re.findall(r"[A-Z][A-Z.\-]{0,5}", hint):
+                if w in names:
+                    return w
     r = conn.execute("SELECT value FROM kb_identifiers WHERE entity_id=? AND kind='ticker' AND valid_to IS NULL ORDER BY is_primary DESC LIMIT 1", (eid,)).fetchone()
     if not r:
         r = conn.execute("SELECT value FROM kb_identifiers WHERE entity_id=? AND kind='ticker' ORDER BY id DESC LIMIT 1", (eid,)).fetchone()
@@ -167,7 +174,7 @@ def propagate(conn, cfg: dict, ev: dict, now=None, as_of: Optional[str] = None, 
                 if len(out) >= cap_total:
                     break
                 dst_e = nb["neighbour"]
-                dst_t = _ticker(conn, dst_e)
+                dst_t = _ticker(conn, dst_e, (nb.get("mechanism") or "") + " " + (nb.get("evidence") or ""))
                 if dst_e in seen:
                     continue
                 rules = match_rules(ev if hop == 1 else dict(ev, direction=ev["direction"] * sgn, industry_wide=ev.get("industry_wide")), nb["role"])

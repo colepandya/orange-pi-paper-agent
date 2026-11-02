@@ -22,7 +22,34 @@ FORM_EVENTS = {"NT 10-K": "late_annual_report", "NT 10-Q": "late_quarterly_repor
                "SCHEDULE 13D/A": "activist_or_control_stake_amended", "SCHEDULE 13G": "passive_5pct_stake", "SCHEDULE 13G/A": "passive_5pct_stake_amended", "S-3": "shelf_registration", "S-3ASR": "shelf_registration", "S-3/A": "shelf_registration",
                "424B1": "securities_offering", "424B2": "securities_offering", "424B3": "securities_offering", "424B4": "securities_offering", "424B5": "securities_offering", "424B7": "securities_offering",
                "10-K": "annual_report", "10-K/A": "annual_report", "10-Q": "quarterly_report", "10-Q/A": "quarterly_report", "6-K": "foreign_current_report", "20-F": "foreign_annual_report", "8-K": "current_report", "8-K/A": "current_report"}
-TRACKED = set(FORM_EVENTS)
+ROUTINE_FORMS = {"424B2", "424B3"}                         # pricing supplements for structured notes and routine takedowns: they report no event about the company (the worthiness gate already treats them so), and a bank files thousands
+TRACKED = set(FORM_EVENTS) - ROUTINE_FORMS
+# What is never pruned: events that change what a company IS or whether it can be trusted. Everything else is kept only as a recent, capped window (a Form 4 from the index carries no transaction detail, so a long tail of them is storage, not knowledge).
+MATERIAL = (set(ITEM_EVENTS.values()) - {"regulation_fd", "other_events", "shareholder_vote", "mine_safety"}) | {"late_annual_report", "late_quarterly_report", "activist_or_control_stake", "activist_or_control_stake_amended", "shelf_registration"}
+
+
+def prune(conn, eid: str, cap_total: int = 60, cap_noisy: int = 12) -> int:
+    """Keep every material filing event and, of the rest, the newest ``cap_noisy`` of each type, never more than ``cap_total`` rows in all (non-material rows are dropped oldest first). Returns the rows removed."""
+    rows = conn.execute("SELECT id,event_type FROM kb_filing_events WHERE entity_id=? ORDER BY filed DESC, id DESC", (eid,)).fetchall()
+    keep, per = set(), {}
+    for r in rows:
+        if r["event_type"] in MATERIAL:
+            keep.add(r["id"])
+            continue
+        per[r["event_type"]] = per.get(r["event_type"], 0) + 1
+        if per[r["event_type"]] <= cap_noisy:
+            keep.add(r["id"])
+    over = len([r for r in rows if r["id"] in keep]) - int(cap_total)
+    for r in reversed([r for r in rows if r["id"] in keep]):
+        if over <= 0:
+            break
+        if r["event_type"] not in MATERIAL:
+            keep.discard(r["id"])
+            over -= 1
+    drop = [r["id"] for r in rows if r["id"] not in keep]
+    for i in range(0, len(drop), 200):
+        conn.execute("DELETE FROM kb_filing_events WHERE id IN (%s)" % ",".join("?" * len(drop[i:i + 200])), drop[i:i + 200])
+    return len(drop)
 INSIDER_CODES = {"P": ("insider_purchase", "open-market or private purchase", 1), "S": ("insider_sale", "open-market or private sale", -1), "A": ("insider_grant", "grant or award (not a market trade)", 0), "M": ("option_exercise", "exercise of a derivative", 0),
                  "F": ("tax_withholding", "shares withheld to pay tax (not a market sale)", 0), "G": ("gift", "gift", 0), "D": ("disposition_to_issuer", "disposition to the issuer", 0), "C": ("conversion", "conversion of a derivative", 0)}
 
@@ -43,7 +70,7 @@ def _insert(conn, **r) -> bool:
         raise
 
 
-def ingest_submissions(conn, eid: str, ticker: str, sub: dict, now=None, max_age_days: int = 120) -> dict:
+def ingest_submissions(conn, eid: str, ticker: str, sub: dict, now=None, max_age_days: int = 120, rows_per_company: int = 60) -> dict:
     """The structured events a submissions record already states: form types and 8-K item numbers. Nothing is read from a document here."""
     now = now or utcnow()
     now_s = iso(now)
@@ -64,7 +91,8 @@ def ingest_submissions(conn, eid: str, ticker: str, sub: dict, now=None, max_age
                 n += _insert(conn, event_type="current_report", item=None, fact={"basis": "8-K with no item list in the index"}, **dict(base, reliability="low"))
         else:
             n += _insert(conn, event_type=FORM_EVENTS[form], item=None, fact={"basis": "form type %s" % form}, **base)
-    return {"ingested": n}
+    pruned = prune(conn, eid, rows_per_company)
+    return {"ingested": n, "pruned": pruned}
 
 
 def known_events(conn, ticker: str, when, public_time: bool = False, kinds: Optional[List[str]] = None, limit: int = 100) -> List[dict]:

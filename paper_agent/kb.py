@@ -471,7 +471,7 @@ def refresh(conn, cfg: dict, now, fetch_json: Callable, limit: Optional[int] = N
             apply_submissions(conn, eid, sub, iso(now_dt))
             try:
                 from . import filingintel
-                filingintel.ingest_submissions(conn, eid, t, sub, now_dt)
+                filingintel.ingest_submissions(conn, eid, t, sub, now_dt, int(k.get("filing_window_days", 120)), int(k.get("filing_rows_per_company", 60)))
             except Exception as ex:  # noqa: BLE001 - filing events are an extra, never a reason to lose the identity refresh
                 errors.append("%s filings: %s" % (t, type(ex).__name__))
             days = REFRESH_DAYS.get(int(d["priority"] or 6), 90)
@@ -620,6 +620,13 @@ def universe_check(sec_payload: dict, tickers: List[str], watch: Dict[str, dict]
                 why.append("ticker shape rejected by the filter")
         same_cik = sorted(k for k, v in watch.items() if hit and valid_cik(hit[0]["cik"]) and valid_cik(v.get("cik")) == valid_cik(hit[0]["cik"]))
         rows[T] = {"in_sec_file": bool(hit), "sec_row": hit[0] if hit else None, "kept_by_package_filter": T in built, "in_live_universe": T in watch, "other_live_tickers_with_the_same_cik": same_cik, "reasons_the_package_filter_would_drop_it": why}
+    excluded: Dict[str, List[str]] = defaultdict(list)
+    for t_, hits_ in sec.items():
+        ex_ = str(hits_[0]["exchange"])
+        if ex_ not in U.EXCH and re.fullmatch(r"[A-Z]{1,5}(-[A-Z])?", t_):
+            excluded[ex_].append(t_)
+    out["excluded_by_exchange_label"] = {k: {"count": len(v), "sample": sorted(v)[:12]} for k, v in sorted(excluded.items())}
+    out["exchange_note"] = "Rows on these exchanges are NOT in the universe because the filter does not accept the label. Adding one (for example TXSE) changes what the bot may trade; check first that your quote providers carry those names."
     out["tickers"] = rows
     out["live_universe_tickers_absent_from_sec_file"] = sorted(t for t in watch if t not in sec and t.replace(".", "-") not in sec)[:60]
     return out
@@ -644,3 +651,50 @@ def coverage_summary(conn) -> dict:
         n = conn.execute(sql).fetchone()[0]
         rows.append({"category": name, "entities": n, "share_of_all_entities": round(n / total, 4) if total else None, "share_of_operating_companies": round(min(n, op) / op, 4) if op else None})
     return {"active_entities": total, "operating_or_unclassified": op, "categories": rows, "caution": "These are counts of entities with at least one record in each category. A bootstrapped identity is NOT a profile, a financial history or a relationship."}
+
+
+def refresh_facts(conn, cfg: dict, now, fetch_json: Callable, limit: int = 10, budget_s: Optional[float] = None, dry_run: bool = False, sleep: Callable = time.sleep, clock: Callable = time.monotonic) -> dict:
+    """SEC financial facts for the highest-priority OPERATING companies that have none (about 20 requests each, so a handful per run, never the whole universe). Same safety as the submissions refresh:
+    paused on 403/429, bounded by a time budget, and it never raises."""
+    from . import facts, net, kbsnap
+    k = (cfg.get("kb") or {})
+    if not k.get("enabled", True) or int(limit) <= 0:
+        return {"status": "disabled" if not k.get("enabled", True) else "off", "refreshed": 0}
+    until = _backoff_until(conn)
+    if until and until > now and not dry_run:
+        return {"status": "source_backoff", "until": iso(until), "refreshed": 0}
+    rows = [dict(r) for r in conn.execute(
+        "SELECT c.entity_id,c.ticker,e.cik FROM knowledge_coverage c JOIN kb_entities e ON e.entity_id=c.entity_id WHERE e.active=1 AND e.cik IS NOT NULL AND (e.operating IS NULL OR e.operating=1) "
+        "AND c.financial_status IN ('pending','stale','unavailable') AND (c.facts_next_due IS NULL OR c.facts_next_due<=?) ORDER BY c.priority, c.entity_id LIMIT ?", (iso(now), int(limit)))]
+    if dry_run:
+        return {"status": "dry_run", "would_fetch_facts_for": [r["ticker"] for r in rows], "count": len(rows)}
+    t0, budget = clock(), float(budget_s if budget_s is not None else k.get("max_network_seconds", 20))
+    cfg2 = dict(cfg, runtime=dict(cfg.get("runtime") or {}))
+    ok = fail = 0
+    stopped = ""
+    for r in rows:
+        if clock() - t0 > budget:
+            stopped = "network time budget (%.0fs) used" % budget
+            break
+        try:
+            facts.refresh(conn, cfg2, r["ticker"], r["cik"], lambda url, **kw: fetch_json(url, headers=dict(sec_headers(cfg), **(kw.get("headers") or {})), timeout=kw.get("timeout", 20)), now, sleep)
+            kbsnap.financial_snapshot(conn, cfg, r["entity_id"], r["ticker"], now)
+            conn.execute("UPDATE knowledge_coverage SET facts_next_due=? WHERE entity_id=?", (iso(now + dt.timedelta(days=int(k.get("financial_max_age_days", 150)) // 2)), r["entity_id"]))
+            conn.commit()
+            ok += 1
+        except net.FetchError as ex:
+            code = getattr(ex, "code", None)
+            fail += 1
+            if code in (403, 429) or (isinstance(code, int) and code >= 500):
+                wait = float(k.get("retry_delay_hours", 6))
+                conn.execute("INSERT OR REPLACE INTO meta VALUES('kb_sec_backoff_until',?)", (iso(now + dt.timedelta(hours=wait)),))
+                conn.commit()
+                stopped = "SEC answered %s: the source is paused for %.0f hours (a temporary failure, not an error in the bot)" % (code, wait)
+                break
+            conn.execute("UPDATE knowledge_coverage SET facts_next_due=? WHERE entity_id=?", (iso(now + dt.timedelta(days=7)), r["entity_id"]))
+            conn.commit()
+        except Exception:  # noqa: BLE001 - never into the caller
+            fail += 1
+            conn.execute("UPDATE knowledge_coverage SET facts_next_due=? WHERE entity_id=?", (iso(now + dt.timedelta(days=7)), r["entity_id"]))
+            conn.commit()
+    return {"status": "stopped" if stopped else "ok", "refreshed": ok, "failed": fail, "stopped": stopped, "seconds": round(clock() - t0, 2)}

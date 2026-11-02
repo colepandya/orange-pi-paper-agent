@@ -58,6 +58,7 @@ DEFAULTS: Dict[str, Any] = {
         "enabled": True, "relationship_mode": "observe", "expiry_mode": "observe", "materiality_mode": "observe", "state_mode": "observe", "regime_mode": "observe",
         "refresh_companies_per_cycle": 12, "propagate_events_per_cycle": 40, "max_network_seconds": 20, "max_db_seconds": 5, "max_data_age_days": 90, "financial_max_age_days": 150,
         "retry_delay_hours": 6, "failure_backoff_max_hours": 72, "sec_requests_per_second": 5, "max_hops": 3,
+        "filing_window_days": 120, "filing_rows_per_company": 60, "weekly_facts_companies": 60,
     },
     "intelligence": {
         "stale_event_hours": 72, "trade_event_max_age_hours": 24, "thesis_entry_min_probability": 0.70, "thesis_entries_per_day": 12,

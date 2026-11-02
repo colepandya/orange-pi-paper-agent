@@ -102,8 +102,14 @@ def run(args, conn, cfg) -> int:
     if what == "refresh":
         from . import net
         only = [t.strip().upper() for t in args.only.split(",") if t.strip()] or None
-        r = kb.refresh(conn, cfg, now, net.get_json, limit=args.limit, dry_run=args.dry_run, only=only)
+        cfg2 = cfg if args.budget is None else dict(cfg, kb=dict(cfg.get("kb") or {}, max_network_seconds=float(args.budget)))
+        r = kb.refresh(conn, cfg2, now, net.get_json, limit=args.limit, dry_run=args.dry_run, only=only)
         print(_dump(r))
+        if args.facts and r.get("status") != "source_backoff":
+            f = kb.refresh_facts(conn, cfg2, now, net.get_json, limit=args.facts, budget_s=args.budget, dry_run=args.dry_run)
+            print("financial facts:", _dump(f))
+            if f.get("status") not in ("ok", "dry_run", "stopped", "source_backoff", "disabled", "off"):
+                return 1
         return 0 if r.get("status") in ("ok", "dry_run", "stopped", "source_backoff", "disabled") else 1
     if what == "coverage":
         s = kb.coverage_summary(conn)
@@ -152,5 +158,32 @@ def after_universe(conn, cfg: dict, watch: dict, now, fetch_json, sleep=time.sle
         out["refresh"] = kb.refresh(conn, big, now, fetch_json, sleep=sleep)
     except Exception as ex:  # noqa: BLE001
         out.setdefault("errors", []).append("refresh: %s: %s" % (type(ex).__name__, str(ex)[:100]))
+    try:
+        n_facts = int((cfg.get("kb") or {}).get("weekly_facts_companies", 60))
+        if n_facts > 0 and (out.get("refresh") or {}).get("status") != "source_backoff":
+            out["facts"] = kb.refresh_facts(conn, big, now, fetch_json, limit=n_facts, budget_s=900, sleep=sleep)
+    except Exception as ex:  # noqa: BLE001
+        out.setdefault("errors", []).append("facts: %s: %s" % (type(ex).__name__, str(ex)[:100]))
     conn.commit()
     return out
+
+
+READ_ONLY_KB = {"reconcile", "coverage", "unresolved", "provenance", "stale", "universe-report", "universe-check"}
+
+
+def is_read_only(args) -> bool:
+    """Commands that only LOOK: they need no write access to the database, so any user on the machine may run them. Everything that writes (bootstrap, a real refresh, resources, saving an evaluation) belongs to the bot's own user."""
+    if args.cmd == "company":
+        return True
+    if args.cmd == "eval":
+        return not getattr(args, "save", False)
+    what = getattr(args, "what", None)
+    if what in READ_ONLY_KB:
+        return True
+    return what in ("bootstrap", "refresh") and bool(getattr(args, "dry_run", False))
+
+
+def permission_message(args, ex) -> str:
+    cmd = "python3 -m paper_agent %s" % " ".join(a for a in (args.cmd, getattr(args, "what", None) or getattr(args, "ticker", None)) if a)
+    why = ("The bot keeps its database in WAL mode, so even reading it needs the bot's own user (%s)." % str(ex)[:60]) if is_read_only(args) else ("This command writes to the bot's database, which only its own user may do (%s)." % str(ex)[:60])
+    return "%s\nRun it as the bot's own user:\n  sudo -u paperagent env PYTHONPATH=/opt/paper-agent %s" % (why, cmd)

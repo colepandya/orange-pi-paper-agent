@@ -125,7 +125,9 @@ def _label(m: float) -> str:
 
 
 # ---- the canonical record: what STATE the event is in, how NEW it is, how MATERIAL, how many INDEPENDENT sources, and which time horizons it acts over
-STATE_RX = [("denied", DENIAL), ("rumored", RUMOR), ("rejected", re.compile(r"\b(rejects?|rejected|blocks?|blocked|vetoed|turned down)\b", re.I)), ("completed", re.compile(r"\b(completes?|completed|closes?|closed|finali[sz]es?|finali[sz]ed)\b", re.I)),
+_PROPOSAL = r"(?:deal|merger|acquisition|takeover|bid|offer|proposal|plan|request|application|appeal|motion|nomination|bill|measure|contract|licen[sc]e|permit|sale|purchase|buyout|settlement|approval)"
+REJECTION = re.compile(r"(?<!\bto )\b(?:rejects?|rejected|blocks?|blocked|vetoe[sd]?|turns? down|turned down|declines?)\s+(?:(?:the|a|an|its|their|this|that|any)\s+)?(?:[\w$.,'-]+\s+){0,3}?" + _PROPOSAL + r"\b|\b(?:was|were|is|are|been|being|gets?|got)\s+(?:\w+\s+)?(?:rejected|blocked|vetoed|turned down)\b", re.I)   # a REJECTION is a verb applied to a proposal-type object, or its passive: \"the U.S. effort to block China\" rejects nothing
+STATE_RX = [("denied", DENIAL), ("rumored", RUMOR), ("rejected", REJECTION), ("completed", re.compile(r"\b(completes?|completed|closes?|closed|finali[sz]es?|finali[sz]ed)\b", re.I)),
             ("approved", re.compile(r"\b(approves?|approved|clears?|cleared|clearance|green-?lights?|(?:wins?|gets?|receives?|secures?|obtains?) (?:\w+ ){0,2}approval)\b", re.I)), ("pending", re.compile(r"\b(pending|awaiting|subject to (?:regulatory )?approval)\b", re.I)),
             ("agreed", re.compile(r"\b(agrees?|agreed|signs?|signed|definitive agreement)\b", re.I)), ("proposed", re.compile(r"\b(proposes?|proposal|plans? to|offers? to|bids? for|to acquire|to buy)\b", re.I))]
 NOVELTY_RX = [("correction", re.compile(r"\b(correction|corrects?|corrected|amended|amends|restates?|restated|revised|updates? (?:earlier|previous))\b", re.I)),

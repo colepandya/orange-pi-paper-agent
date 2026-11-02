@@ -43,6 +43,8 @@ def main(argv=None) -> int:
     kp.add_argument("--only", default="")
     kp.add_argument("--max-batches", type=int, default=None)
     kp.add_argument("--json", action="store_true")
+    kp.add_argument("--facts", type=int, default=0, help="refresh: also fetch SEC financial facts for this many top-priority operating companies (about 20 requests each)")
+    kp.add_argument("--budget", type=float, default=None, help="refresh: network seconds to allow (default: the kb.max_network_seconds setting)")
     kp.add_argument("--tickers", default="V,NEM,GOOG,BRK-B,TSM,ASML,MA,JPM")
     cop = sub.add_parser("company", help="what the bot knows about one company, and what it does not")
     cop.add_argument("ticker")
@@ -247,7 +249,20 @@ def main(argv=None) -> int:
         return 0
     if args.cmd in ("kb", "company", "eval"):                                     # the company knowledge base and the evaluation: heavy work is run from here, never inside the trading cycle
         from . import kbcli
-        return kbcli.run(args, db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"]), cfg)
+        import sqlite3
+        try:
+            if getattr(args, "what", None) in ("reconcile", "universe-report", "universe-check"):
+                conn = None                                                              # these read the universe file and the SEC, not the database
+            elif kbcli.is_read_only(args) and os.path.exists(DB_PATH):
+                conn = db.connect(DB_PATH, readonly=True)
+            else:
+                conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
+            if conn is not None:
+                conn.execute("SELECT 1 FROM meta LIMIT 1").fetchone()                  # prove the database is readable NOW: a command must never run on a partly unreadable one and quietly degrade
+            return kbcli.run(args, conn, cfg)
+        except (sqlite3.OperationalError, PermissionError) as ex:
+            print(kbcli.permission_message(args, ex))                                  # not a traceback: what to type instead
+            return 2
     if args.cmd == "serve":
         from . import dashboard
         c = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])

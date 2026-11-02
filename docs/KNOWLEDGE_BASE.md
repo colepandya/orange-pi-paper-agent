@@ -24,6 +24,13 @@ Direct company effects are the existing engine's business. First-hop relationshi
 ## Corrections that are NOT behind a switch
 Defects found by evaluating the engine on real stored news are fixed, because hiding a known defect behind a setting would be wrong: plural-verb patterns that could never match (`miss`, `slash`, `launch`), possessives ("Google's") and sentence-final names that hid companies, filings attributed by name words instead of their own CIK, fund and shell names matching on generic words, ALL-CAPS headlines producing fake tickers, recalls classed as regulatory actions, results reports with no stated beat or miss not recognised, a mixed event resolved against its own explicit cue, and a shared **event-worthiness gate** (questions, lists, roundups, commentary, previews, promotion, price recaps, comparisons, law-firm solicitations, routine prospectus supplements, passing mentions). See `EVALUATION.md` and `BUILD45_DECISION_DIFFERENCES.md`. Strategy version moves to S9, which starts a new measurement period.
 
+## Running the commands
+The bot's database is in WAL mode, which needs write access even to read, so run every database command as the bot's own user:
+`PA="sudo -u paperagent env PYTHONPATH=/opt/paper-agent python3 -m paper_agent"` then `$PA kb coverage`. From any other user the commands print this instruction and exit 2. `kb reconcile` and `kb universe-report` need only the universe file.
+
+## Filing events and facts
+Filing events come from the SEC submissions index (form types and 8-K item numbers; nothing is read from a document). Routine note supplements are not stored; material events are never pruned; the rest are a capped recent window (`kb.filing_window_days`, `kb.filing_rows_per_company`). Financial facts are fetched about 20 requests per company, so `kb refresh --facts N` and the weekly job take the highest-priority operating companies first and stop at a time budget.
+
 ## Commands
 ```
 python3 -m paper_agent kb reconcile            # what the universe contains, before anything is ingested

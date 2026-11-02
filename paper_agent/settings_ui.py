@@ -178,7 +178,8 @@ SECTION_META = [
         ("What each part may do", "observe records and measures only; active lets that part affect trades.", ["kb.relationship_mode", "kb.expiry_mode", "kb.materiality_mode", "kb.state_mode", "kb.regime_mode"]),
         ("Relationship reach", "", ["kb.max_hops", "kb.propagate_events_per_cycle"]),
         ("Refreshing from the SEC", "A full refresh of the whole universe is run from the command line, outside the trading cycle.", ["kb.refresh_companies_per_cycle", "kb.sec_requests_per_second", "kb.max_network_seconds", "kb.max_db_seconds", "kb.retry_delay_hours", "kb.failure_backoff_max_hours"]),
-        ("How fresh is fresh", "", ["kb.max_data_age_days", "kb.financial_max_age_days"])]),
+        ("How fresh is fresh", "", ["kb.max_data_age_days", "kb.financial_max_age_days"]),
+        ("Filing events and financial facts", "What the weekly job stores and how much it fetches.", ["kb.filing_window_days", "kb.filing_rows_per_company", "kb.weekly_facts_companies"])]),
     _sec("quotes", "Data & system", "Prices & quotes", "Where prices come from, how fresh they must be, and the simulated cost of trading.", [
         ("Simulated trading cost", "", ["portfolio.slippage_bps"]),
         ("Quote quality", "", ["quotes.min_providers", "quotes.max_deviation", "quotes.entry_max_age_seconds", "quotes.max_age_seconds", "quotes.allow_single_source", "quotes.single_source_max_move_pct", "quotes.probe_minutes"]),

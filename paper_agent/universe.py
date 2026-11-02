@@ -17,13 +17,16 @@ EXCH = {"Nasdaq", "NYSE", "NYSE American", "CBOE", "NYSE Arca", "BATS"}
 def aliases(name: str) -> list:
     base = re.sub(r"[.,]", "", name).strip()
     short = re.sub(r"\s+", " ", SUFFIX.sub("", base)).strip()
+    short = re.sub(r"(?:\s+(?:&|and))+$", "", short).strip()                       # "Deere & Co" -> "Deere", not the cut-off "Deere &"
     out = [base]
     if short and short.lower() != base.lower() and len(short) >= 4:
         out.append(short)
         words = short.split()
         from .entities import GENERIC_FIRST
-        if len(words) > 2 and len(" ".join(words[:2])) >= 6 and words[0].lower() not in GENERIC_FIRST and words[1].lower() not in GENERIC_FIRST:
-            out.append(" ".join(words[:2]))                      # "Goldman Sachs" yes; "Main Street" / "Market Leader" are ordinary phrases: no
+        from . import kbdata
+        operating = kbdata.classify_instrument(name, "")["kind"] == "operating_equity"                      # a fund's first two words are its SPONSOR's name, shared by the whole family
+        if operating and len(words) > 2 and len(" ".join(words[:2])) >= 6 and all(re.fullmatch(r"[A-Za-z][A-Za-z'-]*", w) for w in words[:2]) and words[0].lower() not in GENERIC_FIRST and words[1].lower() not in GENERIC_FIRST:
+            out.append(" ".join(words[:2]))                      # "Cohen &" is a cut-off name, not an alias: both words must be words                      # "Goldman Sachs" yes; "Main Street" / "Market Leader" are ordinary phrases: no
     return list(dict.fromkeys(out))
 
 

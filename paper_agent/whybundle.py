@@ -130,7 +130,7 @@ def case_file(conn, cfg: dict, ticker: Optional[str] = None, decision_id: Option
     rel_rows, impacts = [], []
     if eid and _has(conn, "kb_relationships"):
         for nb in kbrel.neighbours(conn, eid, when, cap=14):
-            rel_rows.append([kbrel._ticker(conn, nb["neighbour"]), nb["role"].replace("_", " "), "%.2f" % (nb.get("strength") or 0), nb.get("mechanism") or "", "%s, known since %s" % (nb.get("source"), (nb.get("first_known") or "?")[:10])])
+            rel_rows.append([kbrel._ticker(conn, nb["neighbour"], (nb.get("mechanism") or "") + " " + (nb.get("evidence") or "")), nb["role"].replace("_", " "), "%.2f" % (nb.get("strength") or 0), nb.get("mechanism") or "", "%s, known since %s" % (nb.get("source"), (nb.get("first_known") or "?")[:10])])
         if ev and _has(conn, "kb_derived_impacts"):
             impacts = [dict(r) for r in conn.execute("SELECT * FROM kb_derived_impacts WHERE event_id=? ORDER BY hops, id LIMIT 24", (ev["id"],))]
     if rel_rows:

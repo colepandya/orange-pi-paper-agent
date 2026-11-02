@@ -16,7 +16,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 
 from .timeutil import iso, utcnow
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 LEGACY = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -230,7 +230,7 @@ CREATE TABLE IF NOT EXISTS intervention_outcomes(intervention_id INTEGER PRIMARY
 CREATE TABLE IF NOT EXISTS evaluation_labels(case_id TEXT PRIMARY KEY,stratum TEXT,event_uid TEXT,label_json TEXT,labeler TEXT,labeled_at TEXT,dataset_version TEXT);
 CREATE TABLE IF NOT EXISTS evaluation_results(id INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT,dataset_version TEXT,engine_version TEXT,metric TEXT,value REAL,n INTEGER,detail_json TEXT,created TEXT);
 CREATE TABLE IF NOT EXISTS knowledge_refresh_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT,started TEXT,finished TEXT,status TEXT,params_json TEXT,processed INTEGER DEFAULT 0,failed INTEGER DEFAULT 0,cursor TEXT,notes TEXT,resumed_from INTEGER);
-CREATE TABLE IF NOT EXISTS knowledge_coverage(entity_id TEXT PRIMARY KEY,ticker TEXT,layer TEXT,identity_status TEXT,profile_status TEXT,financial_status TEXT,market_status TEXT,exposure_status TEXT,relationship_status TEXT,filings_status TEXT,completeness REAL,priority INTEGER DEFAULT 6,next_due TEXT,last_attempt TEXT,last_ok TEXT,failures INTEGER DEFAULT 0,last_error TEXT,updated TEXT);
+CREATE TABLE IF NOT EXISTS knowledge_coverage(entity_id TEXT PRIMARY KEY,ticker TEXT,layer TEXT,identity_status TEXT,profile_status TEXT,financial_status TEXT,market_status TEXT,exposure_status TEXT,relationship_status TEXT,filings_status TEXT,completeness REAL,priority INTEGER DEFAULT 6,next_due TEXT,last_attempt TEXT,last_ok TEXT,failures INTEGER DEFAULT 0,last_error TEXT,updated TEXT,facts_next_due TEXT);
 CREATE INDEX IF NOT EXISTS ix_cov_due ON knowledge_coverage(priority,next_due);
 CREATE INDEX IF NOT EXISTS ix_cov_ticker ON knowledge_coverage(ticker);
 """

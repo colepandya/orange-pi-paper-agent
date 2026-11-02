@@ -16,6 +16,7 @@ Open the dashboard -> **Settings**. There is **no password by default** (it is a
 | Connections | News & data feeds / API keys | Enable/disable each feed and its polling interval; API keys (masked; paste to replace; tick to remove) |
 | Operations | Services & timers / Checks & tests / Change history & reset | Restart services, run a cycle, update or backup now; health checks; what changed, when and by whom; reset to defaults |
 | Retired | Language-model analyst | The old LLM settings, kept so nothing is lost; the bot no longer calls a language model, so they have no effect on trading |
+| Intelligence | Company knowledge | The company knowledge base (Build 45/46): on/off, what each part may do (every part starts on **observe**: it records and measures and changes no trade), relationship reach, SEC refresh limits and pacing, how fresh is fresh, filing retention, weekly facts |
 
 Every value is validated (type, range, and cross-rules such as *max position <= max per company* and *max invested + min cash <= 100%*) before it is saved.
 
@@ -38,3 +39,18 @@ are stored, so untouched settings keep following the defaults of new releases. A
 
 ## Recovery
 * Forgot a password you switched on: `sudo rm /var/lib/paper-agent/admin.json` (then visit Settings and create a new one), or turn it off entirely with `sudo rm /var/lib/paper-agent/settings.json` (this resets all dashboard-made settings; keys are kept).
+
+
+## Company knowledge (Build 45/46)
+Every mode below starts on **observe**. Observe records and measures what a part WOULD do; only `kb.relationship_mode = active` lets first-hop relationship effects affect a trade (materiality, state and regime have no active mode until they have been measured).
+
+| Setting | Default | Meaning |
+|---|---|---|
+| kb.enabled | on | Switch the whole knowledge layer off (the bot then behaves as without it) |
+| kb.relationship_mode / expiry_mode / materiality_mode / state_mode / regime_mode | observe | off, observe, (active only where implemented) |
+| kb.max_hops, kb.propagate_events_per_cycle | 3, 40 | How far relationship effects are worked out; events processed per cycle |
+| kb.refresh_companies_per_cycle, kb.sec_requests_per_second, kb.max_network_seconds, kb.max_db_seconds | 12, 5, 20, 5 | The per-cycle SEC refresh budget; a cycle is never held up by it |
+| kb.retry_delay_hours, kb.failure_backoff_max_hours | 6, 72 | Pause after a refusal (403/429) or a failure |
+| kb.max_data_age_days, kb.financial_max_age_days | 90, 150 | After this, a fact is marked stale, never silently used as current |
+| kb.filing_window_days, kb.filing_rows_per_company | 120, 60 | Filing events kept (material ones are never pruned) |
+| kb.weekly_facts_companies | 60 | SEC financial facts fetched in the weekly job (0 = off) |

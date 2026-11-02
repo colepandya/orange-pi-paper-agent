@@ -192,6 +192,9 @@ FIELDS: List[Field] = [
     F("kb.failure_backoff_max_hours", "Longest wait after repeated failures (hours)", "int", "Company knowledge", 6, 720, "A 403 or 429 from the SEC pauses the source for this long at most (a temporary failure, never an error in the bot)."),
     F("kb.max_data_age_days", "Company identity data is stale after (days)", "int", "Company knowledge", 7, 365, "How long a successful refresh of a low-priority company stays fresh."),
     F("kb.financial_max_age_days", "Financial figures are stale after (days)", "int", "Company knowledge", 30, 400, "A figure older than this is marked stale, never silently used as current."),
+    F("kb.filing_window_days", "Keep filing events for the last (days)", "int", "Company knowledge", 30, 400, "Older filings are not stored as events."),
+    F("kb.filing_rows_per_company", "Filing events kept per company (at most)", "int", "Company knowledge", 10, 500, "Material events (auditor change, delisting, bankruptcy, late reports ...) are never pruned; routine ones (insider forms, foreign reports) are kept as a recent window."),
+    F("kb.weekly_facts_companies", "SEC financial facts fetched in the weekly job (companies)", "int", "Company knowledge", 0, 300, "Highest-priority operating companies first; each takes about 20 requests. 0 turns it off."),
     F("kb.max_hops", "Relationship hops considered", "int", "Company knowledge", 1, 3, "First-hop effects can influence trading (when active); second-hop are research ideas only; third-hop are explanation only."),
 ]
 BY_NAME = {f.name: f for f in FIELDS}

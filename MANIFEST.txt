@@ -13,6 +13,7 @@ config/sources.json
 docs/ARTICLE_READER.md
 docs/BUGS_FIXED.md
 docs/BUILD45_DECISION_DIFFERENCES.md
+docs/BUILD46_DECISION_DIFFERENCES.md
 docs/CLEANUP.md
 docs/DATABASE.md
 docs/EVALUATION.md
@@ -164,6 +165,7 @@ tests/test_build42.py
 tests/test_build42b.py
 tests/test_build43.py
 tests/test_build43_scope.py
+tests/test_build46.py
 tests/test_cleanup.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py

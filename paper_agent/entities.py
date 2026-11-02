@@ -111,6 +111,7 @@ CLEAN_TAIL = re.compile(r"\b(inc|incorporated|corp|corporation|co|company|ltd|li
 
 def derive_aliases(name: str) -> Tuple[str, List[str], str]:
     """-> (cleaned legal name, [multi-word aliases], first word). 'AMAZON COM INC' -> ('AMAZON', [], 'amazon');  'Ford Motor Co' -> ('Ford Motor', [], 'ford')."""
+    partnership = bool(re.match(r"\s*[A-Za-z'-]+\s+(?:&|and)\s+[A-Za-z]", name or ""))     # "Cohen & Steers", "Smith & Wesson": the first word is a partner's surname, not the company
     n = re.sub(r"/[A-Za-z]{1,4}/?", " ", name or "")           # jurisdiction markers: /DE/ /NEW
     n = re.sub(r"[.,&]", " ", n)
     n = re.sub(r"\s+", " ", CLEAN_TAIL.sub(" ", n)).strip()
@@ -118,7 +119,7 @@ def derive_aliases(name: str) -> Tuple[str, List[str], str]:
     multi = []
     if len(words) > 2 and words[0].lower() not in GENERIC_FIRST and words[1].lower() not in {"of", "the", "and", "for", "de", "la"} and len(" ".join(words[:2])) >= 7:
         multi = [" ".join(words[:2])]                           # 'Goldman Sachs' yes; 'Bank Of' / 'International Business' no
-    return n, multi, (words[0].lower() if words else "")
+    return n, multi, ("" if partnership else (words[0].lower() if words else ""))
 
 
 _CORP = re.compile(r"\b(incorporated|inc|corporation|corp|company|co|ltd|limited|llc|lp|plc|trust)\b")
@@ -129,6 +130,31 @@ def _core_name(name: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9& ]+", " ", _CORP.sub(" ", norm(name or "")))).strip()
 
 
+_LEGAL_FORMS = {"llc", "l.l.c", "lp", "l.p", "llp", "inc", "corp", "corporation", "ltd", "limited", "co", "company", "gmbh", "plc", "ag", "sa", "nv", "pllc"}
+_VENUES = {"nasdaq", "nyse", "cboe", "cme", "dow", "russell", "s&p"}                       # exchanges and indices: the words appear as VENUES far more often than as the company that runs them
+_VENUE_CONTEXT = re.compile(r"\b(?:on|in|at|from|via|listed on|trading on)\s+(?:the\s+)?(?:nasdaq|nyse|cboe|cme)\b|\b(?:nasdaq|nyse|dow|russell|s&p)[- ](?:listed|composite|100|500|2000|stock|exchange|market|index|futures|jones)\b|\b(?:the\s+)(?:nasdaq|nyse|dow|s&p)\b|\b(?:nasdaq|nyse|dow|russell|s&p)(?:\s+\d+)?\s+(?:drops?|falls?|rises?|gains?|slides?|jumps?|climbs?|sinks?|closes?|ends?|opens?|hits?|tumbles?|surges?|slips?|rall(?:y|ies)|fell|rose|dropped|gained|sank|slid)\b", re.I)
+
+
+def _words_norm(s: str) -> List[str]:
+    return [("and" if w == "&" else w) for w in re.findall(r"[a-z0-9&]+", (s or "").lower().replace("&", " & ")) if w not in {"inc", "corp", "corporation", "co", "company", "ltd", "limited", "llc", "lp", "plc", "trust"}]
+
+
+def legal_name_spans(title: str) -> List[List[str]]:
+    """Full names a headline STATES, up to a legal-form word: 'Noble Supply & Logistics, LLC' -> ['noble', 'supply', 'and', 'logistics'] (two or more name words only)."""
+    toks = re.findall(r"[A-Za-z0-9&.'’,-]+", title or "")
+    out: List[List[str]] = []
+    for i, tk in enumerate(toks):
+        if i and tk.strip(".,").lower() in _LEGAL_FORMS:
+            j = i
+            while j > 0 and i - j < 6 and (toks[j - 1][:1].isupper() or toks[j - 1].strip(",") in ("&", "and", "of")):
+                j -= 1
+            words = _words_norm(" ".join(toks[j:i]))
+            if len(words) >= 2:
+                out.append(words)
+    return out
+
+
+_DANGLING = {"&", "and", "of", "for", "the", "de", "del", "la", "le", "von", "van", "y", "e", "-"}
 _FILING_HEADER = re.compile(r"^(?:[0-9A-Z/\-]{1,10})\s+-\s+(.+?)\s+\((\d{10})\)\s+\((?:Filer|Issuer|Reporting|Subject|Filed by|Filed for)\)")
 _FINAL_DOT = re.compile(r"([a-z]{3,})\.(?=\s|$)")
 _POSSESSIVE = re.compile(r"(\w)'s\b")
@@ -151,6 +177,9 @@ class Universe:
         first_counts = Counter(d[2] for d in derived.values() if d[2])
 
         def add(phrase: str, ticker: str, conf: float, multi_conf: Optional[float] = None) -> None:
+            raw_tokens = (phrase or "").strip().lower().split()
+            if raw_tokens and (raw_tokens[-1] in _DANGLING or raw_tokens[0] in _DANGLING):
+                return                                              # a cut-off name ("Cohen &", "Bank of") names no company: judged on the RAW phrase, before "&" is stripped
             p = norm(phrase)
             if len(p) < 3:
                 return
@@ -158,6 +187,8 @@ class Universe:
             if not toks:
                 return
             single = len(p.split()) == 1
+            if p.split()[-1] in _DANGLING or p.split()[0] in _DANGLING:
+                return                                              # a cut-off name ("cohen &", "bank of"): it names no company
             core = [w.strip(".,'") for w in p.split() if w.strip(".,'") not in TAIL_WORDS]
             if len(core) <= 1 and (not core or core[0] in GENERIC_FIRST):
                 return                                              # ONE generic word plus legal suffixes ("Bancorp, Inc.") can only be matched by ticker / exchange tag / CIK; multi-word names like "Main Street Capital" are fine
@@ -166,6 +197,14 @@ class Universe:
             if not any(e[0] == p and e[1] == ticker for e in self.index.setdefault(anchor, [])):
                 self.index[anchor].append((p, ticker, single, c))
 
+        self.issuer: Dict[str, object] = {}
+        self.core: Dict[str, str] = {}
+        for t, meta in self.watch.items():
+            try:
+                self.issuer[t] = int(meta.get("cik")) if meta.get("cik") and int(meta.get("cik")) > 0 else t
+            except (TypeError, ValueError, OverflowError):
+                self.issuer[t] = t
+            self.core[t] = _core_name(meta.get("name", ""))
         for t, meta in self.watch.items():
             cik = meta.get("cik")
             if cik:
@@ -270,12 +309,49 @@ class Universe:
                         add(t, 0.55, "name_ambiguous")   # recorded as evidence but below the trading confidence floor
                         continue
                 named.append((t, base, "brand" if phrase in BRANDS else ("name" if not single else "name_single"), phrase))
+        if len(named) > 1:                                             # one phrase, several DIFFERENT companies ("Brookfield Renewable": two issuers; "Banco Santander": several): only an issuer whose own legal name IS the phrase keeps it
+            by_ph: Dict[str, set] = {}
+            for (t_, _c, _h, ph_) in named:
+                by_ph.setdefault(ph_, set()).add(t_)
+            drop = set()
+            for ph_, ts_ in by_ph.items():
+                if len({self.issuer.get(x, x) for x in ts_}) <= 1:
+                    continue                                          # share classes of one issuer are one company
+                own = {x for x in ts_ if self.core.get(x) == ph_}
+                keep = own if len({self.issuer.get(x, x) for x in own}) == 1 else set()
+                drop |= {(x, ph_) for x in ts_ if x not in keep}
+            if drop:
+                kept = []
+                for item in named:
+                    if (item[0], item[3]) in drop:
+                        add(item[0], 0.45, "name_ambiguous")          # recorded as evidence, below the trading floor
+                    else:
+                        kept.append(item)
+                named = kept
+        spans = legal_name_spans(title or "")
+        if named and (spans or any(ph in _VENUES for (_t, _c, _h, ph) in named)):
+            venue_ctx = bool(_VENUE_CONTEXT.search(title or ""))
+            kept = []
+            for item in named:
+                t_, c_, h_, ph_ = item
+                if h_ == "name_single" and spans:
+                    ew = _words_norm(self.core.get(t_, ""))
+                    pw = ph_.split()
+                    if any(set(pw) <= set(sp) and sp != ew and sp[-len(ew):] != ew for sp in spans if ew):
+                        add(t_, 0.45, "other_legal_entity")                  # the headline STATES a different full name ("Noble Supply & Logistics, LLC" is not Noble Corp)
+                        continue
+                if ph_ in _VENUES and (venue_ctx or (" " + ph_ + " ") not in title_n):
+                    continue                                                  # "fell on the Nasdaq": a venue, not the company that runs it
+                kept.append(item)
+            named = kept
         in_title = [(t, c, h, ph) for (t, c, h, ph) in named if (" " + ph + " ") in title_n]
         first_pos = min((title_n.find(" " + ph + " ") for (_t, _c, _h, ph) in in_title), default=0)
         for (t, c, h, ph) in named:
             pos = title_n.find(" " + ph + " ")
             if in_title and pos < 0:
                 c *= BODY_ONLY                                         # named only in the body while the headline is about someone else
+            elif not in_title and h == "name_single" and low.split("|", 1)[0].count(" " + ph + " ") <= 1:
+                c *= BODY_ONLY                                         # the headline names NO company and a one-word name appears once in the body: a passing mention, not the subject
             elif in_title and pos > first_pos and (re.findall(r"[a-z0-9']+", title_n[:pos]) or [""])[-1] in COUNTERPARTY_WORDS:
                 c *= COUNTERPARTY                                      # "deal WITH Microsoft": the counterparty is not the subject
             add(t, c, h)
