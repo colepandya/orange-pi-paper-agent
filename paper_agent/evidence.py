@@ -5,7 +5,7 @@ import datetime as dt
 import json
 from typing import Callable, Dict, List, Optional
 
-from . import candqueue, db, nlp
+from . import eventworth, candqueue, db, nlp
 from .timeutil import UTC, iso, parse_ts, utcnow
 
 RULE_MIN_DIR = 0.12
@@ -190,6 +190,10 @@ def build_event_candidates(universe, a: dict, title: str, source: str, news_uid:
     """The ONE place that turns a classified event into trade candidates (shared by the live pipeline and `recover`). Returns (gate, [candidates])."""
     gate = candidate_gate(a, tickers, conf, novelty, age_h, icfg)
     out: List[dict] = []
+    if gate is None:
+        w_ = eventworth.assess(title, "", a["event_type"], len(tickers), a["event_type"] not in ("general_news", "other"))      # identifying the company does not make the story an event
+        if not w_["worthy"]:
+            gate = "not_an_event: %s" % w_["kind"]
     if gate is None:
         for t in tickers:
             if conf.get(t, 0) >= 0.6 and t not in (blocked or set()):

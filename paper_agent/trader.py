@@ -9,6 +9,7 @@ import math
 import os
 from typing import Callable, Dict, List, Optional
 
+from . import kbmeasure
 from . import options, reasoning, pretrade, candqueue, company, db, ev, graph, learning, marketdata as md, opportunity, portfolio as pf, quotes, redteam, revisions, sizing, thesis as thesis_engine
 from .timeutil import market_hours_between, add_trading_days, iso, market_state, minutes_since_open, parse_ts, utcnow
 
@@ -221,6 +222,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
             reason["redteam"] = {"net_conviction": rt["net_conviction"], "valuation": rt["valuation_view"], "fatal": rt["fatal_flaw"], "mode": influence, "gate": {k: g[k] for k in ("ok", "size_mult", "reasons")}, "would": g["would"],
                                  "bear": [b["point"] for b in rt["bear_points"][:3]], "bull": [b["point"] for b in rt["bull_points"][:2]]}
             conn.execute("UPDATE redteam_reviews SET gate=? WHERE decision_id=?", (json.dumps(g), did))
+            kbmeasure.record(conn, cfg, did, c, f, sz["pct"] * 100.0, (sz["pct"] * 100.0 * g["size_mult"]) if g["ok"] else 0.0, rt, g, "blocked" if not g["ok"] else ("reduced" if g["size_mult"] < 1.0 else "allowed"), now)      # measurement only: never raises
             if not g["ok"]:
                 return finish("RISK_REJECTED", "red team: " + "; ".join(g["reasons"]))
             size_mult = g["size_mult"]

@@ -54,6 +54,11 @@ DEFAULTS: Dict[str, Any] = {
     "prices": {"refresh_closed_minutes": 10, "refresh_open_minutes": 5, "max_symbols": 25, "extended_hours": True},
     "schedule": {"cycle_minutes": 10, "guard_minutes": 2, "update_hours": 3},      # applied to systemd timers by the control worker
     "source_overrides": {},                                                       # {"<source id>": {"enabled": bool, "interval": seconds}}
+    "kb": {                                                                          # company knowledge base (build 45). Every mode starts in observe: it records and measures, and changes nothing the bot does. 
+        "enabled": True, "relationship_mode": "observe", "expiry_mode": "observe", "materiality_mode": "observe", "state_mode": "observe", "regime_mode": "observe",
+        "refresh_companies_per_cycle": 12, "propagate_events_per_cycle": 40, "max_network_seconds": 20, "max_db_seconds": 5, "max_data_age_days": 90, "financial_max_age_days": 150,
+        "retry_delay_hours": 6, "failure_backoff_max_hours": 72, "sec_requests_per_second": 5, "max_hops": 3,
+    },
     "intelligence": {
         "stale_event_hours": 72, "trade_event_max_age_hours": 24, "thesis_entry_min_probability": 0.70, "thesis_entries_per_day": 12,
         "allow_thesis_entries": True, "contradiction_hours": 6, "company_refresh_hours": 72,

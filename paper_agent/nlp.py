@@ -90,22 +90,24 @@ EVENT_TYPES: List[EventType] = [
     # ---- company scope
     _t("bankruptcy_distress", "company", -1, .90, 365, .75, ["bankruptcy", "chapter 11", "going concern", "delisting notice", "defaults on", "debt default", "insolvency"], 15),
     _t("guidance_raise", "company", +1, .60, 30, .70, [r"(?:raises?|raised|raising|lifts?|lifted|boosts?|boosted|hikes?|hiked|increases?|increased|upgrades?)\s+(?:(?!capex|capital|spending|costs?|expenses?)[a-z0-9$%.'+/]+\s+){0,5}?(?:guidance|outlook|forecasts?|targets?|projections?|view)", r"guides?\s+(?:[a-z0-9$%.'+/]+\s+){0,4}?(?:above|higher|ahead)", r"(?:guidance|outlook|forecast)\s+(?:raised|lifted|boosted)", r"raises? (its )?(full.year |annual |quarterly )?(guidance|outlook|forecast)", r"lifts? (its )?(full.year )?(guidance|outlook|forecast)", r"boosts? (its )?(full.year )?(guidance|outlook)", "raised guidance", "increases outlook"], 8),
-    _t("guidance_cut", "company", -1, .65, 30, .70, [r"(?:cuts?|lowers?|lowered|slashes?|trims?|reduces?|reduced|downgrades?|withdraws?|suspends?)\s+(?:[a-z0-9$%.'+/]+\s+){0,5}?(?:guidance|outlook|forecasts?|targets?|projections?)", r"warn(?:s|ed|ing)?\b", r"guides?\s+(?:[a-z0-9$%.'+/]+\s+){0,4}?(?:below|lower|weaker)", r"forecasts?\s+(?:[a-z0-9$%.'+/]+\s+){0,5}?below\s+(?:estimates|expectations)", r"cuts? (its )?(full.year |annual )?(guidance|outlook|forecast)", r"lowers? (its )?(full.year )?(guidance|outlook|forecast)", "profit warning", "revenue warning", "withdraws guidance", "slashes outlook"], 8),
-    _t("earnings_beat", "company", +1, .55, 30, .70, [r"(?:beats?|beating|tops?|topped|surpass\w*|exceed\w*|crush\w*|smash\w*|outpac\w*)\s+(?:[a-z0-9$%.'+/]+\s+){0,4}?(?:estimates?|expectations?|forecasts?|consensus|views?|projections?|analysts?)", r"(?:above|better than|ahead of|stronger than)\s+(?:[a-z0-9$%.'+/]+\s+){0,3}?(?:estimates?|expectations?|forecasts?|consensus)", r"(?:earnings|profit|revenue|sales)\s+(?:jump\w*|surge\w*|soar\w*)", r"beats? (analyst |wall street )?(estimates|expectations|forecasts|consensus)", r"tops? (analyst |wall street )?(estimates|expectations|forecasts)", r"(earnings|profit|revenue|sales) (beat|beats|topped|surpass\w*|exceed\w*)", "better than expected", "above expectations", "record revenue", "record quarterly"], 8),
-    _t("earnings_miss", "company", -1, .55, 30, .70, [r"(?:misses?|missed|missing|lags?|lagged|trails?|disappoints?|disappointed)\s+(?:[a-z0-9$%.'+/]+\s+){0,4}?(?:estimates?|expectations?|forecasts?|consensus|views?|projections?|analysts?)", r"(?:below|worse than|weaker than|short of)\s+(?:[a-z0-9$%.'+/]+\s+){0,3}?(?:estimates?|expectations?|forecasts?|consensus)", r"(?:earnings|profit|revenue|sales)\s+(?:slump\w*|plunge\w*|tumble\w*|sink\w*)", r"misses? (analyst |wall street )?(estimates|expectations|forecasts|consensus)", r"falls? short of (estimates|expectations|forecasts)", r"(earnings|profit|revenue|sales) (miss|missed|fell short|disappoint\w*)", "worse than expected", "below expectations", "weaker than expected"], 8),
-    _t("regulatory_approval", "company", +1, .70, 365, .65, [r"fda (approves|approval|clears|clearance|grants|authorization)", "receives approval", "regulatory approval", "marketing authorization", r"(approved|cleared) by (the )?(fda|ema|sec|ftc|doj|cfius)", "approval granted", "510(k) clearance", "breakthrough designation"], 12),
-    _t("regulatory_action", "company", -1, .65, 90, .60, [r"recall(?:s|ed|ing)?\b", r"(?:faces?|under|opens?|launches?|hit with|slapped with)\s+(?:[a-z0-9$%.'+/]+\s+){0,3}?(?:probe|investigation|lawsuit|inquiry|subpoena|fine|penalty|charges)", r"(?:fined|sued|charged)\b", "complete response letter", "warning letter", "fda rejects", "recall", "antitrust", "subpoena", "sec charges", "doj probe", "investigation into", "probe into", "fined", "consent decree", "class i recall", "clinical hold", "trial halted", "export ban", "banned from"], 10),
-    _t("contract_win", "company", +1, .50, 180, .60, [r"(?:wins?|won|awarded|secures?|lands?|receives?|bags?|signs?|signed|inks?|clinch\w*|nabs?|scores?)\s+(?:[a-z0-9$%.'+/]+\s+){0,6}?(?:contracts?|orders?|awards?|deals?|agreements?|task orders?)", r"(wins?|won|awarded|secures?|lands?|receives?|bags?)\s+(?:[\w$.,%-]+\s+){0,6}?(contract|order|award|task order)", "contract award", "awarded a contract", "task order", "multi-year agreement", "supply agreement", "selected by", "selected to", "purchase order", "framework agreement"], 12),
+    _t("guidance_cut", "company", -1, .65, 30, .70, [r"(?:cuts?|lowers?|lowered|slash(?:es)?|trims?|reduces?|reduced|downgrades?|withdraws?|suspends?)\s+(?:[a-z0-9$%.'+/]+\s+){0,5}?(?:guidance|outlook|forecasts?|targets?|projections?)", r"warn(?:s|ed|ing)?\b", r"guides?\s+(?:[a-z0-9$%.'+/]+\s+){0,4}?(?:below|lower|weaker)", r"forecasts?\s+(?:[a-z0-9$%.'+/]+\s+){0,5}?below\s+(?:estimates|expectations)", r"cuts? (its )?(full.year |annual )?(guidance|outlook|forecast)", r"lowers? (its )?(full.year )?(guidance|outlook|forecast)", "profit warning", "revenue warning", "withdraws guidance", "slashes outlook"], 8),
+    _t("earnings_beat", "company", +1, .55, 30, .70, [r"(?:beats?|beating|tops?|topped|surpass\w*|exceed\w*|crush\w*|smash\w*|outpac\w*)\s+(?:[a-z0-9$%.'+/]+\s+){0,4}?(?:estimates?|expectations?|forecasts?|consensus|views?|projections?|analysts?)", r"(?:above|better than|ahead of|stronger than)\s+(?:[a-z0-9$%.'+/]+\s+){0,3}?(?:estimates?|expectations?|forecasts?|consensus)", r"(?:earnings|profit|revenue|sales)\s+(?:jump\w*|surge\w*|soar\w*)", r"beats? (analyst |wall street )?(estimates|expectations|forecasts|consensus)", r"tops? (analyst |wall street )?(estimates|expectations|forecasts)", r"(earnings|profit|revenue|sales) (beat|beats|topped|surpass\w*|exceed\w*)", "better than expected", "above expectations", "record revenue", "record quarterly", r"(?:stronger|higher|faster|better|record|surging|robust)\s+(?:[a-z]+\s+){0,2}?(?:sales|revenues?|profits?|earnings|margins?|demand)\s+(?:lift|boost|drive|propel|send|power)", r"surprises? with"], 8),
+    _t("earnings_miss", "company", -1, .55, 30, .70, [r"(?:miss(?:es)?|missed|missing|lags?|lagged|trails?|disappoints?|disappointed)\s+(?:[a-z0-9$%.'+/]+\s+){0,4}?(?:estimates?|expectations?|forecasts?|consensus|views?|projections?|analysts?)", r"(?:below|worse than|weaker than|short of)\s+(?:[a-z0-9$%.'+/]+\s+){0,3}?(?:estimates?|expectations?|forecasts?|consensus)", r"(?:earnings|profit|revenue|sales)\s+(?:slump\w*|plunge\w*|tumble\w*|sink\w*)", r"miss(?:es)? (analyst |wall street )?(estimates|expectations|forecasts|consensus)", r"falls? short of (estimates|expectations|forecasts)", r"(earnings|profit|revenue|sales) (miss|missed|fell short|disappoint\w*)", "worse than expected", "below expectations", "weaker than expected", r"(?:weaker|lower|softer|slower|disappointing|declining|falling|shrinking|worse)\s+(?:[a-z]+\s+){0,2}?(?:sales|revenues?|profits?|earnings|margins?|demand)", r"(?:disappoints?|disappointing|stumbles?|falters?)\s+(?:[a-z0-9$%.'+/]+\s+){0,4}?(?:quarter|results|sales|earnings)"], 8),
+    _t("earnings_report", "company", 0, .25, 10, .50, [r"(?:in line with|inline with|roughly in line with|meets?|met|matches|matched)\s+(?:[a-z0-9$%.'+/]+\s+){0,4}?(?:estimates?|expectations?|forecasts?|consensus)", r"(?:reports?|posts?|delivers?|announces?)\s+(?:[a-z0-9$%.'+/]+\s+){0,7}?in line"], 6),
+    _t("recall", "company", -1, .50, 30, .60, [r"recall(?:s|ed|ing)?\b"], 8),                    # a company withdrawing its own product: an OPERATIONS event, even though the notice comes from a regulator
+    _t("regulatory_approval", "company", +1, .70, 365, .65, [r"fda (approves|approval|clears|clearance|grants|authorization)", "receives approval", "regulatory approval", "marketing authorization", r"(approved|cleared) by (the )?(fda|ema|sec|ftc|doj|cfius)", "approval granted", "510(k) clearance", "breakthrough designation", r"(?:clears?|approves?|greenlights?|okays?)\s+(?:[a-z0-9$%.'+/]+\s+){0,4}?(?:deal|merger|acquisition|takeover|purchase|bid)"], 12),
+    _t("regulatory_action", "company", -1, .65, 90, .60, [r"(?:faces?|under|opens?|launch(?:es)?|hit with|slapped with)\s+(?:[a-z0-9$%.'+/]+\s+){0,3}?(?:probe|investigation|lawsuit|inquiry|subpoena|fine|penalty|charges)", r"(?:fined|sued|charged)\b", "complete response letter", "warning letter", "fda rejects", "antitrust", "subpoena", "sec charges", "doj probe", "investigation into", "probe into", "fined", "consent decree", "class i recall", "clinical hold", "trial halted", "export ban", "banned from", r"(?:commission|regulators?|authority|agency|watchdog|ministry|board|sec|ftc|doj|fcc|fda|faa|finra|cfpb|ofac|cma|eu|european commission|competition)\s+(?:[a-z0-9$%.'+/]+\s+){0,2}?fines\b", r"(?:blocks?|rejects?|sues|charges)\s+(?:[a-z0-9$%.'+/]+\s+){0,4}?(?:deal|merger|acquisition|takeover|purchase|(?:takeover|buyout|acquisition) bid)"], 10),
+    _t("contract_win", "company", +1, .50, 180, .60, [r"(?:wins?|won|awarded|secures?|lands?|receives?|bags?|signs?|signed|inks?|clinch\w*|nabs?|scores?)\s+(?:[a-z0-9$%.'+/]+\s+){0,6}?(?:contracts?|orders?|awards?|deals?|agreements?|task orders?)", r"(wins?|won|awarded|secures?|lands?|receives?|bags?)\s+(?:[\w$.,%-]+\s+){0,6}?(contract|order|award|task order)", "contract award", "awarded a contract", "task order", "multi-year agreement", "supply agreement", "selected by", "selected to", "purchase order", "framework agreement", r"(?:gains?|jumps?|surges?|soars?|rises?|climbs?|rall(?:y|ies))\s+\d+(?:\.\d+)?%\s+on\s+(?:[a-z0-9$%.'+/]+\s+){0,6}?(?:deal|contract|order|agreement|partnership)(?![a-z])"], 12),
     _t("contract_loss", "company", -1, .45, 180, .55, ["loses contract", "lost the contract", "contract terminated", "contract termination", "contract cancelled", "contract canceled", "protest sustained", "order cancelled", "order canceled"], 10),
-    _t("merger_acquisition", "company", +0.4, .70, 60, .55, [r"(?:to buy|buys|bought|to purchase|purchases|to take over|takes over|bid for|offers to buy|to snap up|completes\s+(?:the\s+)?(?:acquisition|purchase|takeover)|closes\s+(?:the\s+)?(?:acquisition|purchase))\b", "to acquire", "agrees to buy", "acquisition", "acquires", "takeover", "buyout", "tender offer", "merger agreement", "to be acquired", "all-cash deal", "go-private", "merger"], 20),
-    _t("capital_raise", "company", -1, .45, 30, .65, ["public offering", "secondary offering", "convertible notes", "convertible senior notes", "at-the-market", "atm program", "dilution", "shelf registration", "private placement", "prices offering", "equity raise"], 5),
-    _t("buyback_dividend", "company", +1, .35, 60, .55, ["share repurchase", "buyback", "repurchase program", "dividend increase", "raises dividend", "special dividend", "initiates dividend"], 10),
+    _t("merger_acquisition", "company", +0.4, .70, 60, .55, [r"(?:to buy|buys|bought|to purchase|purchases|to take over|takes over|bid for|offers to buy|to snap up|completes\s+(?:the\s+)?(?:acquisition|purchase|takeover)|closes\s+(?:the\s+)?(?:acquisition|purchase))\b", "to acquire", "agrees to buy", "acquisition", "acquires", "takeover", "buyout", "tender offer", "merger agreement", "to be acquired", "all-cash deal", "go-private", "merger", r"(?:close to|nears?|in talks to|in advanced talks to|set to|poised to)\s+(?:buy(?:ing)?|acquir(?:e|ing)|purchas(?:e|ing)|takeover|a deal)"], 20),
+    _t("capital_raise", "company", -1, .45, 30, .65, ["public offering", "secondary offering", "convertible notes", "convertible senior notes", "at-the-market", "atm program", "dilution", "shelf registration", "private placement", "prices offering", "equity raise", r"(?:raises?|raising|to raise|plans? to raise|seeks? to raise|looks? to raise|prices?|pricing|upsizes?)\s+(?:up to\s+|as much as\s+)?(?:[a-z0-9$%.'+/]+\s+){0,3}?(?:in|of|via|through)\s+(?:new\s+)?(?:senior\s+|convertible\s+|unsecured\s+)?(?:debt|bonds?|notes|equity|stock|shares|capital|financing|loans?)\b", r"(?:to )?(?:sell|issue|issues|issuing)\s+\$[\d.,]+\s*[bm]\w*\s+(?:of|in)\s+(?:new\s+)?(?:debt|bonds?|notes|stock|shares|equity)"], 5),
+    _t("buyback_dividend", "company", +1, .35, 60, .55, [r"(?:raises?|hikes?|boosts?|increases?|lifts?|bumps?)\s+(?:[a-z0-9$%.'+/]+\s+){0,3}?dividend", "share repurchase", "buyback", "repurchase program", "dividend increase", "raises dividend", "special dividend", "initiates dividend"], 10),
     _t("cyber_incident", "company", -1, .55, 30, .55, ["data breach", "ransomware", "cyberattack", "cyber attack", "hacked", "security incident", "systems outage", "unauthorized access"], 5),
     _t("litigation", "company", -1, .40, 60, .50, ["lawsuit", "sued", "sues", "class action", "patent infringement", "legal action", "securities fraud", "indicted"], 10),
-    _t("production_disruption", "company", -1, .50, 45, .55, ["production halt", "plant shutdown", "factory shutdown", "supply shortage", "plant fire", "strike at", "work stoppage", "production cut", "halts production", "recall of"], 8),
+    _t("production_disruption", "company", -1, .50, 45, .55, ["production halt", "plant shutdown", "factory shutdown", "supply shortage", "plant fire", "strike at", "work stoppage", "production cut", "halts production"], 8),
     _t("partnership", "company", +1, .35, 90, .45, ["strategic partnership", "partnership with", "partners with", "collaboration with", "joint venture", "strategic alliance", "teams up with", "memorandum of understanding"], 10),
     _t("product_launch", "company", +1, .35, 90, .45, ["launches", "unveils", "introduces", "announces availability", "rolls out", "debuts", "new product", "general availability", "begins shipping", "starts production"], 10),
-    _t("analyst_action", "company", 0, .20, 14, .40, ["upgrades", "upgraded", "downgrades", "downgraded", "price target", "initiates coverage", "raises target", "cuts target", "outperform", "underperform"], 5),
+    _t("analyst_action", "company", 0, .20, 14, .40, ["upgrades", "upgraded", "downgrades", "downgraded", "price target", "initiates coverage", "raises target", "cuts target", r"(?:rated|rating|ratings|maintains?|reiterates?|upgrades?|downgrades?|initiates?|assigns?|reaffirms?|resumes?)\s+(?:[a-z0-9$%.'+/]+\s+){0,5}?(?:outperform|underperform|overweight|underweight|neutral|buy|sell|hold)", r"\bto (?:outperform|underperform|overweight|underweight)\b"], 5),
     _t("leadership_change", "company", 0, .35, 60, .40, ["ceo resigns", "ceo steps down", "names new ceo", "appoints ceo", "cfo resigns", "cfo departs", "chief executive to retire", "founder steps down"], 10),
     _t("insider_filing", "company", 0, .15, 30, .40, ["form 4", "insider buying", "insider selling", "schedule 13d", "schedule 13g", "sc 13d", "sc 13g", "beneficial ownership"], 10),
     _t("structural_theme", "sector", +1, .55, 730, .55, ["multi-year build-out", "multiyear buildout", "secular growth", "structural shift", "capex plan", "capital expenditure plan", "data center buildout", "data centre buildout", "gigawatt", "reshoring", "onshoring", "once-in-a-generation"], 30),
@@ -174,11 +176,11 @@ GENERAL = EventType("general_news", "company", 0, .15, 14, .30, [], 3)
 BY_NAME = {e.name: e for e in EVENT_TYPES}
 BY_NAME["general_news"] = GENERAL
 
-POS_WORDS = {"surge": .6, "soar": .7, "jump": .5, "rally": .5, "beat": .6, "beats": .6, "record": .5, "growth": .3, "strong": .4, "upgrade": .5,
+POS_WORDS = {"bullish": .4, "surge": .6, "soar": .7, "jump": .5, "rally": .5, "beat": .6, "beats": .6, "record": .5, "growth": .3, "strong": .4, "upgrade": .5,
              "approval": .6, "approved": .6, "wins": .5, "win": .4, "awarded": .5, "expands": .3, "boost": .4, "gains": .3, "profit": .3, "optimism": .4,
              "easing": .4, "eases": .4, "cools": .3, "cut rates": .5, "rate cut": .5, "dovish": .5, "ceasefire": .5, "truce": .5, "deal": .3, "breakthrough": .6,
              "recovery": .4, "rebound": .4, "resilient": .3, "outperform": .4, "raises": .3, "accelerates": .3, "stimulus": .4, "peace": .4}
-NEG_WORDS = {"plunge": .7, "slump": .6, "tumble": .6, "drop": .4, "falls": .4, "miss": .6, "misses": .6, "cuts": .3, "downgrade": .5, "recall": .6, "probe": .5,
+NEG_WORDS = {"bearish": .4, "plunge": .7, "slump": .6, "tumble": .6, "drop": .4, "falls": .4, "miss": .6, "misses": .6, "cuts": .3, "downgrade": .5, "recall": .6, "probe": .5,
              "investigation": .5, "lawsuit": .4, "fraud": .8, "bankruptcy": .9, "default": .8, "warning": .5, "warns": .5, "crisis": .7, "fears": .4, "selloff": .6,
              "sell-off": .6, "escalat": .6, "invasion": .8, "attack": .6, "sanctions": .5, "tariffs": .4, "tariff": .4, "hawkish": .5, "rate hike": .5, "inflation surges": .6,
              "recession": .6, "layoffs": .4, "shutdown": .4, "halts": .5, "delay": .3, "delays": .3, "weak": .4, "disappoint": .5, "breach": .6, "ban": .6, "bans": .6,
@@ -330,6 +332,40 @@ def analyze(title: str, summary: str = "") -> Dict:
     return _analyze_text(title, summary)
 
 
+_GROW = re.compile(r"(?<![a-z0-9])(?:revenues?|sales|income|profits?|earnings|eps|margins?|net income|operating income|free cash flow|bookings)\s+(?:(?:was|is|were|are)\s+)?(up|rose|grew|jumped|increased|climbed|surged|higher|expanded|improved|down|fell|dropped|declined|decreased|slumped|lower|shrank|slid|narrowed|widened)\s+(?:by\s+)?\$?\d")
+_UPW = {"up", "rose", "grew", "jumped", "increased", "climbed", "surged", "higher", "expanded", "improved"}
+_VS_EST = re.compile(r"\$?([\d][\d.,]*)\s?([bmk]?)\s*,?\s*(?:vs\.?|versus|compared (?:with|to)|against)\s*\$?([\d][\d.,]*)\s?([bmk]?)\s*(?:est|estimates?|expected|consensus|forecast)")
+_UNIT = {"b": 1e9, "m": 1e6, "k": 1e3, "": 1.0}
+
+
+def quant_signal(title_n: str) -> Dict:
+    """Quantitative results evidence in a headline: growth or decline of a results measure, and a stated figure set against its estimate ('$429M, vs. $400.5M est.'). Returns {score -1..1, evidence[]}."""
+    ev, score = [], 0.0
+    for m in _GROW.finditer(title_n):
+        up = m.group(1) in _UPW
+        score += 0.25 if up else -0.25
+        ev.append("%s %s" % (m.group(0).split()[0], m.group(1)))
+    for m in _VS_EST.finditer(title_n):
+        try:
+            a = float(m.group(1).replace(",", "")) * _UNIT[m.group(2)]
+            b = float(m.group(3).replace(",", "")) * _UNIT[m.group(4)]
+        except (ValueError, KeyError):
+            continue
+        if b > 0:
+            r = a / b - 1.0
+            if abs(r) > 0.01:
+                score += 0.5 if r > 0 else -0.5
+                ev.append("%s vs est %+.1f%%" % (m.group(1) + m.group(2), r * 100))
+            else:
+                ev.append("in line with the estimate")
+    return {"score": max(-1.0, min(1.0, score)), "evidence": ev}
+
+
+_RESULTS_CLAUSE = re.compile(r"(?<![a-z0-9])(?:posts?|reports?|reveals?|delivers?|hits?|logs?|books?|generates?|announces?|surprises? with|swings? to|lifts?)\s+(?:[a-z0-9$%.'+/]+\s+){0,8}?(?:revenues?|sales|profits?|earnings|income|quarterly|quarter|q[1-4]|eps|loss(?:es)?)(?![a-z0-9])")
+_HAS_FIGURE = re.compile(r"\$|\d|record")
+_NOT_A_REPORT = re.compile(r"(?:earnings call|transcript|takeaways?|highlights|preview|what to expect|ahead of|expected to|will report|to report|snapshot|forecast to|set to|poised to)")
+
+
 def _analyze_text(title: str, summary: str = "") -> Dict:
     """Classify an item. Returns dict(event_type, scope, direction[-1..1], magnitude[0..1], amount_usd, regions, matched, negated, hedged,
     decay_days, power, horizon)."""
@@ -346,6 +382,11 @@ def _analyze_text(title: str, summary: str = "") -> Dict:
             s += 0.15 * et.magnitude + (0.3 if et.scope == "company" else 0)  # specific beats generic on ties
             if s > best_s:
                 best, best_s, best_info = et, s, (st, hit)
+    if best is GENERAL and best_s == 0.0:                                            # a results REPORT: company + reporting verb + results noun + a figure or "record" (no beat or miss stated)
+        mr = _RESULTS_CLAUSE.search(title_n)
+        if mr and _HAS_FIGURE.search(title_n) and not _NOT_A_REPORT.search(title_n) and "report_by_third_party" not in title_n:
+            best, best_s, best_info = BY_NAME["earnings_report"], 2.0, (("t", mr.start()), mr.group(0))
+    qsig = quant_signal(title_n) if best.name == "earnings_report" else None
     st, hit = best_info
     neg = hed = False
     if st is not None:
@@ -372,6 +413,8 @@ def _analyze_text(title: str, summary: str = "") -> Dict:
         direction = lex
         if neg:
             direction = -direction * 0.7
+    if qsig is not None and qsig["evidence"] and abs(direction) < 0.25:
+        direction = qsig["score"] if abs(qsig["score"]) >= 0.2 else 0.0                       # the figures speak: growth and a beat over the estimate read positive, decline and a miss negative
     if best.name in RECAP_TYPES and best_s > 0:
         direction = 0.0
     if best.name in SHOCK_TYPES and best_s > 0:

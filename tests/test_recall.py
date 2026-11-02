@@ -63,10 +63,10 @@ class TestRecognition(unittest.TestCase):
 
 class TestClassificationCoversCommonWording(unittest.TestCase):
     CASES = [("Nike warns of weaker holiday-quarter sales", "guidance_cut", -1), ("Netflix beats subscriber estimates, shares rise", "earnings_beat", 1),
-             ("IBM raises full-year revenue forecast", "guidance_raise", 1), ("Oracle signs $30 billion cloud contract", "contract_win", 1), ("Tesla recalls 200,000 vehicles", "regulatory_action", -1),
+             ("IBM raises full-year revenue forecast", "guidance_raise", 1), ("Oracle signs $30 billion cloud contract", "contract_win", 1), ("Tesla recalls 200,000 vehicles", "recall", -1),
              ("General Motors raises profit guidance", "guidance_raise", 1), ("Home Depot misses sales estimates", "earnings_miss", -1), ("Starbucks cuts forecast as US traffic falls", "guidance_cut", -1),
              ("Exxon Mobil to buy Pioneer Natural Resources in $59.5 billion deal", "merger_acquisition", 1), ("AMD forecasts revenue above estimates", "earnings_beat", 1),
-             ("Ford recalls 150,000 trucks", "regulatory_action", -1), ("Boeing faces FAA investigation over door plug", "regulatory_action", -1)]
+             ("Ford recalls 150,000 trucks", "recall", -1), ("Boeing faces FAA investigation over door plug", "regulatory_action", -1)]
 
     def test_common_headline_forms_are_classified_with_the_right_sign(self):
         for h, etype, sign in self.CASES:

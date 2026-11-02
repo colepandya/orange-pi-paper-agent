@@ -1,0 +1,1212 @@
+{
+ "dataset_version": "real-news-validation-v1",
+ "labeler": "the build's author (Claude), single labeller, headline-only; labelled BEFORE the engine was run on these cases; drawn after all rule changes were made. Some cases are different wordings of events seen during tuning (Intel, STMicro, Starbucks, Lilly, DoorDash).",
+ "labeled_at": "2026-11-01",
+ "source": "31 Oct 2026 database export",
+ "cases": [
+  {
+   "case_id": "c08622",
+   "stratum": "material_event",
+   "event_id": 8622,
+   "headline": "Filing: Microsoft recorded $10B in revenue from OpenAI in Q1, nearly 11% of its total quarterly revenue, and has $7.2B in outstanding receivables from OpenAI (Rebecca Bellan/TechCrunch)",
+   "published": "2026-10-28T22:10:05+00:00",
+   "source": "Techmeme",
+   "cluster_id": 8622,
+   "label": {
+    "primary": null,
+    "involved": {
+     "MSFT": "subject"
+    },
+    "family": "other",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08642",
+   "stratum": "material_event",
+   "event_id": 8642,
+   "headline": "Microsoft recorded $10 billion in revenue from OpenAI",
+   "published": "2026-10-28T21:34:30+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8546,
+   "label": {
+    "primary": null,
+    "involved": {
+     "MSFT": "subject"
+    },
+    "family": "other",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": "c08622",
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09944",
+   "stratum": "material_event",
+   "event_id": 9944,
+   "headline": "President of the European Central Bank Christine Lagarde to step down. Here's who is tipped to replace her",
+   "published": "2026-10-29T11:50:16+00:00",
+   "source": "CNBC Economy",
+   "cluster_id": 9511,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "other",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11050",
+   "stratum": "likely_abstain",
+   "event_id": 11050,
+   "headline": "424B2 - UBS AG (0001114446) (Filer)",
+   "published": "2026-10-29T15:59:17+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "UBS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c07850",
+   "stratum": "likely_abstain",
+   "event_id": 7850,
+   "headline": "6-K - WISeQey Corp. (0001738699) (Filer)",
+   "published": "2026-10-28T20:15:11+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 6556,
+   "label": {
+    "primary": null,
+    "involved": {
+     "WKEY": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c03684",
+   "stratum": "likely_abstain",
+   "event_id": 3684,
+   "headline": "424B2 - BARCLAYS BANK PLC (0000312070) (Filer)",
+   "published": "2026-10-27T17:54:03+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 2756,
+   "label": {
+    "primary": null,
+    "involved": {
+     "BCS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11303",
+   "stratum": "likely_abstain",
+   "event_id": 11303,
+   "headline": "424B2 - Morgan Stanley Finance LLC (0001666268) (Filer)",
+   "published": "2026-10-29T16:54:09+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "MS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08445",
+   "stratum": "candidate_producing",
+   "event_id": 8445,
+   "headline": "Generac Hldgs Q3 Adj. EPS $2.54 Beats $2.43 Estimate, Sales $1.294B Miss $1.324B Estimate",
+   "published": "2026-10-28T06:01:29+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8445,
+   "label": {
+    "primary": "GNRC",
+    "involved": {
+     "GNRC": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11496",
+   "stratum": "blocked_idea",
+   "event_id": 11496,
+   "headline": "We're raising our price target on Eli Lilly as the obesity-drug boom rolls on",
+   "published": "2026-10-29T17:18:33+00:00",
+   "source": "CNBC Top News",
+   "cluster_id": 11496,
+   "label": {
+    "primary": "LLY",
+    "involved": {
+     "LLY": "subject"
+    },
+    "family": "analyst",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c14848",
+   "stratum": "blocked_idea",
+   "event_id": 14848,
+   "headline": "Chevron and Exxon hit all-time highs as refining profits soar in reaction to Iran and Ukraine wars",
+   "published": "2026-10-30T15:29:56+00:00",
+   "source": "CNBC Top News",
+   "cluster_id": 14848,
+   "label": {
+    "primary": null,
+    "involved": {
+     "CVX": "subject",
+     "XOM": "subject"
+    },
+    "family": "other",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13681",
+   "stratum": "blocked_idea",
+   "event_id": 13681,
+   "headline": "What Rivian Automotive (RIVN) Said on Its Q3 Earnings Call",
+   "published": "2026-10-30T01:14:06+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 13681,
+   "label": {
+    "primary": "RIVN",
+    "involved": {
+     "RIVN": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08970",
+   "stratum": "blocked_idea",
+   "event_id": 8970,
+   "headline": "ServiceNow (NOW) Rolls Out Secure Agentic AI Across Retail, Telecom, Sales And IT",
+   "published": "2026-10-28T23:11:05+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8970,
+   "label": {
+    "primary": "NOW",
+    "involved": {
+     "NOW": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": "low",
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13751",
+   "stratum": "rumour_or_denial",
+   "event_id": 13751,
+   "headline": "Sources: Spotify aims to launch an AI product in Q1 2027 that lets subscribers create their own remixes and covers for ~$5 per month, pending licensing deals (Anna Nicolaou/Financial Times)",
+   "published": "2026-10-30T08:45:02+00:00",
+   "source": "Techmeme",
+   "cluster_id": 13751,
+   "label": {
+    "primary": "SPOT",
+    "involved": {
+     "SPOT": "subject"
+    },
+    "family": "operations",
+    "state": "rumored",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c01398",
+   "stratum": "rumour_or_denial",
+   "event_id": 1398,
+   "headline": "6-K - TECK RESOURCES LTD (0000886986) (Filer)",
+   "published": "2026-10-26T16:24:06+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 828,
+   "label": {
+    "primary": null,
+    "involved": {
+     "TECK": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13558",
+   "stratum": "rumour_or_denial",
+   "event_id": 13558,
+   "headline": "Sources: Indian AI infrastructure company AM Intelligence seeks to raise as much as $3B to fund a previously announced purchase of Nvidia Vera Rubin systems (Bloomberg)",
+   "published": "2026-10-30T02:40:01+00:00",
+   "source": "Techmeme",
+   "cluster_id": 13558,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06564",
+   "stratum": "filing_derived",
+   "event_id": 6564,
+   "headline": "424B2 - ROYAL BANK OF CANADA (0001000275) (Filer)",
+   "published": "2026-10-28T14:14:53+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 6556,
+   "label": {
+    "primary": null,
+    "involved": {
+     "RY": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09977",
+   "stratum": "filing_derived",
+   "event_id": 9977,
+   "headline": "8-K - UPBOUND GROUP, INC. (0000933036) (Filer)",
+   "published": "2026-10-29T12:00:31+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "UPBD": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c01354",
+   "stratum": "filing_derived",
+   "event_id": 1354,
+   "headline": "424B2 - UBS AG (0001114446) (Filer)",
+   "published": "2026-10-26T15:55:04+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 828,
+   "label": {
+    "primary": null,
+    "involved": {
+     "UBS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c01303",
+   "stratum": "filing_derived",
+   "event_id": 1303,
+   "headline": "424B2 - BANK OF NOVA SCOTIA (0000009631) (Filer)",
+   "published": "2026-10-26T15:17:47+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 828,
+   "label": {
+    "primary": null,
+    "involved": {
+     "BNS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c03381",
+   "stratum": "duplicate_cluster",
+   "event_id": 3381,
+   "headline": "4 - TOYOTA MOTOR CORP/ (0001094517) (Issuer)",
+   "published": "2026-10-27T15:36:14+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 3232,
+   "label": {
+    "primary": null,
+    "involved": {
+     "TM": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09829",
+   "stratum": "duplicate_cluster",
+   "event_id": 9829,
+   "headline": "Open Enrollment Is Here: What Montanans Should Know When Choosing 2027 Health Coverage",
+   "published": "2026-10-29T11:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 9778,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c03850",
+   "stratum": "duplicate_cluster",
+   "event_id": 3850,
+   "headline": "424B2 - GOLDMAN SACHS GROUP INC (0000886982) (Filer)",
+   "published": "2026-10-27T19:01:40+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 3081,
+   "label": {
+    "primary": null,
+    "involved": {
+     "GS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c01559",
+   "stratum": "duplicate_cluster",
+   "event_id": 1559,
+   "headline": "424B2 - JPMORGAN CHASE & CO (0000019617) (Filer)",
+   "published": "2026-10-26T18:18:15+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 828,
+   "label": {
+    "primary": null,
+    "involved": {
+     "JPM": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c07358",
+   "stratum": "contradiction_candidate",
+   "event_id": 7358,
+   "headline": "Fed holds interest rates steady in last decision before midterms",
+   "published": "2026-10-28T18:07:23+00:00",
+   "source": "The Guardian World",
+   "cluster_id": 7358,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "other",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13217",
+   "stratum": "contradiction_candidate",
+   "event_id": 13217,
+   "headline": "Starbucks sales miss expectations, but its U.S. turnaround is gaining steam",
+   "published": "2026-10-29T21:29:59+00:00",
+   "source": "CNBC World",
+   "cluster_id": 13216,
+   "label": {
+    "primary": "SBUX",
+    "involved": {
+     "SBUX": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c12100",
+   "stratum": "control_random",
+   "event_id": 12100,
+   "headline": "424B2 - BANK OF NOVA SCOTIA (0000009631) (Filer)",
+   "published": "2026-10-29T19:38:27+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "BNS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c07465",
+   "stratum": "control_random",
+   "event_id": 7465,
+   "headline": "424B2 - Citigroup Global Markets Holdings Inc. (0000200245) (Filer)",
+   "published": "2026-10-28T18:52:59+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 6556,
+   "label": {
+    "primary": null,
+    "involved": {
+     "C": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08033",
+   "stratum": "control_random",
+   "event_id": 8033,
+   "headline": "6-K - Rectitude Holdings Ltd. (0001995116) (Filer)",
+   "published": "2026-10-28T20:30:01+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 6556,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11187",
+   "stratum": "control_random",
+   "event_id": 11187,
+   "headline": "Alphabet's stock falls 12%+, wiping a record $500B from its market cap, after reporting negative cash flow amid its AI spending; the Nasdaq falls 1.4%+ (Stephen Morris/Financial Times)",
+   "published": "2026-10-29T16:25:01+00:00",
+   "source": "Techmeme",
+   "cluster_id": 11187,
+   "label": {
+    "primary": "GOOGL",
+    "involved": {
+     "GOOGL": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11136",
+   "stratum": "suspect_entity_match",
+   "event_id": 11136,
+   "headline": "DoorDash to Acquire Instacart",
+   "published": "2026-10-29T12:33:05+00:00",
+   "source": "Hacker News",
+   "cluster_id": 11136,
+   "label": {
+    "primary": "CART",
+    "involved": {
+     "DASH": "party",
+     "CART": "party"
+    },
+    "family": "corporate",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09914",
+   "stratum": "suspect_entity_match",
+   "event_id": 9914,
+   "headline": "424B2 - BANK OF AMERICA CORP /DE/ (0000070858) (Filer)",
+   "published": "2026-10-29T11:43:41+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "BAC": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09366",
+   "stratum": "suspect_entity_match",
+   "event_id": 9366,
+   "headline": "STMicro reports Q3 revenue up 17.9% YoY to $3.76B, operating income up 98% to $429M, above $400.5M est., and forecasts $4.15B in Q4 revenue, above $4.10B est. (Reuters)",
+   "published": "2026-10-29T06:40:01+00:00",
+   "source": "Techmeme",
+   "cluster_id": 9260,
+   "label": {
+    "primary": "STM",
+    "involved": {
+     "STM": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09900",
+   "stratum": "suspect_entity_match",
+   "event_id": 9900,
+   "headline": "424B2 - BANK OF AMERICA CORP /DE/ (0000070858) (Filer)",
+   "published": "2026-10-29T11:34:59+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "BAC": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09241",
+   "stratum": "family_focus",
+   "event_id": 9241,
+   "headline": "Microsoft (MSFT) Q1 2027 Earnings Call Transcript",
+   "published": "2026-10-29T05:29:21+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 9241,
+   "label": {
+    "primary": "MSFT",
+    "involved": {
+     "MSFT": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06653",
+   "stratum": "family_focus",
+   "event_id": 6653,
+   "headline": "Stock Yards Bancorp Q3 EPS $1.40 Beats $1.30 Estimate, Sales $120.237M Beat $119.040M Estimate",
+   "published": "2026-10-28T07:34:29+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 6653,
+   "label": {
+    "primary": "SYBT",
+    "involved": {
+     "SYBT": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09193",
+   "stratum": "family_focus",
+   "event_id": 9193,
+   "headline": "Alphabet\u2019s Google Cloud Biz Did Its Job. Why the Stock Is Falling.",
+   "published": "2026-10-28T20:20:00+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 9193,
+   "label": {
+    "primary": "GOOGL",
+    "involved": {
+     "GOOGL": "subject"
+    },
+    "family": "other",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c12651",
+   "stratum": "family_focus",
+   "event_id": 12651,
+   "headline": "Starbucks sales fall short of expectations, but its U.S. turnaround continues to gain steam",
+   "published": "2026-10-29T20:29:10+00:00",
+   "source": "CNBC Top News",
+   "cluster_id": 12343,
+   "label": {
+    "primary": "SBUX",
+    "involved": {
+     "SBUX": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10609",
+   "stratum": "family_focus",
+   "event_id": 10609,
+   "headline": "Eli Lilly hikes sales outlook, as CEO says there's room for 'dramatic' obesity market expansion",
+   "published": "2026-10-29T14:06:31+00:00",
+   "source": "CNBC Top News",
+   "cluster_id": 10609,
+   "label": {
+    "primary": "LLY",
+    "involved": {
+     "LLY": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09822",
+   "stratum": "family_focus",
+   "event_id": 9822,
+   "headline": "Lilly raises outlook for third time this year as Zepbound sales soar.",
+   "published": "2026-10-29T11:03:00+00:00",
+   "source": "MarketWatch Top Stories",
+   "cluster_id": 9822,
+   "label": {
+    "primary": "LLY",
+    "involved": {
+     "LLY": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": "c10609",
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10563",
+   "stratum": "family_focus",
+   "event_id": 10563,
+   "headline": "Healey\u2019s budget paves way for \u2018brutal\u2019 spending review next year, warns IFS",
+   "published": "2026-10-29T13:47:30+00:00",
+   "source": "The Guardian World",
+   "cluster_id": 10563,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "other",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13406",
+   "stratum": "family_focus",
+   "event_id": 13406,
+   "headline": "Intel reports Q3 revenue up 21% YoY to $16.5B, vs. $16.5B est., and forecasts Q4 revenue and adjusted EPS below estimates; INTC drops 23%+ after hours (Katie Tarasov/CNBC)",
+   "published": "2026-10-29T20:25:04+00:00",
+   "source": "Techmeme",
+   "cluster_id": 13394,
+   "label": {
+    "primary": "INTC",
+    "involved": {
+     "INTC": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08851",
+   "stratum": "family_focus",
+   "event_id": 8851,
+   "headline": "NOBLE SUPPLY & LOGISTICS, LLC federal contract award",
+   "published": "2026-10-24T00:00:00+00:00",
+   "source": "USAspending New Awards",
+   "cluster_id": 8851,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "contracts",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08881",
+   "stratum": "family_focus",
+   "event_id": 8881,
+   "headline": "MONO MACHINES LLC federal contract award",
+   "published": "2026-10-24T00:00:00+00:00",
+   "source": "USAspending New Awards",
+   "cluster_id": 8881,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "contracts",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08976",
+   "stratum": "family_focus",
+   "event_id": 8976,
+   "headline": "Marvell Wants Lumentum. Here\u2019s Why Coherent Could Win.",
+   "published": "2026-10-28T23:44:27+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8976,
+   "label": {
+    "primary": null,
+    "involved": {
+     "MRVL": "party",
+     "LITE": "party",
+     "COHR": "party"
+    },
+    "family": "corporate",
+    "state": "proposed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13980",
+   "stratum": "family_focus",
+   "event_id": 13980,
+   "headline": "BNCCORP, INC. REPORTS THIRD QUARTER NET INCOME OF $3.0 MILLION, OR $0.85 PER DILUTED SHARE",
+   "published": "2026-10-30T11:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 13980,
+   "label": {
+    "primary": "BNCC",
+    "involved": {
+     "BNCC": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10615",
+   "stratum": "family_focus",
+   "event_id": 10615,
+   "headline": "INVESTOR ALERT: Pomerantz Law Firm Reminds Investors with Losses on their Investment in Coastal Financial Corporation of Class Action Lawsuit and Upcoming Deadlines - CCB",
+   "published": "2026-10-29T14:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 10590,
+   "label": {
+    "primary": null,
+    "involved": {
+     "CCB": "subject"
+    },
+    "family": "legal",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06400",
+   "stratum": "family_focus",
+   "event_id": 6400,
+   "headline": "ATTENTION NYSE: GIL INVESTORS: Contact Berger Montague About a Gildan Activewear Inc. Class Action Lawsuit",
+   "published": "2026-10-28T13:21:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 6400,
+   "label": {
+    "primary": null,
+    "involved": {
+     "GIL": "subject"
+    },
+    "family": "legal",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c00656",
+   "stratum": "family_focus",
+   "event_id": 656,
+   "headline": "Stryker Sustainability Solutions recall: BARD EP XT DECAPOLAR STEERABLE, DIAGNOSTIC EP CATHETER, 6F, LARGE 4.0, 10, 2-5-2MM, REF: 201007",
+   "published": "2026-10-26T03:20:33+00:00",
+   "source": "openFDA Device Enforcement",
+   "cluster_id": 656,
+   "label": {
+    "primary": "SYK",
+    "involved": {
+     "SYK": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": "low",
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c00599",
+   "stratum": "family_focus",
+   "event_id": 599,
+   "headline": "Sterling Pharmaceutical Services LLC recall: TRP The Relief Products* Gentle Eyes Lubricant Eye Drops, Carboxymethylcellulose sodium 0.5%, Sterile Eye Drops, 0.5 FL OZ (15 mL) bottles,",
+   "published": "2026-10-26T03:20:32+00:00",
+   "source": "openFDA Drug Enforcement",
+   "cluster_id": 599,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "operations",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06077",
+   "stratum": "family_focus",
+   "event_id": 6077,
+   "headline": "ChinaAMC and Franklin Templeton Sign Strategic MOU to Deepen Cross-Border Collaboration",
+   "published": "2026-10-28T12:17:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 6077,
+   "label": {
+    "primary": "BEN",
+    "involved": {
+     "BEN": "subject"
+    },
+    "family": "corporate",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": "low",
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10379",
+   "stratum": "family_focus",
+   "event_id": 10379,
+   "headline": "Four Seasons Announces First Standalone Private Residences in Colorado",
+   "published": "2026-10-29T13:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 10379,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c07455",
+   "stratum": "family_focus",
+   "event_id": 7455,
+   "headline": "Apple \u2018Pro and Tell\u2019 event: Everything announced this week",
+   "published": "2026-10-28T18:46:18+00:00",
+   "source": "The Verge",
+   "cluster_id": 7252,
+   "label": {
+    "primary": "AAPL",
+    "involved": {
+     "AAPL": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c07513",
+   "stratum": "family_focus",
+   "event_id": 7513,
+   "headline": "Apple \u2018Pro and tell\u2019 event: Everything announced this week",
+   "published": "2026-10-28T19:03:40+00:00",
+   "source": "The Verge",
+   "cluster_id": 7252,
+   "label": {
+    "primary": "AAPL",
+    "involved": {
+     "AAPL": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": "c07455",
+    "propagate": null
+   }
+  }
+ ],
+ "pairs": []
+}

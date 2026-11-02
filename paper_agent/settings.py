@@ -177,9 +177,25 @@ FIELDS: List[Field] = [
     F("runtime.min_available_memory_mb", "Skip a cycle below this free memory (MB)", "int", "System", 50, 500, ""),
     F("runtime.max_load_per_core", "Skip a cycle above this load per core", "float", "System", 0.5, 4.0, ""),
     F("runtime.bind_port", "Dashboard port", "int", "System", 1024, 65535, "Takes effect after restarting the dashboard.", restart="dashboard"),
+    F("kb.enabled", "Company knowledge base", "bool", "Company knowledge", help="Keeps a record of what each company is, its financial and market facts, its relationships and its recent event history. It only records and measures; with every mode below on observe it changes no trade."),
+    F("kb.relationship_mode", "Relationship effects", "choice", "Company knowledge", choices=["off", "observe", "active"], help="observe: work out how an event at one company reaches its suppliers, customers, competitors and peers, record it and measure it. active: first-hop effects with a clear economic mechanism may generate ideas. Statistical (correlation) links never trade in any mode."),
+    F("kb.expiry_mode", "Event-aware catalyst expiry", "choice", "Company knowledge", choices=["off", "observe", "active"], help="observe: each event gets its own expiry (an analyst rating fades in a day, a pending acquisition lasts for days); the red team explains it and the result is measured against the flat 36-hour rule. active: the event-aware expiry replaces the 36-hour rule."),
+    F("kb.materiality_mode", "Economic materiality", "choice", "Company knowledge", choices=["off", "observe"], help="Calculates how big an event is against the company (a contract against annual revenue, an offering against market value), or says unknown. Recorded and shown; it does not change trades."),
+    F("kb.state_mode", "Company event state", "choice", "Company knowledge", choices=["off", "observe"], help="Builds each company's combined picture from all its recent events (rumour then denial, award then protest, beat then guidance cut). Recorded and shown; it does not change trades."),
+    F("kb.regime_mode", "Market regime context", "choice", "Company knowledge", choices=["off", "observe"], help="Detects nine market states (risk-off, rising rates, liquidity stress ...) and records what each would change. Recorded and measured; it does not change trades."),
+    F("kb.refresh_companies_per_cycle", "Companies refreshed from the SEC per cycle", "int", "Company knowledge", 0, 200, "Identity and classification are fetched from the SEC for the most important companies first. 0 turns SEC refresh off. A full refresh of the universe is run from the command line, not here."),
+    F("kb.propagate_events_per_cycle", "Events analysed for relationship effects per cycle", "int", "Company knowledge", 5, 200, "Bounds the work done on new events each cycle."),
+    F("kb.max_network_seconds", "Most network time for knowledge refresh per cycle (seconds)", "int", "Company knowledge", 1, 120, "The refresh stops when this is used up."),
+    F("kb.max_db_seconds", "Most database time for knowledge work per cycle (seconds)", "int", "Company knowledge", 1, 60, "Stops lower-priority knowledge work when exceeded."),
+    F("kb.sec_requests_per_second", "SEC requests per second", "int", "Company knowledge", 1, 8, "The SEC publishes a limit of 10 per second; keep this well below it."),
+    F("kb.retry_delay_hours", "Wait before retrying a failed company (hours)", "int", "Company knowledge", 1, 72, "Doubles with each repeated failure."),
+    F("kb.failure_backoff_max_hours", "Longest wait after repeated failures (hours)", "int", "Company knowledge", 6, 720, "A 403 or 429 from the SEC pauses the source for this long at most (a temporary failure, never an error in the bot)."),
+    F("kb.max_data_age_days", "Company identity data is stale after (days)", "int", "Company knowledge", 7, 365, "How long a successful refresh of a low-priority company stays fresh."),
+    F("kb.financial_max_age_days", "Financial figures are stale after (days)", "int", "Company knowledge", 30, 400, "A figure older than this is marked stale, never silently used as current."),
+    F("kb.max_hops", "Relationship hops considered", "int", "Company knowledge", 1, 3, "First-hop effects can influence trading (when active); second-hop are research ideas only; third-hop are explanation only."),
 ]
 BY_NAME = {f.name: f for f in FIELDS}
-GROUP_ORDER = ["Risk limits", "Swing strategy", "Instruments", "Relationship graph", "Execution", "Refresh times", "LLM analyst", "Article reader", "Missed-trade analysis", "Database", "System"]
+GROUP_ORDER = ["Risk limits", "Swing strategy", "Instruments", "Relationship graph", "Execution", "Refresh times", "LLM analyst", "Article reader", "Missed-trade analysis", "Database", "System", "Company knowledge"]
 TIERS = ("triage", "analyst")
 PROVIDERS = ("anthropic", "github")
 MODEL_RX = re.compile(r"^[A-Za-z0-9._:/-]{3,80}$")

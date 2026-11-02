@@ -174,6 +174,21 @@ def _four_quarters(pts: List[dict]) -> Tuple[Optional[List[dict]], str]:
     return last4, ""
 
 
+def _prov(used) -> dict:
+    """Where a figure came from: the filing(s) (accession), the XBRL taxonomy + tag, the form(s) and the unit. Additive: it never changes a number."""
+    used = [p for p in (used or []) if isinstance(p, dict)]
+    accn = sorted({p.get("accn") for p in used if p.get("accn")})
+    out = {"accn": accn[:6]}
+    for k, name in (("tag", "tag"), ("tax", "taxonomy"), ("unit", "unit")):
+        v = next((p.get(k) for p in used if p.get(k)), None)
+        if v:
+            out[name] = v
+    forms = sorted({p.get("form") for p in used if p.get("form")})
+    if forms:
+        out["form"] = forms[:4]
+    return out
+
+
 def ttm_detail(pts: List[dict], now) -> dict:
     """The trailing twelve months, with its provenance, or {unavailable: why}. NEVER an old annual figure standing in for a recent period."""
     today = _today(now)
@@ -185,11 +200,13 @@ def ttm_detail(pts: List[dict], now) -> dict:
         A, Y, P = pair
         v, end, basis, filed = A["val"] + Y["val"] - P["val"], Y["end"], "annual + year-to-date - prior year-to-date", max(A["filed"], Y["filed"], P["filed"])
         unit = A.get("unit")
+        used = [A, Y, P]
     else:
         why.append(w)
         q4, w2 = _four_quarters(pts)
         if q4:
             v, end, basis, filed, unit = sum(p["val"] for p in q4), q4[-1]["end"], "last four contiguous quarters", max(p["filed"] for p in q4), q4[-1].get("unit")
+            used = q4
         else:
             why.append(w2)
             a = annuals(pts)
@@ -204,13 +221,14 @@ def ttm_detail(pts: List[dict], now) -> dict:
             if A.get("conflict") or A.get("multi_unit"):
                 return {"unavailable": "the annual figure has conflicting duplicates or a changed unit"}
             v, end, basis, filed, unit = A["val"], A["end"], "latest annual (recent, nothing newer)", A["filed"], A.get("unit")
+            used = [A]
     age = (today - end).days
     if age > MAX_PERIOD_AGE_DAYS:
         return {"unavailable": "the period ended %d days ago" % age}
-    return {"value": v, "period_end": end.isoformat(), "filed": filed, "basis": basis, "unit": unit, "age_days": age}
+    return dict({"value": v, "period_end": end.isoformat(), "filed": filed, "basis": basis, "unit": unit, "age_days": age}, **_prov(used))
 
 
-def growth_detail(pts: List[dict], now) -> dict:
+def _growth_core(pts: List[dict], now) -> dict:
     """The latest period against the same period a year earlier, on a like-for-like footing, or unavailable."""
     today = _today(now)
     pair, w = _ytd_pair(pts)
@@ -229,6 +247,13 @@ def growth_detail(pts: List[dict], now) -> dict:
     return {"unavailable": "no like-for-like comparison with a year earlier can be built from recent data"}
 
 
+def growth_detail(pts: List[dict], now) -> dict:
+    d = _growth_core(pts, now)
+    if "value" in d:
+        d = dict(d, **_prov([p for p in pts if p["end"].isoformat() == d.get("period_end")]), accn_basis="the latest period only")
+    return d
+
+
 def stock_detail(pts: List[dict], now) -> dict:
     """The latest balance-sheet (instant) figure, if it is recent enough."""
     inst = [p for p in _latest_per_period(pts) if p.get("start") is None]
@@ -240,7 +265,7 @@ def stock_detail(pts: List[dict], now) -> dict:
         return {"unavailable": "the latest balance-sheet figure is %d days old" % age}
     if p.get("conflict"):
         return {"unavailable": "conflicting values for the same date"}
-    return {"value": p["val"], "period_end": p["end"].isoformat(), "filed": p["filed"], "basis": "balance sheet", "age_days": age, "unit": p.get("unit")}
+    return dict({"value": p["val"], "period_end": p["end"].isoformat(), "filed": p["filed"], "basis": "balance sheet", "age_days": age, "unit": p.get("unit")}, **_prov([p]))
 
 
 def ttm(pts: List[dict], now=None) -> Optional[Tuple[float, dt.date, str]]:
@@ -281,7 +306,7 @@ def summarize(raw: Dict[str, List[dict]], now) -> dict:
 
     def take(name, detail, flat=None, pct=False):
         if "value" in detail:
-            M[name] = {k: detail[k] for k in ("value", "period_end", "filed", "basis", "age_days") if k in detail}
+            M[name] = {k: detail[k] for k in ("value", "period_end", "filed", "basis", "age_days", "unit", "accn", "tag", "taxonomy", "form", "accn_basis") if k in detail}
             M[name]["retrieved"] = out["retrieved"]
             if flat:
                 out[flat] = detail["value"]
@@ -347,6 +372,11 @@ def summarize(raw: Dict[str, List[dict]], now) -> dict:
         U["share_growth"] = "no like-for-like share count a year earlier"
     if disc is not None and ni is not None and abs(disc) > 0.25 * max(abs(ni), 1.0):
         out["discontinued_note"] = "net income includes discontinued operations of $%.0fM; continuing operations are used for the loss test where available" % (disc / 1e6)
+    shp = [p for p in _latest_per_period(raw.get("shares", [])) if (today - p["end"]).days <= MAX_PERIOD_AGE_DAYS]               # the latest weighted-average diluted share count (for offering / buyback size)
+    if shp:
+        M["shares_diluted"] = dict({"value": shp[-1]["val"], "period_end": shp[-1]["end"].isoformat(), "filed": shp[-1]["filed"], "basis": "weighted-average diluted shares, latest period", "age_days": (today - shp[-1]["end"]).days, "retrieved": out["retrieved"]}, **_prov([shp[-1]]))
+    else:
+        U["shares_diluted"] = "no recent share count"
     F = out["flags"]
 
     def src(*keys):
@@ -426,6 +456,8 @@ def fetch_concept(fetch_json: Callable, cik: int, tax: str, names: List[str], he
             sleep(0.12)
             continue
         pts = _points(j)
+        for p_ in pts:
+            p_["tag"], p_["tax"] = n, tax
         if pts:
             e_end = max(p["end"] for p in pts)
             if best_end is None or e_end > best_end:

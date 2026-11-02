@@ -35,7 +35,7 @@ details summary{cursor:pointer;color:var(--acc)}pre{white-space:pre-wrap;backgro
 CSS += """.why{max-width:860px}.why h2{margin:.2em 0}.why h3{margin:1.2em 0 .3em;font-size:15px;border-bottom:1px solid var(--line);padding-bottom:3px}.why blockquote{margin:.4em 0;padding:.5em .8em;background:var(--card);border-left:3px solid var(--acc)}
 .why ul.checks{list-style:none;padding:0}.why ul.checks li{margin:.35em 0}.why table{border-collapse:collapse}.why td,.why th{padding:3px 12px 3px 0;vertical-align:top;text-align:left}.why-good h2{color:var(--ok)}.why-bad h2{color:var(--bad)}.why-wait h2{color:var(--warn)}"""
 CSS += settings_ui.FORM_CSS
-TABS = ["overview", "reports", "performance", "theses", "positions", "dossiers", "decisions", "funnel", "risk", "intelligence", "system", "settings"]
+TABS = ["overview", "reports", "performance", "theses", "positions", "dossiers", "decisions", "funnel", "risk", "intelligence", "company", "system", "settings"]
 
 
 def pct(x, d=1):
@@ -254,10 +254,27 @@ def page_dossiers(c, cfg, s, q):
     return "".join(out)
 
 
+def page_company(c, cfg, q) -> str:
+    """Company knowledge: identity, profile, facts, exposures, relationships, event state, provenance and what is missing, for one company. Read-only."""
+    from . import whybundle
+    t = _qv(q, "t").upper()
+    h = ["<h2>Company knowledge</h2><p class=mut>What the bot knows about a company, where each fact came from, and what it does not know. Nothing is estimated: an absent fact is shown as absent.</p>",
+         "<form method=get><input type=hidden name=tab value=company>Company ticker: <input name=t size=8 value='%s'> <button>Show</button></form>" % E(t)]
+    if t:
+        h.append(whybundle.render(whybundle.case_file(c, cfg, ticker=t)))
+    else:
+        if "company_event_states" in db.tables(c):
+            rows = [[Raw("<a href='?tab=company&t=%s'>%s</a>" % (E(r["ticker"]), E(r["ticker"]))), {1.0: "positive", -1.0: "negative"}.get(r["near_dir"], "none"), {1.0: "positive", -1.0: "negative"}.get(r["medium_dir"], "none"), "%.2f" % (r["confidence"] or 0), to_nz(r["updated"], "%d %b %H:%M")]
+                    for r in c.execute("SELECT ticker,near_dir,medium_dir,confidence,updated FROM company_event_states ORDER BY updated DESC LIMIT 20")]
+            h.append("<h3>Companies with a live event picture</h3>" + (table(["Company", "Near term", "Medium term", "Confidence", "Updated"], rows) if rows else "<p class=mut>None yet: the picture builds as new events arrive.</p>"))
+    return "".join(h)
+
+
 def page_decision_detail(c, cfg, did):
-    ex = explain.explain(c, cfg, did)
-    back = "<p><a href='?tab=decisions'>&larr; all decisions</a></p>"
-    return back + (explain.render_html(ex) if ex else "<p class=bad>No such decision.</p>")
+    from . import whybundle
+    if not c.execute("SELECT 1 FROM decisions WHERE id=?", (did,)).fetchone():
+        return "<p><a href='?tab=decisions'>&larr; all decisions</a></p><p class=bad>No such decision.</p>"
+    return whybundle.render(whybundle.case_file(c, cfg, decision_id=did))                                    # one explanation, shared with Ask 'why TICKER' and the Company tab
 
 
 def _sources_table(c, cfg) -> str:
@@ -435,7 +452,14 @@ def reasoning_panel(c, cfg, q) -> str:
     h = ["<h2>Ask the reasoning engine</h2><p class=mut>The bot's own rules-and-data engine (no language model, no key, no cost) answers from its own records. Try: <i>why NVDA</i> &middot; <i>news NVDA</i> &middot; <i>related NVDA</i> &middot; <i>what if TSM cuts guidance</i> &middot; "
          "<i>compare NVDA AMD</i> &middot; <i>theme ai infrastructure</i> &middot; <i>what could hurt us</i> &middot; <i>today</i>. It says so when it cannot answer.</p>",
          "<form method=get><input type=hidden name=tab value=intelligence><input name=ask size=62 value='%s' placeholder='why NVDA'> <button>Ask</button></form>" % E(ask_q)]
-    if ask_q:
+    import re as _re
+    mwhy = _re.match(r"^\s*why\s+([A-Za-z][A-Za-z.\-]{0,5})\s*\??\s*$", ask_q or "")
+    if mwhy:
+        from . import whybundle
+        h.append(whybundle.render(whybundle.case_file(c, cfg, ticker=mwhy.group(1).upper())))
+        a0 = RS.ask(c, cfg, ask_q, None)
+        h.append("<details><summary class=mut>The engine's original text answer</summary>%s</details>" % "".join("<h3>%s</h3><pre style='white-space:pre-wrap'>%s</pre>" % (E(sec["heading"]), E("\n".join(sec["lines"]))) for sec in a0["sections"]))
+    elif ask_q:
         a = RS.ask(c, cfg, ask_q, None)
         h.append("<div class=card><b>%s</b>%s</div>" % (E(a["title"]), "".join("<h3>%s</h3><pre style='white-space:pre-wrap'>%s</pre>" % (E(sec["heading"]), E("\n".join(sec["lines"]))) for sec in a["sections"])))
     n = {r["source"]: r for r in c.execute("SELECT source,COUNT(*) n,MAX(updated) u FROM relations GROUP BY source")}
@@ -626,7 +650,7 @@ def render(c, cfg, tab: str, q: Dict, ctx: Optional[dict] = None) -> str:
             inner = settings_ui.page_settings(cfg, base, dict(ctx, query=q), pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status(), health)
         return layout(inner, tab, cfg, ctx)
     fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q), "reports": lambda: page_reports(c, cfg, s, q), "performance": lambda: page_performance(c, cfg, s, q),
-          "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s, q), "system": lambda: page_system(c, cfg, s, q)}.get(tab, lambda: page_overview(c, cfg, s))
+          "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s, q), "company": lambda: page_company(c, cfg, q), "system": lambda: page_system(c, cfg, s, q)}.get(tab, lambda: page_overview(c, cfg, s))
     return layout((settings_ui.flash_html(ctx.get("flash")) if ctx.get("flash") else "") + fn(), tab, cfg, ctx)
 
 

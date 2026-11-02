@@ -1,0 +1,1565 @@
+{
+ "dataset_version": "real-news-family-v1",
+ "labeler": "the build's author (Claude), single labeller, headline-only, labelled BEFORE the engine was run on these cases",
+ "labeled_at": "2026-11-01",
+ "source": "31 Oct 2026 database export",
+ "cases": [
+  {
+   "case_id": "c08767",
+   "stratum": "family_focus",
+   "event_id": 8767,
+   "headline": "Microsoft posts $92.3bn quarterly revenue after offering buyouts to 60,000 employees",
+   "published": "2026-10-28T22:44:58+00:00",
+   "source": "The Guardian World",
+   "cluster_id": 8759,
+   "label": {
+    "primary": "MSFT",
+    "involved": {
+     "MSFT": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08630",
+   "stratum": "family_focus",
+   "event_id": 8630,
+   "headline": "Google Earnings Miss As Cloud Computing Booms, Search Growth Slows",
+   "published": "2026-10-28T21:32:50+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8630,
+   "label": {
+    "primary": "GOOGL",
+    "involved": {
+     "GOOGL": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08760",
+   "stratum": "family_focus",
+   "event_id": 8760,
+   "headline": "Microsoft posts $92.3bn in quarterly revenue after offering buyouts to 60,000 employees",
+   "published": "2026-10-28T22:44:58+00:00",
+   "source": "The Guardian Business",
+   "cluster_id": 8759,
+   "label": {
+    "primary": "MSFT",
+    "involved": {
+     "MSFT": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": "c08767",
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06291",
+   "stratum": "family_focus",
+   "event_id": 6291,
+   "headline": "GSK shares dive as weaker sales and mounting costs unnerve investors",
+   "published": "2026-10-28T12:44:37+00:00",
+   "source": "The Guardian Business",
+   "cluster_id": 6288,
+   "label": {
+    "primary": "GSK",
+    "involved": {
+     "GSK": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13490",
+   "stratum": "family_focus",
+   "event_id": 13490,
+   "headline": "Amazon AWS posts 39% revenue growth as cloud rivals also accelerate",
+   "published": "2026-10-29T21:59:31+00:00",
+   "source": "CNBC Top News",
+   "cluster_id": 13490,
+   "label": {
+    "primary": "AMZN",
+    "involved": {
+     "AMZN": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c12721",
+   "stratum": "family_focus",
+   "event_id": 12721,
+   "headline": "AWS growth hits 39%, its fastest in nearly five years, as Amazon misses on earnings",
+   "published": "2026-10-29T20:37:30+00:00",
+   "source": "GeekWire",
+   "cluster_id": 12721,
+   "label": {
+    "primary": "AMZN",
+    "involved": {
+     "AMZN": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": "c13490",
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08439",
+   "stratum": "family_focus",
+   "event_id": 8439,
+   "headline": "Generac Shares Fall 2% as Q3 Revenue Misses Forecasts Despite Earnings Growth",
+   "published": "2026-10-28T14:08:57+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8439,
+   "label": {
+    "primary": "GNRC",
+    "involved": {
+     "GNRC": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08755",
+   "stratum": "family_focus",
+   "event_id": 8755,
+   "headline": "Alphabet reports Q3 YouTube ad revenue up 9% YoY to $11.2B, below estimates, and Google ad revenue up 11% to $82.01B, below $83.6B est. (Todd Spangler/Variety)",
+   "published": "2026-10-28T20:30:02+00:00",
+   "source": "Techmeme",
+   "cluster_id": 8755,
+   "label": {
+    "primary": "GOOGL",
+    "involved": {
+     "GOOGL": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08443",
+   "stratum": "family_focus",
+   "event_id": 8443,
+   "headline": "Generac (NYSE:GNRC) misses Q3 2026 sales expectations",
+   "published": "2026-10-28T10:08:10+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8443,
+   "label": {
+    "primary": "GNRC",
+    "involved": {
+     "GNRC": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": "c08439",
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08720",
+   "stratum": "family_focus",
+   "event_id": 8720,
+   "headline": "ServiceNow Earnings Miss Amid Acquisitions, Revenue Beats",
+   "published": "2026-10-28T21:40:37+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8720,
+   "label": {
+    "primary": "NOW",
+    "involved": {
+     "NOW": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13496",
+   "stratum": "family_focus",
+   "event_id": 13496,
+   "headline": "RIVN Jumps 5% After-Hours As Rivian Lifts Full-Year Outlook And Reaffirms Volkswagen Partnership",
+   "published": "2026-10-29T23:53:40+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 13496,
+   "label": {
+    "primary": "RIVN",
+    "involved": {
+     "RIVN": "subject",
+     "VWAGY": "party"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10038",
+   "stratum": "family_focus",
+   "event_id": 10038,
+   "headline": "Eli Lilly blows past estimates, hikes sales outlook as Zepbound and Mounjaro demand surge again",
+   "published": "2026-10-29T11:44:57+00:00",
+   "source": "CNBC World",
+   "cluster_id": 9526,
+   "label": {
+    "primary": "LLY",
+    "involved": {
+     "LLY": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10612",
+   "stratum": "family_focus",
+   "event_id": 10612,
+   "headline": "Eli Lilly hikes sales outlook, as CEO says there's room for 'dramatic' obesity market expansion",
+   "published": "2026-10-29T14:06:31+00:00",
+   "source": "CNBC World",
+   "cluster_id": 10609,
+   "label": {
+    "primary": "LLY",
+    "involved": {
+     "LLY": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": "c10038",
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08679",
+   "stratum": "family_focus",
+   "event_id": 8679,
+   "headline": "Equinix Reports Third-Quarter Results and Raises 2026 Guidance",
+   "published": "2026-10-28T20:05:00+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8679,
+   "label": {
+    "primary": "EQIX",
+    "involved": {
+     "EQIX": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c14085",
+   "stratum": "family_focus",
+   "event_id": 14085,
+   "headline": "JP Morgan Maintains Underweight on Cboe Global Markets, Raises Price Target to $332",
+   "published": "2026-10-28T15:01:21+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 14085,
+   "label": {
+    "primary": "CBOE",
+    "involved": {
+     "CBOE": "subject"
+    },
+    "family": "analyst",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06386",
+   "stratum": "family_focus",
+   "event_id": 6386,
+   "headline": "Budget 2026 live: Healey announces \u00a3100 energy payment for millions in budget",
+   "published": "2026-10-28T13:03:52+00:00",
+   "source": "The Guardian Business",
+   "cluster_id": 6238,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "other",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06238",
+   "stratum": "family_focus",
+   "event_id": 6238,
+   "headline": "Budget 2026 live: Healey delivers first budget of Burnham\u2019s government",
+   "published": "2026-10-28T12:39:54+00:00",
+   "source": "The Guardian World",
+   "cluster_id": 6238,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "other",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c07469",
+   "stratum": "family_focus",
+   "event_id": 7469,
+   "headline": "Budget 2026: \u00a3100 energy payment for millions and rise in bank tax as watchdog warns on stalling living standards \u2013 as it happened",
+   "published": "2026-10-28T18:24:25+00:00",
+   "source": "The Guardian World",
+   "cluster_id": 7469,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "other",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11730",
+   "stratum": "family_focus",
+   "event_id": 11730,
+   "headline": "Met refers itself to police watchdog over Meghan warning letter",
+   "published": "2026-10-29T17:36:59+00:00",
+   "source": "The Guardian World",
+   "cluster_id": 11598,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c14742",
+   "stratum": "family_focus",
+   "event_id": 14742,
+   "headline": "Reddit shares on track for biggest-ever one-day drop. It\u2019s not the last of the bad news, analysts say.",
+   "published": "2026-10-30T14:43:00+00:00",
+   "source": "MarketWatch Top Stories",
+   "cluster_id": 14717,
+   "label": {
+    "primary": "RDDT",
+    "involved": {
+     "RDDT": "subject"
+    },
+    "family": "other",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08899",
+   "stratum": "family_focus",
+   "event_id": 8899,
+   "headline": "JL DARLING, LLC federal contract award",
+   "published": "2026-10-24T00:00:00+00:00",
+   "source": "USAspending New Awards",
+   "cluster_id": 8899,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "contracts",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09664",
+   "stratum": "family_focus",
+   "event_id": 9664,
+   "headline": "INTERNATIONAL BUSINESS MACHINES CORPORATION federal contract award $2.6 million",
+   "published": "2009-06-03T00:00:00+00:00",
+   "source": "USAspending New Awards",
+   "cluster_id": 9664,
+   "label": {
+    "primary": "IBM",
+    "involved": {
+     "IBM": "subject"
+    },
+    "family": "contracts",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13709",
+   "stratum": "family_focus",
+   "event_id": 13709,
+   "headline": "APOGEE GROUP, LLC federal contract award $33.0 million",
+   "published": "2017-09-21T00:00:00+00:00",
+   "source": "USAspending New Awards",
+   "cluster_id": 13709,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "contracts",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c05348",
+   "stratum": "family_focus",
+   "event_id": 5348,
+   "headline": "TETRA TECH, INC. federal contract award $9.8 million",
+   "published": "2019-09-25T00:00:00+00:00",
+   "source": "USAspending New Awards",
+   "cluster_id": 5348,
+   "label": {
+    "primary": "TTEK",
+    "involved": {
+     "TTEK": "subject"
+    },
+    "family": "contracts",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c05345",
+   "stratum": "family_focus",
+   "event_id": 5345,
+   "headline": "TETRA TECH, INC. federal contract award $3.0 million",
+   "published": "2025-06-01T00:00:00+00:00",
+   "source": "USAspending New Awards",
+   "cluster_id": 5345,
+   "label": {
+    "primary": "TTEK",
+    "involved": {
+     "TTEK": "subject"
+    },
+    "family": "contracts",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c02771",
+   "stratum": "family_focus",
+   "event_id": 2771,
+   "headline": "8-K - Vertiv Holdings Co (0001674101) (Filer)",
+   "published": "2026-10-27T10:34:09+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 2771,
+   "label": {
+    "primary": null,
+    "involved": {
+     "VRT": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10186",
+   "stratum": "family_focus",
+   "event_id": 10186,
+   "headline": "DoorDash agrees to acquire Instacart in a ~$17B deal, paying $65 per share, a 26% premium to its October 22 close, as the platform delivery market consolidates (Reuters)",
+   "published": "2026-10-29T11:31:17+00:00",
+   "source": "Techmeme",
+   "cluster_id": 9894,
+   "label": {
+    "primary": "CART",
+    "involved": {
+     "DASH": "party",
+     "CART": "party"
+    },
+    "family": "corporate",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06292",
+   "stratum": "family_focus",
+   "event_id": 6292,
+   "headline": "\u2018Elonville\u2019: US residents say Musk\u2019s xAI offered to buy homes if they don\u2019t sue over datacenter noise",
+   "published": "2026-10-28T11:30:01+00:00",
+   "source": "The Guardian Business",
+   "cluster_id": 5969,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "other",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06422",
+   "stratum": "family_focus",
+   "event_id": 6422,
+   "headline": "Business secretary writes to Poundland owner as administration fears build",
+   "published": "2026-10-28T13:16:12+00:00",
+   "source": "The Guardian Business",
+   "cluster_id": 6419,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "distress",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09966",
+   "stratum": "family_focus",
+   "event_id": 9966,
+   "headline": "DoorDash to acquire Instacart for $17 billion",
+   "published": "2026-10-29T11:54:29+00:00",
+   "source": "CNBC Top News",
+   "cluster_id": 9966,
+   "label": {
+    "primary": "CART",
+    "involved": {
+     "DASH": "party",
+     "CART": "party"
+    },
+    "family": "corporate",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": "c10186",
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c15006",
+   "stratum": "family_focus",
+   "event_id": 15006,
+   "headline": "SHAREHOLDER ALERT: Bronstein Gewirtz & Grossman, LLC Announces Class Action Against UP Fintech Holding Limited (NASDAQ: TIGR) -- Investors Who Suffered Losses Are Encouraged to Contact the Firm.",
+   "published": "2026-10-30T16:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 15006,
+   "label": {
+    "primary": null,
+    "involved": {
+     "TIGR": "subject"
+    },
+    "family": "legal",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10590",
+   "stratum": "family_focus",
+   "event_id": 10590,
+   "headline": "INVESTOR ALERT: Pomerantz Law Firm Reminds Investors with Losses on their Investment in Honeywell Aerospace Inc. of Class Action Lawsuit and Upcoming Deadlines - HONA",
+   "published": "2026-10-29T14:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 10590,
+   "label": {
+    "primary": null,
+    "involved": {
+     "HON": "subject"
+    },
+    "family": "legal",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09284",
+   "stratum": "family_focus",
+   "event_id": 9284,
+   "headline": "Toblerone owner sues British vegan chocolate brand over chunky shape",
+   "published": "2026-10-29T07:00:25+00:00",
+   "source": "The Guardian Business",
+   "cluster_id": 9276,
+   "label": {
+    "primary": null,
+    "involved": {
+     "MDLZ": "party"
+    },
+    "family": "legal",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10624",
+   "stratum": "family_focus",
+   "event_id": 10624,
+   "headline": "INVESTOR ALERT: Pomerantz Law Firm Reminds Investors with Losses on their Investment in York Space Systems, Inc. of Class Action Lawsuit and Upcoming Deadlines - YSS",
+   "published": "2026-10-29T14:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 10590,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "legal",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10617",
+   "stratum": "family_focus",
+   "event_id": 10617,
+   "headline": "Pomerantz Law Firm Announces the Filing of a Class Action Against AST SpaceMobile, Inc. and Certain Officers - ASTS",
+   "published": "2026-10-29T14:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 10591,
+   "label": {
+    "primary": null,
+    "involved": {
+     "ASTS": "subject"
+    },
+    "family": "legal",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c02492",
+   "stratum": "family_focus",
+   "event_id": 2492,
+   "headline": "Medtronic Sofamor Danek USA Inc recall: Grafton\" DBM and Grafton Plus\" DBM contain demineralized human bone tissue combined with an inert additive to yield a demineralized bone mat",
+   "published": "2026-10-26T23:10:24+00:00",
+   "source": "openFDA Device Enforcement",
+   "cluster_id": 2492,
+   "label": {
+    "primary": "MDT",
+    "involved": {
+     "MDT": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09548",
+   "stratum": "family_focus",
+   "event_id": 9548,
+   "headline": "South Korea fines Google, Apple for pushing app developers onto their payment systems",
+   "published": "2026-10-29T09:00:34+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 9548,
+   "label": {
+    "primary": "GOOGL",
+    "involved": {
+     "GOOGL": "subject",
+     "AAPL": "subject"
+    },
+    "family": "regulatory",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c00731",
+   "stratum": "family_focus",
+   "event_id": 731,
+   "headline": "Penumbra Inc. recall: Brand Name: Penumbra System (RED 62 Reperfusion Catheter)  Product Name: Penumbra System (RED 62 Reperfusion Catheter)  Model/Catalog Number",
+   "published": "2026-10-26T03:20:34+00:00",
+   "source": "openFDA Device Enforcement",
+   "cluster_id": 731,
+   "label": {
+    "primary": "PEN",
+    "involved": {
+     "PEN": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c02496",
+   "stratum": "family_focus",
+   "event_id": 2496,
+   "headline": "Medline Industries, LP recall: Medline surgical convenience kits labeled as:  VEIN HARVESTING PACK, Medline product number/SKU DYNJ51845D",
+   "published": "2026-10-26T23:10:24+00:00",
+   "source": "openFDA Device Enforcement",
+   "cluster_id": 2489,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "operations",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c02489",
+   "stratum": "family_focus",
+   "event_id": 2489,
+   "headline": "Medline Industries, LP recall: Medline surgical convenience kits labeled as: 1) OPEN HEART PACK A &#38; B, Medline Product number/SKU DYNJ04584L; 2) OPEN HEART ACCESSORY P",
+   "published": "2026-10-26T23:10:24+00:00",
+   "source": "openFDA Device Enforcement",
+   "cluster_id": 2489,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "operations",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08636",
+   "stratum": "family_focus",
+   "event_id": 8636,
+   "headline": "NIPSCO to Deliver $57.5 Million in Savings to Electric Customers From Data Center Development",
+   "published": "2026-10-28T21:01:00+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8636,
+   "label": {
+    "primary": null,
+    "involved": {
+     "NI": "subject"
+    },
+    "family": "other",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c00052",
+   "stratum": "family_focus",
+   "event_id": 52,
+   "headline": "FDA Approves First Treatment for Certain People With BCG-Unresponsive Bladder Cancer",
+   "published": "2026-10-14T15:14:51+00:00",
+   "source": "FDA Press",
+   "cluster_id": 52,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "regulatory",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c03348",
+   "stratum": "family_focus",
+   "event_id": 3348,
+   "headline": "Apple unveils the 14\" MacBook Pro with an M6, which has a 12-core CPU and a 12-core GPU, 16GB or 32GB of unified memory, and Wi-Fi 7, for 1,999+ from November 6 (Apple)",
+   "published": "2026-10-27T13:07:02+00:00",
+   "source": "Techmeme",
+   "cluster_id": 3040,
+   "label": {
+    "primary": "AAPL",
+    "involved": {
+     "AAPL": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08740",
+   "stratum": "family_focus",
+   "event_id": 8740,
+   "headline": "MacBook Pro: Apple launches its first ever touchscreen Mac  \u2013 and brings back iconic feature",
+   "published": "2026-10-28T17:50:39+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8740,
+   "label": {
+    "primary": "AAPL",
+    "involved": {
+     "AAPL": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": "c03348",
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11062",
+   "stratum": "family_focus",
+   "event_id": 11062,
+   "headline": "SETTLE LAUNCHES PUBLIC API AND MCP SERVER, OPENING ITS PROCURE-TO-PAY PLATFORM TO AI AGENTS",
+   "published": "2026-10-29T16:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 11062,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c01221",
+   "stratum": "family_focus",
+   "event_id": 1221,
+   "headline": "Apple unveils new iPad mini with OLED display and faster A20 Pro chip",
+   "published": "2026-10-26T14:25:43+00:00",
+   "source": "TechCrunch",
+   "cluster_id": 1221,
+   "label": {
+    "primary": "AAPL",
+    "involved": {
+     "AAPL": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c01135",
+   "stratum": "family_focus",
+   "event_id": 1135,
+   "headline": "Apple unveils a redesigned iPad mini with an 8.5-inch OLED display, an A20 Pro, 24% thinner bezels, and a nano-texture finish option, for $699+ from November 6 (Apple)",
+   "published": "2026-10-26T13:06:24+00:00",
+   "source": "Techmeme",
+   "cluster_id": 1095,
+   "label": {
+    "primary": "AAPL",
+    "involved": {
+     "AAPL": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": "c01221",
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c14501",
+   "stratum": "family_focus",
+   "event_id": 14501,
+   "headline": "Waymo\u2019s next robotaxi is a purpose-built Toyota bZ4X",
+   "published": "2026-10-30T13:52:14+00:00",
+   "source": "The Verge",
+   "cluster_id": 14501,
+   "label": {
+    "primary": "GOOGL",
+    "involved": {
+     "GOOGL": "subject",
+     "TM": "party"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c05730",
+   "stratum": "family_focus",
+   "event_id": 5730,
+   "headline": "Argos Risk Announces Partnership with Credit Union Loan Source",
+   "published": "2026-10-28T10:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 5730,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "corporate",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13664",
+   "stratum": "family_focus",
+   "event_id": 13664,
+   "headline": "Waymo taps Toyota to supply robotaxis for Japan and the U.K.",
+   "published": "2026-10-30T07:01:00+00:00",
+   "source": "TechCrunch",
+   "cluster_id": 13664,
+   "label": {
+    "primary": "GOOGL",
+    "involved": {
+     "GOOGL": "subject",
+     "TM": "party"
+    },
+    "family": "corporate",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13503",
+   "stratum": "family_focus",
+   "event_id": 13503,
+   "headline": "Rivian expands joint venture with VW to include AI assistant",
+   "published": "2026-10-29T20:05:47+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 13503,
+   "label": {
+    "primary": "RIVN",
+    "involved": {
+     "RIVN": "subject",
+     "VWAGY": "party"
+    },
+    "family": "corporate",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06142",
+   "stratum": "family_focus",
+   "event_id": 6142,
+   "headline": "Grant of Permanent Variance: Obayashi - Jay Dee Joint Venture; Cemetery Brook Drain Tunnel Project",
+   "published": "2026-10-28T12:45:00+00:00",
+   "source": "Federal Register Public Inspection",
+   "cluster_id": 6142,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "regulatory",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c05236",
+   "stratum": "family_focus",
+   "event_id": 5236,
+   "headline": "Main Street Prices Public Offering of $500 Million of 6.55% Notes due 2030",
+   "published": "2026-10-27T21:05:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 5236,
+   "label": {
+    "primary": "MAIN",
+    "involved": {
+     "MAIN": "subject"
+    },
+    "family": "capital",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c05886",
+   "stratum": "family_focus",
+   "event_id": 5886,
+   "headline": "Diebold Nixdorf Board of Directors Authorizes New $250 Million Share Repurchase Program",
+   "published": "2026-10-28T11:01:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 5886,
+   "label": {
+    "primary": "DBD",
+    "involved": {
+     "DBD": "subject"
+    },
+    "family": "capital",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c07809",
+   "stratum": "family_focus",
+   "event_id": 7809,
+   "headline": "Bausch Health Announces US$50 Million Share Repurchase Program",
+   "published": "2026-10-28T20:06:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 7809,
+   "label": {
+    "primary": "BHC",
+    "involved": {
+     "BHC": "subject"
+    },
+    "family": "capital",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09322",
+   "stratum": "family_focus",
+   "event_id": 9322,
+   "headline": "Shell announces commencement of a share buyback programme",
+   "published": "2026-10-29T07:03:00+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 9322,
+   "label": {
+    "primary": "SHEL",
+    "involved": {
+     "SHEL": "subject"
+    },
+    "family": "capital",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10151",
+   "stratum": "family_focus",
+   "event_id": 10151,
+   "headline": "CLPS Incorporation Announces Extension of Share Repurchase Program",
+   "published": "2026-10-29T12:30:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 10151,
+   "label": {
+    "primary": "CLPS",
+    "involved": {
+     "CLPS": "subject"
+    },
+    "family": "capital",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c12267",
+   "stratum": "family_focus",
+   "event_id": 12267,
+   "headline": "8-K - Mineralys Therapeutics, Inc. (0001933414) (Filer)",
+   "published": "2026-10-29T20:08:07+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 12267,
+   "label": {
+    "primary": null,
+    "involved": {
+     "MLYS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c12978",
+   "stratum": "family_focus",
+   "event_id": 12978,
+   "headline": "8-K - Propanc Biopharma, Inc. (0001517681) (Filer)",
+   "published": "2026-10-29T21:00:33+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 12626,
+   "label": {
+    "primary": null,
+    "involved": {
+     "PPCB": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c14111",
+   "stratum": "family_focus",
+   "event_id": 14111,
+   "headline": "8-K - Game Your Game Inc. (0002111846) (Filer)",
+   "published": "2026-10-30T12:00:12+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 14111,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c12626",
+   "stratum": "family_focus",
+   "event_id": 12626,
+   "headline": "8-K - Greenland Energy Co (0002093507) (Filer)",
+   "published": "2026-10-29T20:30:17+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 12626,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13401",
+   "stratum": "family_focus",
+   "event_id": 13401,
+   "headline": "We're cutting our Amazon price target after a rough quarter. But it isn't all bad",
+   "published": "2026-10-29T23:08:37+00:00",
+   "source": "CNBC World",
+   "cluster_id": 13396,
+   "label": {
+    "primary": "AMZN",
+    "involved": {
+     "AMZN": "subject"
+    },
+    "family": "analyst",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08297",
+   "stratum": "family_focus",
+   "event_id": 8297,
+   "headline": "Salesforce (CRM) Brings In Usage Based AI Billing With New Agent Fabric Controls",
+   "published": "2026-10-28T15:08:02+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8297,
+   "label": {
+    "primary": "CRM",
+    "involved": {
+     "CRM": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13732",
+   "stratum": "family_focus",
+   "event_id": 13732,
+   "headline": "Yorkshire Water boss resigns after firm downgraded",
+   "published": "2026-10-30T07:54:08+00:00",
+   "source": "BBC Business",
+   "cluster_id": 13732,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "people",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c12553",
+   "stratum": "family_focus",
+   "event_id": 12553,
+   "headline": "Tesla Rises 4% as ARK Reiterates $4,400 Long-Term Price Target on Robotaxi Thesis; Rivian Gains 3%, Lucid Holds Steady",
+   "published": "2026-10-27T16:55:17+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 12553,
+   "label": {
+    "primary": null,
+    "involved": {
+     "TSLA": "subject",
+     "RIVN": "mentioned_only",
+     "LCID": "mentioned_only"
+    },
+    "family": "analyst",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c12476",
+   "stratum": "family_focus",
+   "event_id": 12476,
+   "headline": "Starbucks international business disappoints but U.S. stores outperform",
+   "published": "2026-10-29T20:07:03+00:00",
+   "source": "CNBC World",
+   "cluster_id": 12343,
+   "label": {
+    "primary": "SBUX",
+    "involved": {
+     "SBUX": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08910",
+   "stratum": "family_focus",
+   "event_id": 8910,
+   "headline": "GitLab Security Incident: Attempted Exploitation of CVE-2026-97229",
+   "published": "2026-10-28T23:45:46+00:00",
+   "source": "Hacker News",
+   "cluster_id": 8910,
+   "label": {
+    "primary": "GTLB",
+    "involved": {
+     "GTLB": "subject"
+    },
+    "family": "operations",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10841",
+   "stratum": "family_focus",
+   "event_id": 10841,
+   "headline": "Siemens Mendix SAML Module",
+   "published": "2026-10-29T12:00:00+00:00",
+   "source": "CISA Alerts",
+   "cluster_id": 10841,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "operations",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13683",
+   "stratum": "family_focus",
+   "event_id": 13683,
+   "headline": "\u2018Elite North Korean hackers\u2019 blamed for $6.3bn Binance hack \u2013 business live",
+   "published": "2026-10-30T07:34:42+00:00",
+   "source": "The Guardian Business",
+   "cluster_id": 13683,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "operations",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  }
+ ],
+ "pairs": []
+}

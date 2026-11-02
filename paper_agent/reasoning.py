@@ -22,14 +22,14 @@ import re
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import db, facts as facts_mod, graph, lens, nlp
+from . import timeframe, eventworth, db, facts as facts_mod, graph, lens, nlp
 from .theses_seed import SEED_THESES
 from .timeutil import iso, parse_ts, utcnow
 
 ENGINE_VERSION = "R2"
 TAG = "RULES-analyst"
 MAG_LABEL = ((0.35, "low"), (0.65, "medium"), (9.0, "high"))
-HORIZON = {"guidance_cut": "weeks", "guidance_raise": "weeks", "earnings_beat": "weeks", "earnings_miss": "weeks", "contract_win": "weeks", "contract_loss": "weeks", "product_launch": "weeks",
+HORIZON = {"earnings_report": "weeks", "guidance_cut": "weeks", "guidance_raise": "weeks", "earnings_beat": "weeks", "earnings_miss": "weeks", "contract_win": "weeks", "contract_loss": "weeks", "product_launch": "weeks",
            "merger_acquisition": "weeks", "regulatory_action": "1-3m", "regulatory_approval": "1-3m", "litigation": "1-3m", "production_disruption": "days", "recall": "days", "cyber_incident": "days",
            "war_escalation": "days", "bankruptcy_distress": "weeks", "partnership": "weeks"}
 THEMES = {t["key"]: t for t in SEED_THESES}
@@ -528,6 +528,11 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
             disagreement = True
         if magnitude < 0.15 and abs(direction) >= 0.25:
             magnitude = max(0.25, min(0.6, abs(direction) * 0.7))
+    SIGNED = {"guidance_cut": -1, "guidance_raise": 1, "earnings_miss": -1, "earnings_beat": 1, "contract_loss": -1, "contract_win": 1, "bankruptcy_distress": -1, "production_disruption": -1, "cyber_incident": -1, "recall": -1, "regulatory_approval": 1}
+    cue = (a.get("matched") or "")
+    if etype in SIGNED and cue and cue in nlp.norm(title) and not pr["adjusted"] and direction * SIGNED[etype] <= 0:
+        trace.append("mixed wording: the explicit %s cue (%r) outweighs scattered opposite words; direction follows the event (%+.2f -> %+.2f)" % (etype.replace("_", " "), cue[:50], direction, SIGNED[etype] * max(0.35, abs(direction) * 0.8)))
+        direction = SIGNED[etype] * max(0.35, abs(direction) * 0.8)
     scope = a.get("scope") or "company"
     contradictions: List[str] = []
     if lz.get("mixed"):
@@ -656,8 +661,10 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
     # 6. DOUBT: abstain when there is nothing solid to say -----------------------------------------------------
     n_eff = len(beneficiaries) + len(losers)
     abstain = None
-    if (title or "").rstrip().endswith("?"):
-        abstain = "a question headline is not a report"
+    w_ = eventworth.assess(title, text, etype, len(tickers), bool(pattern))                                    # the shared event-worthiness gate: a correctly identified company is not yet a tradable event
+    if not w_["worthy"] and w_["kind"] != "no_concrete_event":                                                  # (the keyword-free structural kinds only: whether a generic story reports an event is the analyst's own, more detailed rule below, because no fixed list of event words covers real language)
+        abstain = w_["why"]
+        item["_worth_kind"] = w_["kind"]
     elif SPAM_RX.search(title or ""):
         abstain = "a market-research or advertising page, not news"
     elif LISTICLE_RX.search(title or ""):
@@ -699,7 +706,7 @@ def analyze_item(conn, cfg: dict, universe, item: dict, now=None) -> Optional[di
     los = sorted(losers.values(), key=lambda e: (e["order"], -e["confidence"]))[:6]
     why = "%s%s" % (etype.replace("_", " "), (" (" + status + ")") if status != "unclear" else "")
     out = {"event_type": etype if etype in nlp.BY_NAME else "other", "summary": (title or text)[:300], "why": ("Rules read this as a %s. %s" % (why, "; ".join(contradictions)))[:300], "certainty": round(certainty, 3), "grounded": bool(quotes),
-            "surprise": surprise, "horizon": HORIZON.get(etype, "days" if scope == "macro" else "weeks"), "magnitude": max(0.25, min(0.85, magnitude)) if magnitude else 0.25, "magnitude_label": _label(magnitude),
+            "surprise": surprise, "horizon": HORIZON.get(etype, "days" if scope == "macro" else "weeks"), "timeframe": timeframe.from_legacy(HORIZON.get(etype, "days" if scope == "macro" else "weeks")), "magnitude": max(0.25, min(0.85, magnitude)) if magnitude else 0.25, "magnitude_label": _label(magnitude),
             "direction_market": _clip(direction, -1, 1), "beneficiaries": ben, "losers": los, "chain": chain[:6], "narratives": narratives, "proposed_narratives": [], "bull_case": " ".join(bull)[:400], "bear_case": " ".join(bear)[:400],
             "quotes": quotes, "contradictions": contradictions, "status": status, "engine": ENGINE_VERSION, "tag": TAG, "trace": trace[:14]}
     n_ind, primary = independent_sources(conn, item, now)

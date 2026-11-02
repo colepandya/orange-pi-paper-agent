@@ -173,6 +173,12 @@ SECTION_META = [
         ("What counts as fresh", "", ["intelligence.stale_event_hours"]),
         ("Extra news sources", "", ["intelligence.gdelt_enabled", "intelligence.finnhub_company_news_max"]),
         ("Company financials from the SEC", "SEC asks for a contact address in every request.", ["intelligence.max_knowledge_refresh_per_cycle", "runtime.contact_email"])]),
+    _sec("kb", "Intelligence", "Company knowledge", "What the bot knows about each company and how it uses it: knowledge-base refresh, event-aware expiry, relationship effects, materiality, event state and market regime. Every mode starts on observe.", [
+        ("Switch", "", ["kb.enabled"]),
+        ("What each part may do", "observe records and measures only; active lets that part affect trades.", ["kb.relationship_mode", "kb.expiry_mode", "kb.materiality_mode", "kb.state_mode", "kb.regime_mode"]),
+        ("Relationship reach", "", ["kb.max_hops", "kb.propagate_events_per_cycle"]),
+        ("Refreshing from the SEC", "A full refresh of the whole universe is run from the command line, outside the trading cycle.", ["kb.refresh_companies_per_cycle", "kb.sec_requests_per_second", "kb.max_network_seconds", "kb.max_db_seconds", "kb.retry_delay_hours", "kb.failure_backoff_max_hours"]),
+        ("How fresh is fresh", "", ["kb.max_data_age_days", "kb.financial_max_age_days"])]),
     _sec("quotes", "Data & system", "Prices & quotes", "Where prices come from, how fresh they must be, and the simulated cost of trading.", [
         ("Simulated trading cost", "", ["portfolio.slippage_bps"]),
         ("Quote quality", "", ["quotes.min_providers", "quotes.max_deviation", "quotes.entry_max_age_seconds", "quotes.max_age_seconds", "quotes.allow_single_source", "quotes.single_source_max_move_pct", "quotes.probe_minutes"]),

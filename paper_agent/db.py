@@ -16,7 +16,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 
 from .timeutil import iso, utcnow
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 LEGACY = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -182,6 +182,57 @@ CREATE TABLE IF NOT EXISTS company_facts(ticker TEXT PRIMARY KEY,facts_json TEXT
 CREATE TABLE IF NOT EXISTS company_knowledge(ticker TEXT PRIMARY KEY,summary_json TEXT NOT NULL,sources_json TEXT,updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS confidence_log(id INTEGER PRIMARY KEY AUTOINCREMENT,position_id INTEGER NOT NULL,ts TEXT NOT NULL,thesis REAL,forecast REAL,target REAL,position REAL,valuation TEXT,detail_json TEXT);
 CREATE INDEX IF NOT EXISTS ix_conflog ON confidence_log(position_id,ts DESC);
+CREATE TABLE IF NOT EXISTS kb_entities(entity_id TEXT PRIMARY KEY,cik INTEGER,legal_name TEXT,trading_name TEXT,entity_kind TEXT,security_type TEXT,adr INTEGER,operating INTEGER,active INTEGER DEFAULT 1,country TEXT,state_inc TEXT,fiscal_year_end TEXT,sic TEXT,sic_description TEXT,exchange TEXT,sector TEXT,industry TEXT,sub_industry TEXT,valid_from TEXT,valid_to TEXT,first_seen TEXT,last_verified TEXT,source TEXT,source_record TEXT,confidence REAL,knowledge_status TEXT,version INTEGER DEFAULT 1,updated TEXT);
+CREATE INDEX IF NOT EXISTS ix_kb_ent_cik ON kb_entities(cik);
+CREATE INDEX IF NOT EXISTS ix_kb_ent_status ON kb_entities(knowledge_status,last_verified);
+CREATE TABLE IF NOT EXISTS kb_identifiers(id INTEGER PRIMARY KEY AUTOINCREMENT,entity_id TEXT NOT NULL,kind TEXT NOT NULL,value TEXT NOT NULL,exchange TEXT,security_type TEXT,share_class TEXT,adr INTEGER,is_primary INTEGER DEFAULT 0,valid_from TEXT,valid_to TEXT,first_seen TEXT,last_verified TEXT,source TEXT,source_record TEXT,confidence REAL,flags_json TEXT);
+CREATE INDEX IF NOT EXISTS ix_kb_id_value ON kb_identifiers(kind,value);
+CREATE INDEX IF NOT EXISTS ix_kb_id_entity ON kb_identifiers(entity_id);
+CREATE TABLE IF NOT EXISTS kb_aliases(id INTEGER PRIMARY KEY AUTOINCREMENT,entity_id TEXT NOT NULL,alias TEXT NOT NULL,alias_norm TEXT NOT NULL,kind TEXT,valid_from TEXT,valid_to TEXT,source TEXT,confidence REAL,collision INTEGER DEFAULT 0,last_verified TEXT);
+CREATE INDEX IF NOT EXISTS ix_kb_alias_norm ON kb_aliases(alias_norm);
+CREATE INDEX IF NOT EXISTS ix_kb_alias_entity ON kb_aliases(entity_id);
+CREATE TABLE IF NOT EXISTS kb_profiles(entity_id TEXT PRIMARY KEY,summary TEXT,summary_rule TEXT,sector TEXT,industry TEXT,sub_industry TEXT,products_json TEXT,brands_json TEXT,subsidiaries_json TEXT,revenue_model TEXT,customer_type TEXT,cyclicality TEXT,capital_intensity TEXT,regulatory_intensity TEXT,gov_dependency TEXT,regions_json TEXT,status TEXT,confidence REAL,source TEXT,evidence_json TEXT,last_verified TEXT,updated TEXT);
+CREATE TABLE IF NOT EXISTS kb_segments(id INTEGER PRIMARY KEY AUTOINCREMENT,entity_id TEXT NOT NULL,name TEXT,kind TEXT,share REAL,period TEXT,source TEXT,confidence REAL,last_verified TEXT);
+CREATE INDEX IF NOT EXISTS ix_kb_seg_entity ON kb_segments(entity_id);
+CREATE TABLE IF NOT EXISTS kb_products(id INTEGER PRIMARY KEY AUTOINCREMENT,entity_id TEXT NOT NULL,name TEXT,kind TEXT,source TEXT,confidence REAL,last_verified TEXT);
+CREATE INDEX IF NOT EXISTS ix_kb_prod_entity ON kb_products(entity_id);
+CREATE TABLE IF NOT EXISTS kb_exposures(id INTEGER PRIMARY KEY AUTOINCREMENT,entity_id TEXT NOT NULL,exp_type TEXT NOT NULL,subject TEXT NOT NULL,channel TEXT,dir_rise REAL,dir_fall REAL,strength REAL,confidence REAL,event_types_json TEXT,lag_days REAL,horizon TEXT,valid_from TEXT,valid_to TEXT,source TEXT,evidence TEXT,last_verified TEXT,first_known TEXT,status TEXT);
+CREATE INDEX IF NOT EXISTS ix_kb_exp_entity ON kb_exposures(entity_id,exp_type);
+CREATE INDEX IF NOT EXISTS ix_kb_exp_subject ON kb_exposures(exp_type,subject);
+CREATE TABLE IF NOT EXISTS kb_relationships(rel_id TEXT PRIMARY KEY,src_entity TEXT NOT NULL,dst_entity TEXT NOT NULL,rel_type TEXT NOT NULL,directional INTEGER,mechanism TEXT,strength REAL,cost_revenue_share REAL,substitutability TEXT,event_types_json TEXT,default_effect REAL,confidence REAL,source TEXT,evidence TEXT,valid_from TEXT,valid_to TEXT,last_verified TEXT,first_known TEXT,status TEXT);
+CREATE INDEX IF NOT EXISTS ix_kb_rel_src ON kb_relationships(src_entity,rel_type);
+CREATE INDEX IF NOT EXISTS ix_kb_rel_dst ON kb_relationships(dst_entity,rel_type);
+CREATE TABLE IF NOT EXISTS kb_relationship_evidence(id INTEGER PRIMARY KEY AUTOINCREMENT,rel_id TEXT NOT NULL,kind TEXT,url TEXT,note TEXT,source TEXT,retrieved TEXT);
+CREATE INDEX IF NOT EXISTS ix_kb_relev ON kb_relationship_evidence(rel_id);
+CREATE TABLE IF NOT EXISTS kb_financial_snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT,entity_id TEXT NOT NULL,ticker TEXT,taken TEXT NOT NULL,period_end TEXT,filed TEXT,metrics_json TEXT,flags_json TEXT,freshness_json TEXT,source_accession TEXT,taxonomy TEXT,status TEXT,reliability TEXT,first_known TEXT);
+CREATE INDEX IF NOT EXISTS ix_kb_fin ON kb_financial_snapshots(entity_id,taken DESC);
+CREATE TABLE IF NOT EXISTS kb_market_snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT,entity_id TEXT NOT NULL,ticker TEXT,observed TEXT NOT NULL,price REAL,price_ts TEXT,mcap REAL,mcap_ts TEXT,adv_usd REAL,adv_shares REAL,spread_bps REAL,vol_daily REAL,chg_5d REAL,chg_20d REAL,chg_60d REAL,sector_etf TEXT,index_membership TEXT,liquidity_class TEXT,short_eligible INTEGER,options_eligible INTEGER,freshness_json TEXT,status TEXT);
+CREATE INDEX IF NOT EXISTS ix_kb_mkt ON kb_market_snapshots(entity_id,observed DESC);
+CREATE TABLE IF NOT EXISTS kb_filing_events(id INTEGER PRIMARY KEY AUTOINCREMENT,entity_id TEXT,cik INTEGER,ticker TEXT,accession TEXT NOT NULL,form TEXT,filed TEXT,period TEXT,amendment INTEGER DEFAULT 0,item TEXT,event_type TEXT,fact_json TEXT,xbrl_taxonomy TEXT,xbrl_tag TEXT,unit TEXT,value REAL,source_url TEXT,first_known TEXT,retrieved TEXT,reliability TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_kb_filing ON kb_filing_events(accession,IFNULL(item,''),IFNULL(event_type,''));
+CREATE INDEX IF NOT EXISTS ix_kb_filing_t ON kb_filing_events(ticker,first_known);
+CREATE TABLE IF NOT EXISTS kb_derived_impacts(id INTEGER PRIMARY KEY AUTOINCREMENT,event_id INTEGER,created TEXT,mode TEXT,src_ticker TEXT,dst_ticker TEXT,hops INTEGER,path_json TEXT,rel_id TEXT,rel_type TEXT,rule_id TEXT,mechanism TEXT,direction REAL,direction_conf REAL,magnitude_adj REAL,horizon TEXT,evidence_json TEXT,applicability TEXT,abstain_reason TEXT,influence_class TEXT,knowledge_json TEXT);
+CREATE INDEX IF NOT EXISTS ix_kb_imp_event ON kb_derived_impacts(event_id);
+CREATE INDEX IF NOT EXISTS ix_kb_imp_dst ON kb_derived_impacts(dst_ticker,created);
+CREATE TABLE IF NOT EXISTS event_expiry_rules(rule_id TEXT PRIMARY KEY,event_family TEXT,event_types_json TEXT,onset_h REAL,peak_h REAL,decay_h REAL,expiry_h REAL,unresolved_mult REAL,notes TEXT,version INTEGER DEFAULT 1,active INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS event_lifecycle(id INTEGER PRIMARY KEY AUTOINCREMENT,event_id INTEGER,ticker TEXT,event_type TEXT,occurred TEXT,first_seen TEXT,published TEXT,onset TEXT,peak TEXT,decay_end TEXT,default_expiry TEXT,unresolved INTEGER,superseded_by INTEGER,effective_expiry TEXT,rule_id TEXT,modifiers_json TEXT,generic_stale INTEGER,eventaware_stale INTEGER,computed TEXT);
+CREATE INDEX IF NOT EXISTS ix_lifecycle_event ON event_lifecycle(event_id,ticker);
+CREATE TABLE IF NOT EXISTS event_materiality(id INTEGER PRIMARY KEY AUTOINCREMENT,event_id INTEGER,ticker TEXT,kind TEXT,numerator_json TEXT,denominator_json TEXT,calc TEXT,result REAL,band TEXT,confidence REAL,missing_json TEXT,may_influence INTEGER,computed TEXT);
+CREATE INDEX IF NOT EXISTS ix_materiality_event ON event_materiality(event_id,ticker);
+CREATE TABLE IF NOT EXISTS company_event_states(ticker TEXT PRIMARY KEY,entity_id TEXT,state_version INTEGER,state_json TEXT,near_dir REAL,medium_dir REAL,net_dir REAL,confidence REAL,expiry TEXT,last_material TEXT,updated TEXT);
+CREATE TABLE IF NOT EXISTS company_event_state_history(id INTEGER PRIMARY KEY AUTOINCREMENT,ticker TEXT NOT NULL,state_version INTEGER,as_of TEXT,trigger_event_id INTEGER,relation TEXT,state_json TEXT,created TEXT);
+CREATE INDEX IF NOT EXISTS ix_state_hist ON company_event_state_history(ticker,as_of);
+CREATE TABLE IF NOT EXISTS market_regimes(id INTEGER PRIMARY KEY AUTOINCREMENT,regime_id TEXT NOT NULL,detected TEXT NOT NULL,inputs_json TEXT,input_ts_json TEXT,confidence REAL,started TEXT,last_update TEXT,expiry TEXT,rule_trace TEXT,active INTEGER DEFAULT 1);
+CREATE INDEX IF NOT EXISTS ix_regimes ON market_regimes(regime_id,detected DESC);
+CREATE TABLE IF NOT EXISTS redteam_interventions(id INTEGER PRIMARY KEY AUTOINCREMENT,decision_id INTEGER,ticker TEXT,created TEXT,side TEXT,event_type TEXT,event_family TEXT,origin TEXT,regime TEXT,conf_band TEXT,mode TEXT,original_action TEXT,original_size_pct REAL,final_action TEXT,final_size_pct REAL,combined_mult REAL,hard_veto INTEGER,block_reason TEXT,objections_json TEXT,hyp_entry REAL,hyp_stop REAL,hyp_target REAL,horizon_days INTEGER,entry_basis TEXT);
+CREATE INDEX IF NOT EXISTS ix_interv_decision ON redteam_interventions(decision_id);
+CREATE TABLE IF NOT EXISTS intervention_outcomes(intervention_id INTEGER PRIMARY KEY,measured TEXT,r1 REAL,r3 REAL,r5 REAL,mfe REAL,mae REAL,first_hit TEXT,helped INTEGER,gain_avoided REAL,gain_missed REAL,loss_avoided REAL,loss_added REAL,net_benefit REAL,status TEXT);
+CREATE TABLE IF NOT EXISTS evaluation_labels(case_id TEXT PRIMARY KEY,stratum TEXT,event_uid TEXT,label_json TEXT,labeler TEXT,labeled_at TEXT,dataset_version TEXT);
+CREATE TABLE IF NOT EXISTS evaluation_results(id INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT,dataset_version TEXT,engine_version TEXT,metric TEXT,value REAL,n INTEGER,detail_json TEXT,created TEXT);
+CREATE TABLE IF NOT EXISTS knowledge_refresh_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT,started TEXT,finished TEXT,status TEXT,params_json TEXT,processed INTEGER DEFAULT 0,failed INTEGER DEFAULT 0,cursor TEXT,notes TEXT,resumed_from INTEGER);
+CREATE TABLE IF NOT EXISTS knowledge_coverage(entity_id TEXT PRIMARY KEY,ticker TEXT,layer TEXT,identity_status TEXT,profile_status TEXT,financial_status TEXT,market_status TEXT,exposure_status TEXT,relationship_status TEXT,filings_status TEXT,completeness REAL,priority INTEGER DEFAULT 6,next_due TEXT,last_attempt TEXT,last_ok TEXT,failures INTEGER DEFAULT 0,last_error TEXT,updated TEXT);
+CREATE INDEX IF NOT EXISTS ix_cov_due ON knowledge_coverage(priority,next_due);
+CREATE INDEX IF NOT EXISTS ix_cov_ticker ON knowledge_coverage(ticker);
 """
 
 NEW_COLUMNS = {

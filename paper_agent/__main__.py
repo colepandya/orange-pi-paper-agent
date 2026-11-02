@@ -36,6 +36,19 @@ def main(argv=None) -> int:
     sub.add_parser("scorecard", help="did the reasoning engine and its red team earn their influence? (outcomes of what it would have blocked, accuracy by event type)")
     gp = sub.add_parser("graph", help="show a stock's relationship graph and what an event there would do")
     gp.add_argument("ticker", nargs="?", default="NVDA")
+    kp = sub.add_parser("kb", help="company knowledge base: reconcile | bootstrap | refresh | coverage | unresolved | provenance | stale | resources")
+    kp.add_argument("what", choices=["reconcile", "bootstrap", "refresh", "coverage", "unresolved", "provenance", "stale", "resources", "universe-report", "universe-check"])
+    kp.add_argument("--dry-run", action="store_true")
+    kp.add_argument("--limit", type=int, default=None)
+    kp.add_argument("--only", default="")
+    kp.add_argument("--max-batches", type=int, default=None)
+    kp.add_argument("--json", action="store_true")
+    kp.add_argument("--tickers", default="V,NEM,GOOG,BRK-B,TSM,ASML,MA,JPM")
+    cop = sub.add_parser("company", help="what the bot knows about one company, and what it does not")
+    cop.add_argument("ticker")
+    evp = sub.add_parser("eval", help="score the reasoning engine on the labelled real-news sets (each aspect separately; no combined figure)")
+    evp.add_argument("--file", default="")
+    evp.add_argument("--save", action="store_true")
     ap2 = sub.add_parser("ask", help="ask the reasoning engine a question, e.g.  ask why NVDA   /   ask what if TSM cuts guidance   /   ask help")
     ap2.add_argument("question", nargs="+")
     op = sub.add_parser("optionsprobe", help="test the four free options feeds for one stock and show the contract the bot would pick")
@@ -215,6 +228,11 @@ def main(argv=None) -> int:
         return 0
     if args.cmd == "universe":
         print(universe_mod.refresh(os.path.join(CONFIG_DIR, "watchlist.json")))
+        try:                                                                         # the knowledge base follows the universe, in the same weekly job and outside the trading cycle; it can never fail this job
+            from . import kbcli, net
+            print("knowledge base:", kbcli.after_universe(db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"]), cfg, pipeline.load_universe().watch, utcnow(), net.get_json))
+        except Exception as ex:  # noqa: BLE001
+            print("knowledge-base follow-up skipped: %s: %s" % (type(ex).__name__, ex))
         return 0
     if args.cmd == "backup":
         try:
@@ -227,6 +245,9 @@ def main(argv=None) -> int:
         except Exception:  # noqa: BLE001 - the growth record is a nicety; the backup itself succeeded
             pass
         return 0
+    if args.cmd in ("kb", "company", "eval"):                                     # the company knowledge base and the evaluation: heavy work is run from here, never inside the trading cycle
+        from . import kbcli
+        return kbcli.run(args, db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"]), cfg)
     if args.cmd == "serve":
         from . import dashboard
         c = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])

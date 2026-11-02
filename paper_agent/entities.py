@@ -37,6 +37,7 @@ _TARGET_MARKERS = re.compile(r"\b(to be acquired|to be bought|agrees to be|recei
 
 # Well-known brand / short names -> ticker (applied only when the ticker is in the loaded universe). Wire headlines use these, not SEC legal names.
 BRANDS = {
+    "instacart": "CART", "stmicro": "STM", "stmicroelectronics": "STM",
     "google": "GOOGL", "alphabet": "GOOGL", "youtube": "GOOGL", "waymo": "GOOGL", "facebook": "META", "instagram": "META", "whatsapp": "META", "meta": "META", "amazon": "AMZN", "aws": "AMZN",
     "apple": "AAPL", "microsoft": "MSFT", "azure": "MSFT", "nvidia": "NVDA", "tesla": "TSLA", "netflix": "NFLX", "disney": "DIS", "walmart": "WMT", "costco": "COST", "target corp": "TGT",
     "jpmorgan": "JPM", "jp morgan": "JPM", "goldman sachs": "GS", "goldman": "GS", "morgan stanley": "MS", "bank of america": "BAC", "wells fargo": "WFC", "citigroup": "C", "citi": "C",
@@ -120,10 +121,30 @@ def derive_aliases(name: str) -> Tuple[str, List[str], str]:
     return n, multi, (words[0].lower() if words else "")
 
 
+_CORP = re.compile(r"\b(incorporated|inc|corporation|corp|company|co|ltd|limited|llc|lp|plc|trust)\b")
+
+
+def _core_name(name: str) -> str:
+    """The distinctive part of a legal name, for the is-the-full-name-in-the-story test."""
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9& ]+", " ", _CORP.sub(" ", norm(name or "")))).strip()
+
+
+_FILING_HEADER = re.compile(r"^(?:[0-9A-Z/\-]{1,10})\s+-\s+(.+?)\s+\((\d{10})\)\s+\((?:Filer|Issuer|Reporting|Subject|Filed by|Filed for)\)")
+_FINAL_DOT = re.compile(r"([a-z]{3,})\.(?=\s|$)")
+_POSSESSIVE = re.compile(r"(\w)'s\b")
+
+
 class Universe:
     def __init__(self, watch: Dict[str, dict], common_words: Optional[set] = None):
         self.watch = watch or {}
-        self.common = {w.lower() for w in (common_words or ())}          # words seen in lowercase in real news: ordinary English, never a company name on their own
+        self.common = {w.lower() for w in (common_words or ())}
+        self.guard = True                                                    # kb.entity_guard: a fund, SPAC or other non-operating instrument matches only on its own tag or full name (set from the settings by the pipeline)
+        from . import kbdata
+        self.nonop: Dict[str, str] = {}
+        for t_, v_ in (watch or {}).items():
+            c_ = kbdata.classify_instrument((v_ or {}).get("name") or "", t_)
+            if c_["kind"] != "operating_equity":
+                self.nonop[t_] = _core_name((v_ or {}).get("name") or "")          # words seen in lowercase in real news: ordinary English, never a company name on their own
         self.by_cik: Dict[int, str] = {}
         self.index: Dict[str, List[Tuple[str, str, bool, float]]] = {}   # anchor token -> [(phrase_norm, ticker, single_token, base_confidence)]
         derived: Dict[str, Tuple[str, List[str], str]] = {t: derive_aliases(m.get("name", "")) for t, m in self.watch.items()}
@@ -150,7 +171,7 @@ class Universe:
             if cik:
                 try:
                     self.by_cik[int(cik)] = t
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     pass
             clean, multi, first = derived[t]
             for v in [meta.get("name", "")] + list(meta.get("aliases", []) or []) + [clean] + multi:
@@ -191,6 +212,16 @@ class Universe:
 
     def match(self, title: str, summary: str = "", max_tickers: int = 8) -> List[Tuple[str, float, str]]:
         """Returns [(ticker, confidence, how)] sorted by confidence."""
+        fh = _FILING_HEADER.match(title or "")
+        if fh:                                                                  # an EDGAR index entry names its FILER and gives the filer's CIK: that is authoritative, a guess from words in the name is not
+            t_cik = self.by_cik.get(int(fh.group(2)))
+            if t_cik and t_cik in self.watch:
+                return [(t_cik, 0.95, "cik")]
+            out_f = [m for m in self._match_text(title, summary, max_tickers) if m[2] in ("name", "exchange_tag", "cashtag", "cik") and (m[2] != "name" or len(self.nonop.get(m[0], "x y").split()) >= 2 or m[0] not in self.nonop)]
+            return [m for m in out_f if len(norm(self.watch[m[0]].get("name", "")).split()) <= 1 or _core_name(self.watch[m[0]].get("name", "")) in _core_name(fh.group(1)) or _core_name(fh.group(1)) in _core_name(self.watch[m[0]].get("name", ""))]
+        return self._match_text(title, summary, max_tickers)
+
+    def _match_text(self, title: str, summary: str = "", max_tickers: int = 8) -> List[Tuple[str, float, str]]:
         raw = (title or "") + " . " + _BYLINE.sub("", (summary or ""))[:1200]
         found: Dict[str, Tuple[float, str]] = {}
 
@@ -215,6 +246,10 @@ class Universe:
         raw = names_raw
         low = " " + norm(raw) + " "
         title_n = " " + norm(title or "") + " "
+        low = low + "| " + _POSSESSIVE.sub(r"\1", low)                        # "Google's clearing": the company is Google. A second view without the possessive 's, joined by a separator no phrase contains (so names that ARE possessive, McDonald's, still match above)
+        title_n = title_n + "| " + _POSSESSIVE.sub(r"\1", title_n)
+        low = low + "| " + _FINAL_DOT.sub(r"\1", low)                       # "...buying Lumentum. Analysts say": the full stop ends the sentence, it is not part of the name
+        title_n = title_n + "| " + _FINAL_DOT.sub(r"\1", title_n)
         named: List[Tuple[str, float, str, str]] = []
         for tok in set(low.split()):
             for phrase, t, single, base in self.index.get(tok, ()):
@@ -245,11 +280,16 @@ class Universe:
                 c *= COUNTERPARTY                                      # "deal WITH Microsoft": the counterparty is not the subject
             add(t, c, h)
         raw = raw_for_names
-        for m in _BARE.finditer(title or ""):
+        letters = [ch for ch in (title or "") if ch.isalpha()]
+        shouting = bool(letters) and sum(ch.isupper() for ch in letters) / len(letters) > 0.6          # an ALL-CAPS headline turns every word (NET, FOR, ONE) into a "ticker"
+        for m in ([] if shouting else _BARE.finditer(title or "")):
             t = m.group(1)
             if t not in COMMON_TICKERS and t in self.watch:
                 add(t, 0.5, "bare_ticker")
         out = sorted(((t, c, h) for t, (c, h) in found.items()), key=lambda x: (-x[1], x[0]))
+        if self.guard and self.nonop:
+            text_n = re.sub(r"\s+", " ", " " + re.sub(r"[^a-z0-9& ]+", " ", _CORP.sub(" ", norm(title or "") + " " + norm((summary or "")[:600]))) + " ")
+            out = [(t, c, h) for (t, c, h) in out if t not in self.nonop or h in ("exchange_tag", "cashtag", "cik") or (len(self.nonop[t]) >= 6 and (" " + self.nonop[t] + " ") in text_n)]
         return out[:max_tickers]
 
     def mna_role(self, ticker: str, title: str) -> str:

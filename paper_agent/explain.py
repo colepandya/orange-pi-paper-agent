@@ -309,20 +309,28 @@ def one_line(conn, cfg: dict, did: int) -> str:
     return ex["headline"] if ex else ""
 
 
+def article_html(ex: dict, heading_tag: str = "h3") -> str:
+    """The 'what the full article says' section, shared by the decision page and the unified Why page."""
+    mark = {True: "<span class=ok>&#10003;</span>", False: "<span class=bad>&#10007;</span>", None: "<span class=mut>&#8987;</span>"}
+    o: list = []
+    art = ex.get("article")
+    if art:
+        how = ("Read the full article page" if art["via"] == "page" else "Only the feed's short snippet was available (%s)" % art["status"].lower().replace("_", " "))
+        verdict = ("%s (%+.2f, confidence %.0f%%)" % ("good news" if art["direction"] > 0.15 else "bad news" if art["direction"] < -0.15 else "no clear direction", art["direction"], art["confidence"] * 100))
+        facts = "".join("<li>%s <b>%s</b><br><span class=mut>&ldquo;%s&rdquo;</span></li>" % (mark[True if pol > 0.05 else False if pol < -0.05 else None], esc(txt), esc(src)) for pol, txt, src in art["facts"]) or "<li class=mut>No hard facts (numbers, deals, ratings) found in the text.</li>"
+        o.append("<"+heading_tag+">What the full article says</"+heading_tag+"><p>%s. Reads as <b>%s</b>%s.</p><ul class=checks>%s</ul>%s%s" % (
+            esc(how), esc(verdict), " &middot; %s" % esc(art["type"]) if art["type"] and art["type"] != "report" else "", facts,
+            ("<p class=bad>Old news: %s</p>" % esc(art["stale"])) if art["stale"] else "", ("<p><b>What this changed:</b> %s</p>" % esc(art["changed"])) if art["changed"] else ""))
+    return "".join(o)
+
+
 def render_html(ex: dict) -> str:
     mark = {True: "<span class=ok>&#10003;</span>", False: "<span class=bad>&#10007;</span>", None: "<span class=mut>&#8987;</span>"}
     o = ["<div class='why why-%s'>" % esc(ex["tone"]), "<h2>%s</h2><p>%s</p>" % (esc(ex["headline"]), esc(ex["summary"]))]
     if ex["trigger"]:
         t = ex["trigger"]
         o.append("<h3>What triggered it</h3><blockquote>&ldquo;%s&rdquo;<br><span class=mut>%s</span></blockquote><p>%s %s</p>" % (esc(t["headline"]), esc(t["source"]), esc(t["line"]), esc(t["match"])))
-    art = ex.get("article")
-    if art:
-        how = ("Read the full article page" if art["via"] == "page" else "Only the feed's short snippet was available (%s)" % art["status"].lower().replace("_", " "))
-        verdict = ("%s (%+.2f, confidence %.0f%%)" % ("good news" if art["direction"] > 0.15 else "bad news" if art["direction"] < -0.15 else "no clear direction", art["direction"], art["confidence"] * 100))
-        facts = "".join("<li>%s <b>%s</b><br><span class=mut>&ldquo;%s&rdquo;</span></li>" % (mark[True if pol > 0.05 else False if pol < -0.05 else None], esc(txt), esc(src)) for pol, txt, src in art["facts"]) or "<li class=mut>No hard facts (numbers, deals, ratings) found in the text.</li>"
-        o.append("<h3>What the full article says</h3><p>%s. Reads as <b>%s</b>%s.</p><ul class=checks>%s</ul>%s%s" % (
-            esc(how), esc(verdict), " &middot; %s" % esc(art["type"]) if art["type"] and art["type"] != "report" else "", facts,
-            ("<p class=bad>Old news: %s</p>" % esc(art["stale"])) if art["stale"] else "", ("<p><b>What this changed:</b> %s</p>" % esc(art["changed"])) if art["changed"] else ""))
+    o.append(article_html(ex))
     if ex["checks"]:
         o.append("<h3>The checks, in plain words</h3><ul class=checks>%s</ul>" % "".join("<li>%s %s</li>" % (mark[ok if ok in (True, False) else None], esc(txt)) for ok, txt in ex["checks"]))
     if ex["numbers"]:

@@ -50,7 +50,7 @@ RULES: Dict[str, dict] = {
     "fundamentals_direct": {"cls": "veto", "mult": 1.0, "label": "the catalyst is itself a financing or solvency event and the reported numbers are severe"},
     "residual": {"cls": "info", "mult": 1.0, "label": "no specific objection found"},
 }
-FAMILY = {"earnings_beat": "results", "earnings_miss": "results", "guidance_raise": "results", "guidance_cut": "results", "contract_win": "contracts", "contract_loss": "contracts", "regulatory_action": "regulatory",
+FAMILY = {"earnings_report": "results", "earnings_beat": "results", "earnings_miss": "results", "guidance_raise": "results", "guidance_cut": "results", "contract_win": "contracts", "contract_loss": "contracts", "regulatory_action": "regulatory",
           "regulatory_approval": "regulatory", "litigation": "legal", "production_disruption": "operations", "recall": "operations", "product_launch": "operations", "cyber_incident": "operations",
           "merger_acquisition": "corporate", "partnership": "corporate", "bankruptcy_distress": "distress", "buyback_dividend": "capital", "capital_raise": "capital", "leadership_change": "people"}
 SEGMENT = re.compile(r"\b(segment|division|unit|business|cloud|data ?cent(?:er|re)|automotive|gaming|advertising|china|europe|asia|international|services|hardware)\b", re.I)
@@ -175,8 +175,12 @@ def review(conn, cfg: dict, cand: dict, f: dict, comp: dict, th: dict, regime: d
     elif st == "rumor":
         bear("rumor", 0.55, hits[0] if hits else "unconfirmed-source wording")
     age = _f(cand.get("age_hours"))
-    if age > 36:
-        bear("stale_catalyst", 0.9, "the news is %.0f hours old" % age)
+    lc = _expiry(conn, cfg, cand, now, age, st)                                                          # the event-specific expiry (None when switched off): explained in observe mode, decisive only in active
+    stale = age > 36
+    if lc is not None and (cfg.get("kb") or {}).get("expiry_mode") == "active":
+        stale = bool(lc["eventaware_stale"])
+    if stale:
+        bear("stale_catalyst", 0.9, "the news is %.0f hours old" % age + ((" | " + lc["explanation"] + (" The flat 36-hour rule would say: %s." % ("stale" if age > 36 else "still live"))) if lc else ""))
     elif age > 12:
         bear("aging_news", min(0.6, 0.2 + age / 80.0), "the news is %.0f hours old" % age)
     if cand.get("event_id") and cand.get("origin") in (None, "event"):
@@ -278,6 +282,18 @@ def review(conn, cfg: dict, cand: dict, f: dict, comp: dict, th: dict, regime: d
         conn.execute("INSERT INTO redteam_reviews(created,ticker,decision_id,net_conviction,fatal_flaw,valuation_view,gate,review_json) VALUES(?,?,?,?,?,?,?,?)",
                      (iso(now), cand["ticker"], decision_id, rv["net_conviction"], int(rv["fatal_flaw"]), rv["valuation_view"], "", json.dumps(rv, sort_keys=True)))
     return rv
+
+
+def _expiry(conn, cfg: dict, cand: dict, now, age: float, state: Optional[str]) -> Optional[dict]:
+    if (cfg.get("kb") or {}).get("expiry_mode", "observe") == "off":
+        return None
+    try:
+        from . import kbevent
+        pub = iso(now - dt.timedelta(hours=age))
+        return kbevent.lifecycle(conn, cfg, {"event_id": cand.get("event_id"), "ticker": cand.get("ticker"), "event_type": cand.get("event_type"), "state": "rumored" if state == "rumor" else None, "text": cand.get("headline") or "",
+                                             "published": pub, "created": pub, "independent_sources": cand.get("independent_sources")}, now, persist=False)
+    except Exception:  # noqa: BLE001 - an explanation must never break a review
+        return None
 
 
 def _denial_for(conn, cand: dict) -> Optional[dict]:

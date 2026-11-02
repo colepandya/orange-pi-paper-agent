@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, List, Optional
 
-from . import (candqueue, config, earnings, facts as facts_mod, pathways, graph, options, optionsdata, reasoning, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, whatif, marketdata as md, monitor, narrative, net, portfolio as pf,
+from . import (kbstage, candqueue, config, earnings, facts as facts_mod, pathways, graph, options, optionsdata, reasoning, prices, company, contradiction, db, event_intel, evidence, executor, flows, gaps, learning, llm_client, stamp, whatif, marketdata as md, monitor, narrative, net, portfolio as pf,
                quotes, regime as regime_engine, sources, thesis, trader)
 from .config import load_json, CONFIG_DIR
 from .entities import Universe
@@ -277,6 +277,7 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
             db.mark_run(conn, "facts:" + t, "", now)
         return done
     report["facts"] = _stage(report, "facts", refresh_facts)
+    report["kb"] = _stage(report, "kb", kbstage.run, conn, cfg, universe.watch, now, deps.fetch_json, sleep=deps.sleep)                  # company knowledge: bounded, isolated, observe-only by default
 
     # ---- capital allocation
     if cfg["graph"].get("enabled", True):

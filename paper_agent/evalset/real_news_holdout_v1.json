@@ -1,0 +1,1475 @@
+{
+ "dataset_version": "real-news-holdout-v1",
+ "labeler": "the build's author (Claude), single labeller, headline-only; labelled BEFORE the engine was run on these cases and not used to change any rule",
+ "labeled_at": "2026-11-01",
+ "source": "31 Oct 2026 database export",
+ "cases": [
+  {
+   "case_id": "c00747",
+   "stratum": "material_event",
+   "event_id": 747,
+   "headline": "Alere San Diego, Inc. recall: Fisher Scientific Sure-Vue Serum/Urine hCG, Model/ Part: FHC-202/23900529, FHC-202/23900528;    Beckman Coulter Inc's ICON 25 hCG, Model/ Pa",
+   "published": "2026-10-26T03:20:34+00:00",
+   "source": "openFDA Device Enforcement",
+   "cluster_id": 747,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09242",
+   "stratum": "material_event",
+   "event_id": 9242,
+   "headline": "What Microsoft (MSFT) Said on Its Q1 Earnings Call",
+   "published": "2026-10-29T04:04:15+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 9242,
+   "label": {
+    "primary": "MSFT",
+    "involved": {
+     "MSFT": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": "medium",
+    "timeframe": "days",
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08643",
+   "stratum": "material_event",
+   "event_id": 8643,
+   "headline": "Microsoft hits 10 quarters of record- breaking revenue in a row",
+   "published": "2026-10-28T21:25:30+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8537,
+   "label": {
+    "primary": "MSFT",
+    "involved": {
+     "MSFT": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": "medium",
+    "timeframe": "days",
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06019",
+   "stratum": "material_event",
+   "event_id": 6019,
+   "headline": "Russell Brand says he couldn\u2019t find anyone to give evidence on his behalf in rape and sexual assault trial \u2013 latest updates",
+   "published": "2026-10-28T11:54:17+00:00",
+   "source": "The Guardian World",
+   "cluster_id": 5794,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13792",
+   "stratum": "material_event",
+   "event_id": 13792,
+   "headline": "Google value plunges by $500bn as AI search hits ad sales",
+   "published": "2026-10-29T22:17:52+00:00",
+   "source": "BBC World News",
+   "cluster_id": 13215,
+   "label": {
+    "primary": "GOOGL",
+    "involved": {
+     "GOOGL": "subject"
+    },
+    "family": "other",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": "high",
+    "timeframe": "days",
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13394",
+   "stratum": "material_event",
+   "event_id": 13394,
+   "headline": "Intel reports Q3 revenue up 21% YoY to $16.5B, vs. $16.5B est., and forecasts Q4 revenue and adjusted EPS below estimates; INTC drops 22%+ after hours (Katie Tarasov/CNBC)",
+   "published": "2026-10-29T20:25:04+00:00",
+   "source": "Techmeme",
+   "cluster_id": 13394,
+   "label": {
+    "primary": "INTC",
+    "involved": {
+     "INTC": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": "high",
+    "timeframe": "days",
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08546",
+   "stratum": "material_event",
+   "event_id": 8546,
+   "headline": "Microsoft recorded $10 billion in revenue from OpenAI",
+   "published": "2026-10-28T21:34:30+00:00",
+   "source": "TechCrunch",
+   "cluster_id": 8546,
+   "label": {
+    "primary": "MSFT",
+    "involved": {
+     "MSFT": "subject"
+    },
+    "family": "other",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": "low",
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10665",
+   "stratum": "likely_abstain",
+   "event_id": 10665,
+   "headline": "424B2 - UBS AG (0001114446) (Filer)",
+   "published": "2026-10-29T14:15:39+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "UBS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06808",
+   "stratum": "likely_abstain",
+   "event_id": 6808,
+   "headline": "424B2 - MORGAN STANLEY (0000895421) (Filer)",
+   "published": "2026-10-28T15:32:34+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 6556,
+   "label": {
+    "primary": null,
+    "involved": {
+     "MS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c07452",
+   "stratum": "likely_abstain",
+   "event_id": 7452,
+   "headline": "424B2 - GOLDMAN SACHS GROUP INC (0000886982) (Filer)",
+   "published": "2026-10-28T18:46:21+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 6556,
+   "label": {
+    "primary": null,
+    "involved": {
+     "GS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c04099",
+   "stratum": "likely_abstain",
+   "event_id": 4099,
+   "headline": "424B2 - JPMorgan Chase Financial Co. LLC (0001665650) (Filer)",
+   "published": "2026-10-27T20:18:40+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 3081,
+   "label": {
+    "primary": null,
+    "involved": {
+     "JPM": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11479",
+   "stratum": "likely_abstain",
+   "event_id": 11479,
+   "headline": "424B2 - CITIGROUP INC (0000831001) (Filer)",
+   "published": "2026-10-29T17:22:14+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "C": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c01261",
+   "stratum": "likely_abstain",
+   "event_id": 1261,
+   "headline": "424B2 - Citigroup Global Markets Holdings Inc. (0000200245) (Filer)",
+   "published": "2026-10-26T14:57:54+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 828,
+   "label": {
+    "primary": null,
+    "involved": {
+     "C": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06413",
+   "stratum": "likely_abstain",
+   "event_id": 6413,
+   "headline": "424B2 - JPMORGAN CHASE & CO (0000019617) (Filer)",
+   "published": "2026-10-28T13:24:50+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 5676,
+   "label": {
+    "primary": null,
+    "involved": {
+     "JPM": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08645",
+   "stratum": "candidate_producing",
+   "event_id": 8645,
+   "headline": "Microsoft (NASDAQ:MSFT) posts better-than-expected sales in Q3 CY2026",
+   "published": "2026-10-28T21:21:48+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8645,
+   "label": {
+    "primary": "MSFT",
+    "involved": {
+     "MSFT": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": "medium",
+    "timeframe": "days",
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c14119",
+   "stratum": "candidate_producing",
+   "event_id": 14119,
+   "headline": "University Village Agrees To Be Acquired by Simon",
+   "published": "2026-10-30T12:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 14119,
+   "label": {
+    "primary": "SPG",
+    "involved": {
+     "SPG": "party"
+    },
+    "family": "corporate",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": "low",
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c14167",
+   "stratum": "candidate_producing",
+   "event_id": 14167,
+   "headline": "Swiss central bank posts bumper $23bn profit as gold, foreign assets soar",
+   "published": "2026-10-30T12:31:40+00:00",
+   "source": "CNBC Top News",
+   "cluster_id": 14167,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "other",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06064",
+   "stratum": "candidate_producing",
+   "event_id": 6064,
+   "headline": "ASTS Stock Slips Overnight As FCC Clears Amazon\u2019s $11.5B Globalstar Deal \u2014 Touts \u2018Even More Competition\u2019",
+   "published": "2026-10-28T01:43:42+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 6064,
+   "label": {
+    "primary": "GSAT",
+    "involved": {
+     "GSAT": "party",
+     "AMZN": "party",
+     "ASTS": "subject"
+    },
+    "family": "regulatory",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": "medium",
+    "timeframe": "days",
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10471",
+   "stratum": "blocked_idea",
+   "event_id": 10471,
+   "headline": "Pocketnest Partners with Tyfone",
+   "published": "2026-10-29T13:27:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 10471,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13013",
+   "stratum": "blocked_idea",
+   "event_id": 13013,
+   "headline": "Polymarket Deepens Partnership With Chainlink as Official Oracle for High-Speed Up/Down Markets and Launches Gold and Silver Trading",
+   "published": "2026-10-29T21:00:00+00:00",
+   "source": "PR Newswire Contracts",
+   "cluster_id": 13013,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11093",
+   "stratum": "blocked_idea",
+   "event_id": 11093,
+   "headline": "AI buildout hits snag as Google and Microsoft put off raising capex forecasts",
+   "published": "2026-10-29T16:06:47+00:00",
+   "source": "CNBC Top News",
+   "cluster_id": 11093,
+   "label": {
+    "primary": null,
+    "involved": {
+     "GOOGL": "subject",
+     "MSFT": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c14151",
+   "stratum": "blocked_idea",
+   "event_id": 14151,
+   "headline": "8-K - OpenWorld, Inc. (0001104038) (Filer)",
+   "published": "2026-10-30T12:33:15+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 14151,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06017",
+   "stratum": "blocked_idea",
+   "event_id": 6017,
+   "headline": "Amazon to buy satellite firm Globalstar in $11.57B deal",
+   "published": "2026-10-28T11:54:23+00:00",
+   "source": "Hacker News",
+   "cluster_id": 6017,
+   "label": {
+    "primary": "GSAT",
+    "involved": {
+     "AMZN": "party",
+     "GSAT": "party"
+    },
+    "family": "corporate",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": "high",
+    "timeframe": "days",
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10162",
+   "stratum": "blocked_idea",
+   "event_id": 10162,
+   "headline": "ServiceNow\u2019s 19% Crash Says Wall Street Thinks AI Will Eat Software. Its OpenAI Deal Says the Opposite.",
+   "published": "2026-10-29T11:02:58+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 10162,
+   "label": {
+    "primary": "NOW",
+    "involved": {
+     "NOW": "subject"
+    },
+    "family": "analyst",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": "low",
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09318",
+   "stratum": "rumour_or_denial",
+   "event_id": 9318,
+   "headline": "Hegseth reportedly fires U.S. top military planner as Trump downplays Iran peace talks",
+   "published": "2026-10-29T07:35:45+00:00",
+   "source": "CNBC Top News",
+   "cluster_id": 9318,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10985",
+   "stratum": "rumour_or_denial",
+   "event_id": 10985,
+   "headline": "Nvidia CEO reportedly targeted by Chinese spy",
+   "published": "2026-10-29T15:23:48+00:00",
+   "source": "The Guardian World",
+   "cluster_id": 10985,
+   "label": {
+    "primary": null,
+    "involved": {
+     "NVDA": "party"
+    },
+    "family": "legal",
+    "state": "rumored",
+    "direction": null,
+    "materiality": "low",
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10364",
+   "stratum": "rumour_or_denial",
+   "event_id": 10364,
+   "headline": "Marvell is reportedly close to buying Lumentum. Analysts say they see logic in a potential deal.",
+   "published": "2026-10-29T13:05:00+00:00",
+   "source": "MarketWatch Top Stories",
+   "cluster_id": 10364,
+   "label": {
+    "primary": "LITE",
+    "involved": {
+     "MRVL": "party",
+     "LITE": "party"
+    },
+    "family": "corporate",
+    "state": "rumored",
+    "direction": 1,
+    "materiality": "high",
+    "timeframe": "days",
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c00356",
+   "stratum": "rumour_or_denial",
+   "event_id": 356,
+   "headline": "Sources: Apple tweaked macOS for its OLED touch MacBook Pro, due Wednesday, with a dynamic interface that adapts to whether touch or the trackpad was last used (Mark Gurman/Bloomberg)",
+   "published": "2026-10-25T15:00:32+00:00",
+   "source": "Techmeme",
+   "cluster_id": 356,
+   "label": {
+    "primary": "AAPL",
+    "involved": {
+     "AAPL": "subject"
+    },
+    "family": "operations",
+    "state": "rumored",
+    "direction": null,
+    "materiality": "low",
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11845",
+   "stratum": "rumour_or_denial",
+   "event_id": 11845,
+   "headline": "6-K - TECK RESOURCES LTD (0000886986) (Filer)",
+   "published": "2026-10-29T18:56:22+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "TECK": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13902",
+   "stratum": "rumour_or_denial",
+   "event_id": 13902,
+   "headline": "6-K - Guardian Metal Resources PLC (0002039972) (Filer)",
+   "published": "2026-10-30T10:43:01+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 13902,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11914",
+   "stratum": "filing_derived",
+   "event_id": 11914,
+   "headline": "424B2 - GOLDMAN SACHS GROUP INC (0000886982) (Filer)",
+   "published": "2026-10-29T19:07:40+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "GS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06585",
+   "stratum": "filing_derived",
+   "event_id": 6585,
+   "headline": "424B2 - BARCLAYS BANK PLC (0000312070) (Filer)",
+   "published": "2026-10-28T14:30:09+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 6556,
+   "label": {
+    "primary": null,
+    "involved": {
+     "BCS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11887",
+   "stratum": "filing_derived",
+   "event_id": 11887,
+   "headline": "424B2 - BARCLAYS BANK PLC (0000312070) (Filer)",
+   "published": "2026-10-29T19:02:34+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "BCS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c02135",
+   "stratum": "filing_derived",
+   "event_id": 2135,
+   "headline": "424B2 - JPMorgan Chase Financial Co. LLC (0001665650) (Filer)",
+   "published": "2026-10-26T20:56:42+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 828,
+   "label": {
+    "primary": null,
+    "involved": {
+     "JPM": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11322",
+   "stratum": "filing_derived",
+   "event_id": 11322,
+   "headline": "424B2 - Morgan Stanley Finance LLC (0001666268) (Filer)",
+   "published": "2026-10-29T17:03:00+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "MS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c01808",
+   "stratum": "filing_derived",
+   "event_id": 1808,
+   "headline": "424B2 - JPMorgan Chase Financial Co. LLC (0001665650) (Filer)",
+   "published": "2026-10-26T20:09:17+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 828,
+   "label": {
+    "primary": null,
+    "involved": {
+     "JPM": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09807",
+   "stratum": "filing_derived",
+   "event_id": 9807,
+   "headline": "10-Q - ALTISOURCE PORTFOLIO SOLUTIONS S.A. (0001462418) (Filer)",
+   "published": "2026-10-29T11:01:33+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9428,
+   "label": {
+    "primary": null,
+    "involved": {
+     "ASPS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c03276",
+   "stratum": "duplicate_cluster",
+   "event_id": 3276,
+   "headline": "424B2 - MORGAN STANLEY (0000895421) (Filer)",
+   "published": "2026-10-27T14:57:08+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 3081,
+   "label": {
+    "primary": null,
+    "involved": {
+     "MS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c12314",
+   "stratum": "duplicate_cluster",
+   "event_id": 12314,
+   "headline": "8-K - Sysco Holdings Corp (0002134688) (Filer)",
+   "published": "2026-10-29T20:06:26+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 10481,
+   "label": {
+    "primary": null,
+    "involved": {
+     "SYY": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08206",
+   "stratum": "duplicate_cluster",
+   "event_id": 8206,
+   "headline": "8-K - Bausch & Lomb Corp (0001860742) (Filer)",
+   "published": "2026-10-28T20:39:58+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 7368,
+   "label": {
+    "primary": null,
+    "involved": {
+     "BLCO": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c05820",
+   "stratum": "duplicate_cluster",
+   "event_id": 5820,
+   "headline": "6-K - UBS AG (0001114446) (Filer)",
+   "published": "2026-10-28T10:45:54+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 5676,
+   "label": {
+    "primary": null,
+    "involved": {
+     "UBS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c02850",
+   "stratum": "duplicate_cluster",
+   "event_id": 2850,
+   "headline": "10-Q - Rallybio Corp (0001739410) (Filer)",
+   "published": "2026-10-27T12:08:12+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 2831,
+   "label": {
+    "primary": null,
+    "involved": {
+     "RLYB": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c11306",
+   "stratum": "duplicate_cluster",
+   "event_id": 11306,
+   "headline": "424B2 - GOLDMAN SACHS GROUP INC (0000886982) (Filer)",
+   "published": "2026-10-29T16:53:56+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 9900,
+   "label": {
+    "primary": null,
+    "involved": {
+     "GS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c03539",
+   "stratum": "duplicate_cluster",
+   "event_id": 3539,
+   "headline": "424B2 - MORGAN STANLEY (0000895421) (Filer)",
+   "published": "2026-10-27T16:45:10+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 3081,
+   "label": {
+    "primary": null,
+    "involved": {
+     "MS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06905",
+   "stratum": "contradiction_candidate",
+   "event_id": 6905,
+   "headline": "Budget 2026 live: \u00a3100 energy payment for millions and rise in bank tax as watchdog warns on stalling living standards",
+   "published": "2026-10-28T15:30:37+00:00",
+   "source": "The Guardian World",
+   "cluster_id": 6882,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09254",
+   "stratum": "contradiction_candidate",
+   "event_id": 9254,
+   "headline": "US man gets 30-year sentence for Minnesota fraud that drew Trump backlash",
+   "published": "2026-10-29T03:00:57+00:00",
+   "source": "Al Jazeera",
+   "cluster_id": 9148,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c07995",
+   "stratum": "contradiction_candidate",
+   "event_id": 7995,
+   "headline": "Microsoft reveals strong cloud growth amid financial reporting overhaul",
+   "published": "2026-10-28T20:20:00+00:00",
+   "source": "The Verge",
+   "cluster_id": 7995,
+   "label": {
+    "primary": "MSFT",
+    "involved": {
+     "MSFT": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": "medium",
+    "timeframe": "days",
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13427",
+   "stratum": "contradiction_candidate",
+   "event_id": 13427,
+   "headline": "Rivian (NASDAQ:RIVN) Q3 2026 Earnings Beat Estimates as Gross Profit and Guidance Improve",
+   "published": "2026-10-29T23:18:37+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 13427,
+   "label": {
+    "primary": "RIVN",
+    "involved": {
+     "RIVN": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 1,
+    "materiality": "medium",
+    "timeframe": "days",
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06274",
+   "stratum": "contradiction_candidate",
+   "event_id": 6274,
+   "headline": "Diebold Nixdorf (NYSE:DBD) Q3 2026 EPS Miss Overshadows In-Line Revenue",
+   "published": "2026-10-28T12:31:00+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 6274,
+   "label": {
+    "primary": "DBD",
+    "involved": {
+     "DBD": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": "medium",
+    "timeframe": "days",
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13497",
+   "stratum": "contradiction_candidate",
+   "event_id": 13497,
+   "headline": "Rivian Automotive (RIVN) Reports Q3 Loss, Beats Revenue Estimates",
+   "published": "2026-10-29T22:05:10+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 13497,
+   "label": {
+    "primary": "RIVN",
+    "involved": {
+     "RIVN": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": 0,
+    "materiality": "medium",
+    "timeframe": "days",
+    "abstain": false,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06882",
+   "stratum": "contradiction_candidate",
+   "event_id": 6882,
+   "headline": "Budget 2026 live: \u00a3100 energy payment for millions and rise in bank tax as watchdog warns on stalling living standards",
+   "published": "2026-10-28T15:30:37+00:00",
+   "source": "The Guardian Business",
+   "cluster_id": 6882,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": "c06905",
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c01970",
+   "stratum": "control_random",
+   "event_id": 1970,
+   "headline": "424B2 - UBS AG (0001114446) (Filer)",
+   "published": "2026-10-26T20:29:33+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 828,
+   "label": {
+    "primary": null,
+    "involved": {
+     "UBS": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06103",
+   "stratum": "control_random",
+   "event_id": 6103,
+   "headline": "Vodafone Group (LSE:VOD) Eyes Satellite Spectrum Bid, Is The 3% Discount Enough?",
+   "published": "2026-10-27T06:09:02+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 6103,
+   "label": {
+    "primary": "VOD",
+    "involved": {
+     "VOD": "subject"
+    },
+    "family": "corporate",
+    "state": "proposed",
+    "direction": null,
+    "materiality": "low",
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c00867",
+   "stratum": "control_random",
+   "event_id": 867,
+   "headline": "8-K - RANGE RESOURCES CORP (0000315852) (Filer)",
+   "published": "2026-10-26T11:07:28+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 795,
+   "label": {
+    "primary": null,
+    "involved": {
+     "RRC": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c02387",
+   "stratum": "control_random",
+   "event_id": 2387,
+   "headline": "4 - COSTCO WHOLESALE CORP /NEW (0000909832) (Issuer)",
+   "published": "2026-10-26T22:13:41+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 2381,
+   "label": {
+    "primary": null,
+    "involved": {
+     "COST": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c06511",
+   "stratum": "control_random",
+   "event_id": 6511,
+   "headline": "Spanish football postpones 24 Copa del Rey games after train crash",
+   "published": "2026-10-28T13:48:09+00:00",
+   "source": "Al Jazeera",
+   "cluster_id": 6511,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08524",
+   "stratum": "control_random",
+   "event_id": 8524,
+   "headline": "424B2 - Jefferies Financial Group Inc. (0000096223) (Filer)",
+   "published": "2026-10-28T21:27:11+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 6556,
+   "label": {
+    "primary": null,
+    "involved": {
+     "JEF": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13906",
+   "stratum": "control_random",
+   "event_id": 13906,
+   "headline": "4 - NEOGEN CORP (0000711377) (Issuer)",
+   "published": "2026-10-30T10:47:55+00:00",
+   "source": "SEC EDGAR Latest Filings",
+   "cluster_id": 13022,
+   "label": {
+    "primary": null,
+    "involved": {
+     "NEOG": "subject"
+    },
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09245",
+   "stratum": "suspect_entity_match",
+   "event_id": 9245,
+   "headline": "Alphabet Q3 Earnings Call Highlights",
+   "published": "2026-10-29T05:04:16+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 9245,
+   "label": {
+    "primary": "GOOGL",
+    "involved": {
+     "GOOGL": "subject"
+    },
+    "family": "results",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": "medium",
+    "timeframe": "days",
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13215",
+   "stratum": "suspect_entity_match",
+   "event_id": 13215,
+   "headline": "Wall Street's AI fears slash Google value by $500bn",
+   "published": "2026-10-29T21:29:51+00:00",
+   "source": "BBC Business",
+   "cluster_id": 13215,
+   "label": {
+    "primary": "GOOGL",
+    "involved": {
+     "GOOGL": "subject"
+    },
+    "family": "other",
+    "state": "confirmed",
+    "direction": -1,
+    "materiality": "high",
+    "timeframe": "days",
+    "abstain": true,
+    "duplicate_of": "c13792",
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c13898",
+   "stratum": "suspect_entity_match",
+   "event_id": 13898,
+   "headline": "Fed Defers Debate on Inflation",
+   "published": "2026-10-30T09:18:34+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 13898,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "other",
+    "state": "confirmed",
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09679",
+   "stratum": "suspect_entity_match",
+   "event_id": 9679,
+   "headline": "IOWA STATE UNIVERSITY OF SCIENCE AND TECHNOLOGY federal contract award $1155.8 million",
+   "published": "2006-12-04T00:00:00+00:00",
+   "source": "USAspending New Awards",
+   "cluster_id": 9679,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c09045",
+   "stratum": "suspect_entity_match",
+   "event_id": 9045,
+   "headline": "Judge rebuffs Trump DoJ\u2019s bid to force California to set aside 20,000 ballots",
+   "published": "2026-10-29T00:48:25+00:00",
+   "source": "The Guardian World",
+   "cluster_id": 9017,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c08651",
+   "stratum": "suspect_entity_match",
+   "event_id": 8651,
+   "headline": "S&P 500 Top Movers: Gainers and Losers in Today's US Session",
+   "published": "2026-10-28T20:06:12+00:00",
+   "source": "Finnhub Company News",
+   "cluster_id": 8651,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  },
+  {
+   "case_id": "c10407",
+   "stratum": "suspect_entity_match",
+   "event_id": 10407,
+   "headline": "\u200bPragmatic or pointless? Europe\u2019s rift over whether to pick up the phone to Putin",
+   "published": "2026-10-29T12:55:22+00:00",
+   "source": "The Guardian World",
+   "cluster_id": 10407,
+   "label": {
+    "primary": null,
+    "involved": {},
+    "family": "none",
+    "state": null,
+    "direction": null,
+    "materiality": null,
+    "timeframe": null,
+    "abstain": true,
+    "duplicate_of": null,
+    "propagate": null
+   }
+  }
+ ],
+ "pairs": []
+}
