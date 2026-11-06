@@ -212,7 +212,7 @@ class TestTheNewOverview(unittest.TestCase):
         c.commit()
         from paper_agent import dashboard
         page = re.sub(r"<[^>]+>", " ", dashboard.render(c, H.cfg(), "overview", {}, {"authed": True}))
-        for need in ("Cash in the account", "Of which: owed back on shorts", "Cash that is yours", "$46,948"):
+        for need in ("Cash in account", "Owed back on shorts", "Your cash", "$46,948"):
             self.assertIn(need, page)
         cash = float(c.execute("SELECT cash FROM daily_values ORDER BY day DESC LIMIT 1").fetchone()[0]) if c.execute("SELECT COUNT(*) FROM daily_values").fetchone()[0] else None
         self.assertTrue(cash is None or cash > 0)
@@ -358,3 +358,32 @@ class TestMatcherCorrectionsFromTheLiveUniverse(unittest.TestCase):
     def test_the_firm_that_rates_a_company_is_not_the_company(self):
         self.assertEqual(self.hits("JPMORGAN CHASE Maintains Underweight on Cboe Global Markets, Raises Price Target to $332".title()), ["CBOE"])
         self.assertEqual(self.hits("JPMorgan Chase reports record profit"), ["JPM", "VYLD"])
+
+
+class TestTilesAreEven(unittest.TestCase):
+    """The Overview tiles must be the same size in every row, with labels and values that can never wrap."""
+
+    def test_the_tile_css_fixes_width_height_and_wrapping(self):
+        from paper_agent import dashboard
+        css = dashboard.PAGE_CSS if hasattr(dashboard, "PAGE_CSS") else open(dashboard.__file__).read()
+        self.assertIn("repeat(auto-fill,minmax(200px,1fr))", css)                      # auto-fit stretched each row differently
+        for need in ("min-height:72px", "white-space:nowrap", "text-overflow:ellipsis", "justify-content:space-between", "min-width:0"):
+            self.assertIn(need, css)
+
+    def test_every_overview_tile_label_is_short_enough_to_fit_on_one_line(self):
+        import re
+        from paper_agent import dashboard
+        c = H.fresh_db()
+        c.execute("INSERT INTO positions(ticker,theme,opened,entry_price,shares,cost,status,sector,side) VALUES('DOV','t',?,212.43,221,46948,'OPEN','X','SHORT')", (iso(T_OPEN),))
+        pid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+        c.execute("INSERT INTO position_lifecycle(position_id,phase,remaining_shares,remaining_cost,updated) VALUES(?,?,?,?,?)", (pid, "OPEN", 221, 46948, iso(T_OPEN)))
+        c.commit()
+        page = dashboard.render(c, H.cfg(), "overview", {}, {"authed": True})
+        labels = re.findall(r"<div class=card[^>]*><span>([^<]*)</span>", page)
+        self.assertGreaterEqual(len(labels), 12)
+        for lab in labels:
+            self.assertLessEqual(len(lab), 24, lab)                                       # at 12px that is under 160px: it fits a 200px tile with room to spare
+
+    def test_a_tile_carries_its_full_text_as_a_tooltip_for_the_rare_ellipsis(self):
+        from paper_agent import dashboard
+        self.assertIn('title="Equity: $1"', dashboard.card("Equity", "$1"))

@@ -26,8 +26,8 @@ CSS = """:root{--bg:#fff;--fg:#14181f;--mut:#5b6573;--card:#f5f7fa;--line:#dde2e
 *{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
 header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 nav a{margin-right:12px;color:var(--acc);text-decoration:none;font-weight:600}nav a.on{border-bottom:2px solid var(--acc)}
-main{padding:14px 16px;max-width:none;margin:0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px}.card b{display:block;font-size:20px}.card span{color:var(--mut);font-size:12px}
+main{padding:14px 16px;max-width:none;margin:0}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:72px;min-width:0;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;gap:6px}.card b{display:block;font-size:20px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.card span{color:var(--mut);font-size:12px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 table{border-collapse:collapse;width:100%;margin:6px 0 16px}th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--mut);font-size:12px}
 tr:nth-child(2n+3) td{background:var(--stripe)}
 .wrap{overflow-x:auto}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.mut{color:var(--mut)}h2{margin:18px 0 4px;font-size:16px}
@@ -61,7 +61,7 @@ class Raw(str):
 
 
 def card(label, value, c=""):
-    return "<div class=card><span>%s</span><b class=%s>%s</b></div>" % (E(label), c, E(value))
+    return "<div class=card title=\"%s: %s\"><span>%s</span><b class=%s>%s</b></div>" % (E(label), E(value), E(label), c, E(value))
 
 
 def spark(vals: List[float], w=260, h=44) -> Raw:
@@ -94,7 +94,7 @@ def page_overview(c, cfg, s):
     paused = os.path.exists(cfg["runtime"]["pause_file"])
     top = sorted(reg.get("probs", {}).items(), key=lambda x: -x[1])[:3]
     out = ['<div class=grid>', card("Equity (mark-to-market)", money(eq["equity"])), card("P&L vs start", "%s (%s)" % (money(pnl), pct(pnl / s["start"] if s["start"] else 0, 2)), cls(pnl)),
-           card("Cash in the account", money(eq["cash"])), card("Of which: owed back on shorts", money(sum(abs(h["cost"]) for h in s["hs"] if h.get("side") == "SHORT"))), card("Cash that is yours", money(eq["cash"] - sum(abs(h["cost"]) for h in s["hs"] if h.get("side") == "SHORT"))), card("Realized today", money(sum(t["pnl"] for t in _today(c, s["now"]))), cls(sum(t["pnl"] for t in _today(c, s["now"])))), card("Invested now", "%s (%s)" % (money(sum(abs(h["cost"]) for h in s["hs"])), pct(eq["gross"]))), card("Drawdown", pct(snap["drawdown"] if snap else 0), "bad" if snap and snap["drawdown"] > 0.05 else ""),
+           card("Cash in account", money(eq["cash"])), card("Owed back on shorts", money(sum(abs(h["cost"]) for h in s["hs"] if h.get("side") == "SHORT"))), card("Your cash", money(eq["cash"] - sum(abs(h["cost"]) for h in s["hs"] if h.get("side") == "SHORT"))), card("Realized today", money(sum(t["pnl"] for t in _today(c, s["now"]))), cls(sum(t["pnl"] for t in _today(c, s["now"])))), card("Invested now", "%s \u00b7 %s" % (money(sum(abs(h["cost"]) for h in s["hs"])), pct(eq["gross"]))), card("Drawdown", pct(snap["drawdown"] if snap else 0), "bad" if snap and snap["drawdown"] > 0.05 else ""),
            card("Regime", reg["regime"].replace("_", " ")), card("Survival probability", pct(snap["survival_probability"]) if snap else "n/a"), card("Worst stress loss", pct(snap["max_stress_loss"]) if snap else "n/a"),
            card("Market", market_state(s["now"])["session"]), card("Trading", "PAUSED" if paused else "active", "warn" if paused else "ok"), '</div>']
     out.append("<p class=mut>Regime mix: %s &middot; Last cycle: %s (%s)</p>" % (E(", ".join("%s %.0f%%" % (k.replace("_", " "), v * 100) for k, v in top)), E(to_nz(last["started"]) if last else "never"), E(last["status"] if last else "-")))
@@ -299,7 +299,7 @@ def page_performance(c, cfg, s, q):
     vd = performance.verdict(sm, by_exit)
     sel = " ".join("<a href='?tab=performance&days=%s'%s>%s</a>" % (v, " style='font-weight:700'" if v == days else "", lab) for v, lab in (("7", "7 days"), ("30", "30 days"), ("all", "all time")))
     pf = sm["profit_factor"]
-    cards = ['<div class=grid>', card("Realized P&L", money(sm["total_pnl"]), cls(sm["total_pnl"])), card("Closed trades", "%d  (%d won, %d lost)" % (sm["n"], sm["wins"], sm["losses"])),
+    cards = ['<div class=grid>', card("Realized P&L", money(sm["total_pnl"]), cls(sm["total_pnl"])), card("Closed trades", "%d" % sm["n"]), card("Won / lost", "%d / %d" % (sm["wins"], sm["losses"])),
              card("Win rate", pct(sm["win_rate"], 0) if sm["win_rate"] is not None else "n/a"), card("Profit factor", ("%.2f" % pf if pf not in (None, math.inf) else ("no losses" if pf else "n/a"))),
              card("Average trade", "%s (%s)" % (pct(sm["expectancy_pct"], 2) if sm["expectancy_pct"] is not None else "n/a", money(sm["expectancy_usd"]) if sm["expectancy_usd"] is not None else "n/a"), cls(sm["expectancy_pct"] or 0)),
              card("Average win / loss", "%s / %s" % (pct(sm["avg_win_pct"], 2) if sm["avg_win_pct"] is not None else "n/a", pct(sm["avg_loss_pct"], 2) if sm["avg_loss_pct"] is not None else "n/a")),
@@ -570,7 +570,7 @@ def provider_section(c, cfg, now) -> str:
 
 def page_system(c, cfg, s, q=None):
     u = llm_client.LLMClient(c, cfg).usage_summary()
-    out = ["<div class=grid>" + card("LLM spend today", "$%.3f / $%.2f" % (u["today_usd"], u["daily_budget"])) + card("LLM spend this month", "$%.2f / $%.0f" % (u["month_usd"], u["monthly_budget"])) + card("LLM calls today", "%d (cache hits %d, failed %d)" % (u["calls_today"], u["cache_hits_today"], u["failures_today"])) + "</div>", "<h2>Sources</h2>" + _sources_table(c, cfg)]
+    out = ["<div class=grid>" + card("LLM spend today", "$%.3f / $%.2f" % (u["today_usd"], u["daily_budget"])) + card("LLM spend this month", "$%.2f / $%.0f" % (u["month_usd"], u["monthly_budget"])) + card("LLM calls today", "%d" % u["calls_today"]), card("LLM cache hits", "%d" % u["cache_hits_today"]), card("LLM failed calls", "%d" % u["failures_today"]) + "</div>", "<h2>Sources</h2>" + _sources_table(c, cfg)]
     out.append(provider_section(c, cfg, s["now"]))
     out.append(database_section(c, cfg, s["now"], "db" in ((q or {}).get("refresh") or [])))
     out.append("<h2>Recent cycles</h2>" + table(["Started", "Mode", "Status", "Errors"], [[to_nz(r["started"], "%d %b %H:%M"), r["mode"], r["status"], ", ".join(json.loads(r["report_json"] or "{}").get("errors", []))] for r in c.execute("SELECT * FROM cycle_runs ORDER BY id DESC LIMIT 15")]))
