@@ -30,6 +30,7 @@ docs/REASONING_ENGINE.md
 docs/RELATIONSHIP_GRAPH.md
 docs/REVIEW_FINDINGS.md
 docs/SETTINGS.md
+docs/SHADOW_BOOK.md
 docs/STRATEGY_FREEZE.md
 none
 paper_agent/__init__.py
@@ -111,6 +112,7 @@ paper_agent/report.py
 paper_agent/revisions.py
 paper_agent/settings.py
 paper_agent/settings_ui.py
+paper_agent/shadow.py
 paper_agent/sizing.py
 paper_agent/skeptic.py
 paper_agent/sources.py
@@ -167,6 +169,7 @@ tests/test_build43.py
 tests/test_build43_scope.py
 tests/test_build46.py
 tests/test_build47.py
+tests/test_build49.py
 tests/test_cleanup.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py

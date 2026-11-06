@@ -197,10 +197,15 @@ FIELDS: List[Field] = [
     F("kb.filing_window_days", "Keep filing events for the last (days)", "int", "Company knowledge", 30, 400, "Older filings are not stored as events."),
     F("kb.filing_rows_per_company", "Filing events kept per company (at most)", "int", "Company knowledge", 10, 500, "Material events (auditor change, delisting, bankruptcy, late reports ...) are never pruned; routine ones (insider forms, foreign reports) are kept as a recent window."),
     F("kb.weekly_facts_companies", "SEC financial facts fetched in the weekly job (companies)", "int", "Company knowledge", 0, 300, "Highest-priority operating companies first; each takes about 20 requests. 0 turns it off."),
+    F("shadow.enabled", "Follow every idea to a costed outcome (shadow book)", "bool", "Shadow book", help="Observation only. Every decision, traded or not, is followed with stored daily bars so gates and thresholds can be judged on many ideas, not the few that traded."),
+    F("shadow.cost_bps", "Cost taken off every shadow outcome (basis points, round trip)", "float", "Shadow book", 0.0, 300.0, "30 matches the spread and slippage your real round trips showed (about 0.3%)."),
+    F("shadow.min_abs_direction", "Smallest view worth following", "float", "Shadow book", 0.0, 1.0, "Ideas with a weaker direction than this carry no view and are not followed."),
+    F("shadow.measure_per_cycle", "Outcomes measured per cycle (at most)", "int", "Shadow book", 10, 5000, "A cycle never spends more than the seconds below on this."),
+    F("shadow.max_seconds", "Seconds a cycle may spend measuring", "float", "Shadow book", 0.5, 30.0, "Measurement stops at this limit and carries on next cycle."),
     F("kb.max_hops", "Relationship hops considered", "int", "Company knowledge", 1, 3, "First-hop effects can influence trading (when active); second-hop are research ideas only; third-hop are explanation only."),
 ]
 BY_NAME = {f.name: f for f in FIELDS}
-GROUP_ORDER = ["Risk limits", "Swing strategy", "Instruments", "Relationship graph", "Execution", "Refresh times", "LLM analyst", "Article reader", "Missed-trade analysis", "Database", "System", "Company knowledge"]
+GROUP_ORDER = ["Risk limits", "Swing strategy", "Instruments", "Relationship graph", "Execution", "Refresh times", "LLM analyst", "Article reader", "Missed-trade analysis", "Database", "System", "Company knowledge", "Shadow book"]
 TIERS = ("triage", "analyst")
 PROVIDERS = ("anthropic", "github")
 MODEL_RX = re.compile(r"^[A-Za-z0-9._:/-]{3,80}$")

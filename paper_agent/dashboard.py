@@ -479,6 +479,30 @@ def scorecard_panel(c, cfg) -> str:
     return "".join(h)
 
 
+def shadow_section(c, cfg) -> str:
+    """The shadow book, read-only: does what the gates blocked earn money after costs, and does a higher estimated EV earn more?"""
+    from . import shadow
+    rep = shadow.report(c, cfg)
+    cov = rep.get("coverage") or {}
+    if not cov.get("candidates"):
+        return "<h2>Shadow book</h2><p class=mut>No ideas followed yet. It starts with the next cycle.</p>"
+    ov = rep.get("overall") or {}
+    out = ["<h2>Shadow book: every idea followed to a costed outcome</h2>", "<p class=mut>%s ideas followed from %s; outcomes after %d sessions, net of %.0f bps round-trip cost. Nobody traded these: they are what WOULD have happened.</p>" % (cov["candidates"], (cov.get("first_decision") or "")[:10], cov["horizon_sessions"], cov["cost_bps_round_trip"])]
+    rows = []
+    for k, lab in (("traded", "Ideas that traded"), ("not_traded", "Ideas that did not trade")):
+        s = ov.get(k)
+        if s:
+            rows.append([lab, s["observations"], "%s%%" % s["mean_net_pct"], pct(s["hit_rate_net"] or 0, 0), "%s" % (s["ci95_net_pct"] or "n/a"), s["maturity"]])
+    out.append(table(["Group", "Observations", "Mean net return", "Hit rate", "95% interval (%)", "Evidence"], rows))
+    grows = [[g, s["observations"], "%s%%" % s["mean_net_pct"], "%s%%" % s["mean_excess_pct"], pct(s["hit_rate_net"] or 0, 0), "%s" % (s["ci95_excess_pct"] or "n/a"), s["maturity"], s["verdict"]] for g, s in sorted((rep.get("by_gate") or {}).items(), key=lambda kv: -kv[1]["observations"])]
+    out.append("<h3>By gate: what each one blocked, had it been taken</h3>" + table(["Gate", "Observations", "Net", "vs market", "Hit rate", "95% interval vs market (%)", "Evidence", "Reading (market-adjusted)"], grows))
+    cal = rep.get("ev_calibration") or {}
+    if cal.get("quintiles"):
+        out.append("<h3>Does a higher estimated EV earn more? (n=%d)</h3>" % cal["n"] + table(["EV quintile (1 = lowest)", "Ideas", "Mean EV", "Realised net"], [[b["bucket"], b["n"], "%.4f" % b["mean_ev"], "%s%%" % b["mean_net_pct"]] for b in cal["quintiles"]]) + "<p class=mut>Rank correlation %s (permutation p %s). %s</p>" % (cal.get("spearman_rho"), cal.get("permutation_p"), E(cal["reading"])))
+    out.append("<p class=mut><b>Read this first:</b> %s</p>" % E(rep["caveats"]))
+    return "".join(out)
+
+
 def page_intel(c, cfg, s, q=None):
     m = learning.metrics(c)
     out = [reasoning_panel(c, cfg, q or {}), "<div class=grid>", card("Scored predictions", m["n"]), card("Brier score", "%.3f" % m["brier"] if m["brier"] is not None else "n/a"), card("Naive baseline", "%.3f" % m["baseline_brier"] if m["baseline_brier"] is not None else "n/a"), "</div>"]
@@ -486,6 +510,7 @@ def page_intel(c, cfg, s, q=None):
     out.append("<h2>Calibration</h2>" + table(["Predicted range", "N", "Predicted", "Actual"], [[b["range"], b["n"], pct(b["predicted"], 0), pct(b["actual"], 0)] for b in m["bins"]]))
     for key, label in (("event_types", "Event-type accuracy"), ("sources", "Source accuracy"), ("theses", "Thesis accuracy")):
         out.append("<h2>%s</h2>" % label + table(["Name", "N", "Hit rate", "Brier"], [[k, v["n"], pct(v["hit"], 0), "%.3f" % v["brier"]] for k, v in sorted(m[key].items(), key=lambda x: -x[1]["n"])[:15]]))
+    out.append(shadow_section(c, cfg))
     out.append("<h2>Regime features</h2>" + table(["Feature", "Value"], [[k, "n/a" if v is None else "%.4f" % v] for k, v in sorted((s["reg"].get("features") or {}).items())]))
     out.append("<h2>Research tasks</h2>" + table(["Priority", "Kind", "Subject", "Description", "Status", "Result"], [[("%.1f" % r["priority"]), r["kind"], r["subject"], r["description"][:140], r["status"], r["result"] or ""] for r in c.execute("SELECT * FROM research_tasks ORDER BY status='OPEN' DESC,priority DESC,id DESC LIMIT 40")]))
     cur = stamp.current(c)

@@ -61,3 +61,11 @@ Every mode below starts on **observe**. Observe records and measures what a part
 | risk.allow_add_to_position | off | Off: a second position in a stock you hold is always skipped. On: allowed, subject to the two protections below. |
 | risk.add_cooldown_hours | 6 | A second entry within this many hours of the first is skipped as "the same bet bought twice" (ideas queued overnight all fill at the open). 0 = off. |
 | risk.add_only_when_winning | on | Never add to a position that is currently losing (a short loses when the price rises). |
+
+## Shadow book (Build 49)
+| Setting | Default | Meaning |
+|---|---|---|
+| shadow.enabled | on | Follow every idea to a costed outcome. Observation only. |
+| shadow.cost_bps | 30 | Cost taken off every shadow outcome, round trip. |
+| shadow.min_abs_direction | 0.15 | Ideas with a weaker direction carry no view and are not followed. |
+| shadow.measure_per_cycle / shadow.max_seconds | 300 / 3 | Work a cycle may spend: both capture and measurement stop at the time limit. |

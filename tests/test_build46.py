@@ -243,7 +243,7 @@ class TestFactsPass(unittest.TestCase):
         self.assertNotIn("facts_next_due", [r[1] for r in self.c.execute("PRAGMA table_info(knowledge_coverage)")])
         db.migrate(self.c)
         self.assertIn("facts_next_due", [r[1] for r in self.c.execute("PRAGMA table_info(knowledge_coverage)")])
-        self.assertEqual(db.SCHEMA_VERSION, 8)
+        self.assertGreaterEqual(db.SCHEMA_VERSION, 8)
 
 
 class TestUniverseCheckReportsWhatTheExchangeFilterExcludes(unittest.TestCase):

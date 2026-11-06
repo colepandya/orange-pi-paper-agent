@@ -45,6 +45,10 @@ def main(argv=None) -> int:
     kp.add_argument("--json", action="store_true")
     kp.add_argument("--facts", type=int, default=0, help="refresh: also fetch SEC financial facts for this many top-priority operating companies (about 20 requests each)")
     kp.add_argument("--budget", type=float, default=None, help="refresh: network seconds to allow (default: the kb.max_network_seconds setting)")
+    sp = sub.add_parser("shadow", help="the shadow book: every decision followed to a costed outcome (report | status | sync | measure)")
+    sp.add_argument("what", nargs="?", default="report", choices=["report", "status", "sync", "measure"])
+    sp.add_argument("--horizon", type=int, default=3, choices=[1, 3, 5, 10], help="sessions to hold in the shown outcomes")
+    sp.add_argument("--json", action="store_true")
     kp.add_argument("--tickers", default="V,NEM,GOOG,BRK-B,TSM,ASML,MA,JPM")
     cop = sub.add_parser("company", help="what the bot knows about one company, and what it does not")
     cop.add_argument("ticker")
@@ -247,7 +251,7 @@ def main(argv=None) -> int:
         except Exception:  # noqa: BLE001 - the growth record is a nicety; the backup itself succeeded
             pass
         return 0
-    if args.cmd in ("kb", "company", "eval"):                                     # the company knowledge base and the evaluation: heavy work is run from here, never inside the trading cycle
+    if args.cmd in ("kb", "company", "eval", "shadow"):                                     # the company knowledge base and the evaluation: heavy work is run from here, never inside the trading cycle
         from . import kbcli
         import sqlite3
         try:
@@ -259,6 +263,9 @@ def main(argv=None) -> int:
                 conn = db.open_db(DB_PATH, cfg["portfolio"]["starting_cash"])
             if conn is not None:
                 conn.execute("SELECT 1 FROM meta LIMIT 1").fetchone()                  # prove the database is readable NOW: a command must never run on a partly unreadable one and quietly degrade
+            if args.cmd == "shadow":
+                from . import shadow as shadow_mod
+                return shadow_mod.run_cli(args, conn, cfg)
             return kbcli.run(args, conn, cfg)
         except (sqlite3.OperationalError, PermissionError) as ex:
             print(kbcli.permission_message(args, ex))                                  # not a traceback: what to type instead

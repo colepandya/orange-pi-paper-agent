@@ -182,6 +182,8 @@ def is_read_only(args) -> bool:
     """Commands that only LOOK: they need no write access to the database, so any user on the machine may run them. Everything that writes (bootstrap, a real refresh, resources, saving an evaluation) belongs to the bot's own user."""
     if args.cmd == "company":
         return True
+    if args.cmd == "shadow":
+        return getattr(args, "what", None) in (None, "report", "status")
     if args.cmd == "eval":
         return not getattr(args, "save", False)
     what = getattr(args, "what", None)

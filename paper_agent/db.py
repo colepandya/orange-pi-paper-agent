@@ -16,7 +16,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 
 from .timeutil import iso, utcnow
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 LEGACY = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -233,6 +233,15 @@ CREATE TABLE IF NOT EXISTS knowledge_refresh_runs(id INTEGER PRIMARY KEY AUTOINC
 CREATE TABLE IF NOT EXISTS knowledge_coverage(entity_id TEXT PRIMARY KEY,ticker TEXT,layer TEXT,identity_status TEXT,profile_status TEXT,financial_status TEXT,market_status TEXT,exposure_status TEXT,relationship_status TEXT,filings_status TEXT,completeness REAL,priority INTEGER DEFAULT 6,next_due TEXT,last_attempt TEXT,last_ok TEXT,failures INTEGER DEFAULT 0,last_error TEXT,updated TEXT,facts_next_due TEXT);
 CREATE INDEX IF NOT EXISTS ix_cov_due ON knowledge_coverage(priority,next_due);
 CREATE INDEX IF NOT EXISTS ix_cov_ticker ON knowledge_coverage(ticker);
+CREATE TABLE IF NOT EXISTS shadow_candidates(
+ decision_id INTEGER PRIMARY KEY, event_id INTEGER, ticker TEXT NOT NULL, side TEXT NOT NULL, decided_at TEXT NOT NULL, status TEXT, gate TEXT, gate_text TEXT,
+ event_type TEXT, origin TEXT, source TEXT, thesis_key TEXT, regime TEXT, sector TEXT, conf REAL, direction REAL, magnitude REAL, ev_net REAL, forecast_conf REAL, score REAL, size_pct REAL,
+ ref_price REAL, entry_day TEXT, entry_price REAL, entry_basis TEXT, cluster TEXT, created TEXT);
+CREATE INDEX IF NOT EXISTS shadow_c_gate ON shadow_candidates(gate);
+CREATE INDEX IF NOT EXISTS shadow_c_ticker ON shadow_candidates(ticker, entry_day);
+CREATE TABLE IF NOT EXISTS shadow_outcomes(
+ decision_id INTEGER NOT NULL, horizon INTEGER NOT NULL, exit_day TEXT, exit_price REAL, gross_ret REAL, net_ret REAL, bench_ret REAL, excess_net REAL, mfe REAL, mae REAL, measured TEXT,
+ PRIMARY KEY(decision_id, horizon));
 """
 
 NEW_COLUMNS = {
