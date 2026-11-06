@@ -28,6 +28,17 @@ def _step(out: dict, name: str, fn: Callable, clock: Callable, budget_end: float
         out.setdefault("seconds", {})[name] = round(clock() - t0, 3)
 
 
+def _prune_once(conn, cfg: dict) -> dict:
+    """After an upgrade, apply the filing-retention policy to what earlier builds stored: once (a marker in meta), never again unless `kb prune` is run."""
+    mark = conn.execute("SELECT value FROM meta WHERE key='kb_filings_pruned_v47'").fetchone()
+    if mark:
+        return {"done_before": True}
+    r = kb.prune_filings(conn, cfg)
+    conn.execute("INSERT OR REPLACE INTO meta VALUES('kb_filings_pruned_v47','1')")
+    conn.commit()
+    return r
+
+
 def sync_identity(conn, universe_watch: dict, now) -> dict:
     """Keep the knowledge base's identity layer equal to the live universe. Cheap (a fraction of a second for the whole universe) and idempotent: it only runs when the universe differs from what is stored."""
     n_open = conn.execute("SELECT COUNT(*) FROM kb_identifiers WHERE kind='ticker' AND valid_to IS NULL").fetchone()[0]
@@ -46,6 +57,7 @@ def run(conn, cfg: dict, universe_watch: dict, now=None, fetch_json: Optional[Ca
     budget_end = clock() + float(k.get("max_db_seconds", 5)) + float(k.get("max_network_seconds", 20)) + 5.0
     out: dict = {"status": "ok"}
     _step(out, "identity", lambda: sync_identity(conn, universe_watch, now), clock, budget_end)
+    _step(out, "filing_prune", lambda: _prune_once(conn, cfg), clock, budget_end)
     _step(out, "rules", lambda: kbevent.seed_rules(conn), clock, budget_end)
     if db.due(conn, "kb_seeds", 24, now):
         _step(out, "seeds", lambda: {"relationships": kbsnap.import_relationship_seed(conn, now)["imported"], "exposures": kbsnap.import_exposure_seed(conn, now)["imported"]}, clock, budget_end)

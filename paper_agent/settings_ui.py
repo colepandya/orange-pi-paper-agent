@@ -129,7 +129,7 @@ def _sec(id_, group, title, blurb, subs, kind="settings"):
 
 SECTION_META = [
     _sec("size", "Trading", "Position sizing & risk", "How much the bot risks, and how big any trade or exposure is allowed to get.", [
-        ("How big each trade is", "", ["risk.risk_per_trade_pct", "risk.max_position_pct", "risk.min_position_pct", "risk.full_size_edge", "risk.allow_add_to_position"]),
+        ("How big each trade is", "", ["risk.risk_per_trade_pct", "risk.max_position_pct", "risk.min_position_pct", "risk.full_size_edge", "risk.allow_add_to_position", "risk.add_cooldown_hours", "risk.add_only_when_winning"]),
         ("Concentration limits", "Caps on how much can sit in one company, one theme, or the whole book.", ["risk.max_issuer_pct", "risk.max_theme_pct", "risk.max_gross_pct"]),
         ("Cash and stress buffers", "", ["risk.min_cash_pct", "risk.max_stress_loss_pct", "risk.ruin_loss_pct"]),
         ("Circuit breakers", "New trades pause automatically when losses reach these levels.", ["risk.drawdown_pause_pct", "risk.daily_loss_pause_pct"])]),

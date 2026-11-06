@@ -37,7 +37,7 @@ def main(argv=None) -> int:
     gp = sub.add_parser("graph", help="show a stock's relationship graph and what an event there would do")
     gp.add_argument("ticker", nargs="?", default="NVDA")
     kp = sub.add_parser("kb", help="company knowledge base: reconcile | bootstrap | refresh | coverage | unresolved | provenance | stale | resources")
-    kp.add_argument("what", choices=["reconcile", "bootstrap", "refresh", "coverage", "unresolved", "provenance", "stale", "resources", "universe-report", "universe-check"])
+    kp.add_argument("what", choices=["reconcile", "bootstrap", "refresh", "coverage", "unresolved", "provenance", "stale", "resources", "universe-report", "universe-check", "prune"])
     kp.add_argument("--dry-run", action="store_true")
     kp.add_argument("--limit", type=int, default=None)
     kp.add_argument("--only", default="")

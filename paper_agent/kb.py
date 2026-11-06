@@ -698,3 +698,17 @@ def refresh_facts(conn, cfg: dict, now, fetch_json: Callable, limit: int = 10, b
             conn.execute("UPDATE knowledge_coverage SET facts_next_due=? WHERE entity_id=?", (iso(now + dt.timedelta(days=7)), r["entity_id"]))
             conn.commit()
     return {"status": "stopped" if stopped else "ok", "refreshed": ok, "failed": fail, "stopped": stopped, "seconds": round(clock() - t0, 2)}
+
+
+def prune_filings(conn, cfg: dict) -> dict:
+    """One pass over the stored filing events: routine note supplements removed, every company cut to the retention policy (material events always kept). Idempotent; run once automatically after an upgrade and on demand (kb prune)."""
+    from . import filingintel
+    k = cfg.get("kb") or {}
+    cap_total, before = int(k.get("filing_rows_per_company", 60)), conn.execute("SELECT COUNT(*) FROM kb_filing_events").fetchone()[0]
+    routine = conn.execute("DELETE FROM kb_filing_events WHERE form IN (%s)" % ",".join("?" * len(filingintel.ROUTINE_FORMS)), sorted(filingintel.ROUTINE_FORMS)).rowcount
+    pruned = 0
+    for r in conn.execute("SELECT entity_id FROM kb_filing_events GROUP BY entity_id HAVING COUNT(*) > 12").fetchall():
+        pruned += filingintel.prune(conn, r[0], cap_total, 12)
+    conn.commit()
+    after = conn.execute("SELECT COUNT(*) FROM kb_filing_events").fetchone()[0]
+    return {"before": before, "routine_note_supplements_removed": routine, "pruned_to_policy": pruned, "after": after, "largest_company_now": (conn.execute("SELECT MAX(n) FROM (SELECT COUNT(*) n FROM kb_filing_events GROUP BY entity_id)").fetchone()[0] or 0)}

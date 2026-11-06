@@ -119,6 +119,8 @@ def run(args, conn, cfg) -> int:
         print("\n" + s["caution"] + "\n")
         print(_dump(kb.coverage_report(conn, watch)))
         return 0
+    if what == "prune":
+        return run_prune(conn, cfg)
     if what == "universe-report":
         print(_dump(kb.universe_quality(watch, _previous_watch())))
         return 0
@@ -166,6 +168,11 @@ def after_universe(conn, cfg: dict, watch: dict, now, fetch_json, sleep=time.sle
         out.setdefault("errors", []).append("facts: %s: %s" % (type(ex).__name__, str(ex)[:100]))
     conn.commit()
     return out
+
+
+def run_prune(conn, cfg) -> int:
+    print(_dump(kb.prune_filings(conn, cfg)))
+    return 0
 
 
 READ_ONLY_KB = {"reconcile", "coverage", "unresolved", "provenance", "stale", "universe-report", "universe-check"}

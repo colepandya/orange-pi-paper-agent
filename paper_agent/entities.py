@@ -154,6 +154,41 @@ def legal_name_spans(title: str) -> List[List[str]]:
     return out
 
 
+_MEDIA = re.compile(r"\b(?:times|news|media|journal|post|press|reuters|bloomberg|broadcasting|publishing|gannett|comcast|nbc|cbs|cnn|fox|dispatch|tribune|herald|gazette|daily)\b")
+_NONCOMMON_LAST = set("GHIMNOPQRTUVWX")        # Nasdaq's fifth-letter codes: convertible bonds G/H/I, preferred M/N/O/P, bankrupt Q, rights R, warrants T/W, units U, when-issued V, mutual-fund X
+_MARKET_CUE = re.compile(r"\b(?:stock|stocks|shares?|rises?|rose|falls?|fell|drops?|dropped|jumps?|jumped|gains?|gained|slips?|slipped|surges?|surged|soars?|plunges?|plunged|sinks?|slides?|tumbles?|climbs?|rall(?:y|ies|ied)|earnings|results|guidance|outlook|upgrades?|upgraded|downgrades?|downgraded|price target|options?|premarket|after[- ]hours|calls|puts|buyback|dividend|beats?|misses|misses?)\b|[%$]", re.I)
+_ATTR_BEFORE = re.compile(r"(?:according to|reported by|reports? from|reporting by|told|per|via|citing|cited by|a report in|an article in|writing in|wrote in|published in|interview with|spoke to|speaking to|the)\s+$")
+_ATTR_AFTER = re.compile(r"^\s*(?:reported|reports|said|says|wrote|cited|quoted|found|noted|reviewed|obtained|first reported|has reported|has said)\b")
+_RATING_VERB = r"(?i:maintains|reiterates|upgrades|downgrades|initiates|assigns|raises|lowers|cuts|reaffirms|resumes|rates|keeps|lifts|boosts|sets|starts|reinstates)"
+_RATING_FIRM = re.compile(r"^\s*((?:[A-Z][\w&.'’-]*\s+){1,4})" + _RATING_VERB + r"\b.*\b(?i:price target|rating|overweight|underweight|outperform|underperform|neutral|buy|sell|hold|coverage|target)\b")
+
+
+def derivative_security(t: str, meta: dict, watch: dict, issuer: dict) -> bool:
+    """A warrant, unit, right or preferred series of an issuer whose common ticker is also in the universe (Nasdaq fifth-letter convention): it is the issuer's SECURITY, not the issuer, so it matches only on its own ticker or tag, never on the company's name."""
+    if meta.get("exchange") != "Nasdaq" or len(t) != 5 or t[-1] not in _NONCOMMON_LAST:
+        return False
+    root = t[:-1]
+    return root in watch and issuer.get(root, root) == issuer.get(t, t)
+
+
+def _attributed(ph: str, text: str) -> bool:
+    """Every occurrence of the phrase in the text is a SOURCE ('according to the New York Times', 'Reuters reported'), never the subject."""
+    idx = [m.start() for m in re.finditer(re.escape(" " + ph + " "), text)]
+    if not idx:
+        return False
+    for i in idx:
+        before, after = text[max(0, i - 40):i + 1], text[i + len(ph) + 1:i + len(ph) + 40]
+        if not (_ATTR_BEFORE.search(before) or _ATTR_AFTER.search(after)):
+            return False
+    return True
+
+
+def _byline(title: str, ph: str) -> bool:
+    """The headline ends with its own publisher: 'Story text - Reuters', 'Story text (The New York Times)'."""
+    words = [re.escape(w) for w in ph.split()]
+    return bool(words) and bool(re.search(r"(?:\s[-–—|]\s|\()\s*(?:the\s+)?" + r"\W*".join(words) + r"\W*(?:com)?\)?\s*$", title or "", re.I))
+
+
 _DANGLING = {"&", "and", "of", "for", "the", "de", "del", "la", "le", "von", "van", "y", "e", "-"}
 _FILING_HEADER = re.compile(r"^(?:[0-9A-Z/\-]{1,10})\s+-\s+(.+?)\s+\((\d{10})\)\s+\((?:Filer|Issuer|Reporting|Subject|Filed by|Filed for)\)")
 _FINAL_DOT = re.compile(r"([a-z]{3,})\.(?=\s|$)")
@@ -199,19 +234,26 @@ class Universe:
 
         self.issuer: Dict[str, object] = {}
         self.core: Dict[str, str] = {}
+        self.derivative: set = set()
         for t, meta in self.watch.items():
             try:
                 self.issuer[t] = int(meta.get("cik")) if meta.get("cik") and int(meta.get("cik")) > 0 else t
             except (TypeError, ValueError, OverflowError):
                 self.issuer[t] = t
             self.core[t] = _core_name(meta.get("name", ""))
+        self.derivative = {t for t, m in self.watch.items() if derivative_security(t, m, self.watch, self.issuer)}
         for t, meta in self.watch.items():
             cik = meta.get("cik")
             if cik:
                 try:
-                    self.by_cik[int(cik)] = t
+                    ci = int(cik)
+                    cur = self.by_cik.get(ci)
+                    if t not in self.derivative and (cur is None or cur in self.derivative or (len(t), t) < (len(cur), cur)):
+                        self.by_cik[ci] = t                          # the issuer's own (shortest, non-derivative) ticker: not whichever happened to be listed last
                 except (TypeError, ValueError, OverflowError):
                     pass
+            if t in self.derivative:
+                continue                                              # a security of the issuer is matched only by its own ticker or tag
             clean, multi, first = derived[t]
             for v in [meta.get("name", "")] + list(meta.get("aliases", []) or []) + [clean] + multi:
                 if len(norm(v)) >= 4 and not (len(norm(v).split()) == 1 and (norm(v) in GENERIC_FIRST or norm(v) in self.common or norm(v) in GIVEN_NAMES or norm(v) in SURNAMES or norm(v) in PLACE_NAMES)):
@@ -346,8 +388,26 @@ class Universe:
             named = kept
         in_title = [(t, c, h, ph) for (t, c, h, ph) in named if (" " + ph + " ") in title_n]
         first_pos = min((title_n.find(" " + ph + " ") for (_t, _c, _h, ph) in in_title), default=0)
+        firm = set()
+        mf = _RATING_FIRM.match(title or "")
+        if mf and len({t_ for (t_, _c, _h, ph_) in named if not set(ph_.split()) <= {w.lower().strip(".,'’") for w in mf.group(1).split()}}) >= 1:
+            firm = {w.lower().strip(".,'’") for w in mf.group(1).split()}      # "JP Morgan Maintains Underweight on Cboe": JP Morgan is the rater, Cboe is the company
+        body_view = low.split("|", 1)[0]
+        longest: Dict[str, str] = {}
+        in_title_any: Dict[str, bool] = {}
+        for (t_, _c, _h, ph_) in named:
+            if len(ph_.split()) > len(longest.get(t_, "").split()):
+                longest[t_] = ph_
+            in_title_any[t_] = in_title_any.get(t_, False) or ((" " + ph_ + " ") in title_n)
+        source_only = {t_ for t_, ph_ in longest.items() if _MEDIA.search(self.core.get(t_, "")) and ((not in_title_any[t_] and _attributed(ph_, body_view)) or (in_title_any[t_] and _byline(title or "", ph_)))}      # only a NEWS ORGANISATION can be a mere source; a company that "said" something is the subject      # decided per COMPANY, on its longest phrase ("york times" alone would slip past)
         for (t, c, h, ph) in named:
             pos = title_n.find(" " + ph + " ")
+            if firm and set(ph.split()) <= firm:
+                add(t, 0.45, "rating_firm")
+                continue
+            if t in source_only:
+                add(t, 0.45, "source_not_subject")                       # named only as a source or a byline
+                continue
             if in_title and pos < 0:
                 c *= BODY_ONLY                                         # named only in the body while the headline is about someone else
             elif not in_title and h == "name_single" and low.split("|", 1)[0].count(" " + ph + " ") <= 1:
@@ -358,10 +418,14 @@ class Universe:
         raw = raw_for_names
         letters = [ch for ch in (title or "") if ch.isalpha()]
         shouting = bool(letters) and sum(ch.isupper() for ch in letters) / len(letters) > 0.6          # an ALL-CAPS headline turns every word (NET, FOR, ONE) into a "ticker"
-        for m in ([] if shouting else _BARE.finditer(title or "")):
-            t = m.group(1)
-            if t not in COMMON_TICKERS and t in self.watch:
-                add(t, 0.5, "bare_ticker")
+        bare = [m.group(1) for m in ([] if shouting else _BARE.finditer(title or "")) if m.group(1) not in COMMON_TICKERS and m.group(1) in self.watch]
+        if bare:
+            corroborated = bool(_MARKET_CUE.search(title or "")) or len(set(bare)) >= 2
+            for t in dict.fromkeys(bare):
+                if corroborated or t in found:
+                    add(t, 0.5, "bare_ticker")
+                else:
+                    add(t, 0.4, "bare_ticker_unconfirmed")                  # "ICE demands", "warns IFS": an acronym that is also a ticker; recorded, below the floor
         out = sorted(((t, c, h) for t, (c, h) in found.items()), key=lambda x: (-x[1], x[0]))
         if self.guard and self.nonop:
             text_n = re.sub(r"\s+", " ", " " + re.sub(r"[^a-z0-9& ]+", " ", _CORP.sub(" ", norm(title or "") + " " + norm((summary or "")[:600]))) + " ")

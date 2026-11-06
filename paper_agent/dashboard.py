@@ -16,7 +16,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List, Optional
 
-from . import auth as auth_mod, config, control, explain, maintain, performance, report as report_engine, db, dossier as dossier_engine, funnel as funnel_engine, learning, llm_client, stamp, whatif, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui, sources
+from . import auth as auth_mod, config, control, explain, maintain, performance, report as report_engine, db, funnel as funnel_engine, learning, llm_client, stamp, whatif, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui, sources
 from .config import DB_PATH, load_config
 from .timeutil import market_state, parse_ts, to_nz, utcnow, iso, SESSION_LABEL
 
@@ -35,7 +35,7 @@ details summary{cursor:pointer;color:var(--acc)}pre{white-space:pre-wrap;backgro
 CSS += """.why{max-width:860px}.why h2{margin:.2em 0}.why h3{margin:1.2em 0 .3em;font-size:15px;border-bottom:1px solid var(--line);padding-bottom:3px}.why blockquote{margin:.4em 0;padding:.5em .8em;background:var(--card);border-left:3px solid var(--acc)}
 .why ul.checks{list-style:none;padding:0}.why ul.checks li{margin:.35em 0}.why table{border-collapse:collapse}.why td,.why th{padding:3px 12px 3px 0;vertical-align:top;text-align:left}.why-good h2{color:var(--ok)}.why-bad h2{color:var(--bad)}.why-wait h2{color:var(--warn)}"""
 CSS += settings_ui.FORM_CSS
-TABS = ["overview", "reports", "performance", "theses", "positions", "dossiers", "decisions", "funnel", "risk", "intelligence", "company", "system", "settings"]
+TABS = ["overview", "reports", "performance", "theses", "decisions", "funnel", "risk", "intelligence", "company", "system", "settings"]
 
 
 def pct(x, d=1):
@@ -94,18 +94,15 @@ def page_overview(c, cfg, s):
     paused = os.path.exists(cfg["runtime"]["pause_file"])
     top = sorted(reg.get("probs", {}).items(), key=lambda x: -x[1])[:3]
     out = ['<div class=grid>', card("Equity (mark-to-market)", money(eq["equity"])), card("P&L vs start", "%s (%s)" % (money(pnl), pct(pnl / s["start"] if s["start"] else 0, 2)), cls(pnl)),
-           card("Cash", money(eq["cash"])), card("Realized today", money(sum(t["pnl"] for t in _today(c, s["now"]))), cls(sum(t["pnl"] for t in _today(c, s["now"])))), card("Invested", pct(eq["gross"])), card("Drawdown", pct(snap["drawdown"] if snap else 0), "bad" if snap and snap["drawdown"] > 0.05 else ""),
+           card("Cash in the account", money(eq["cash"])), card("Of which: owed back on shorts", money(sum(abs(h["cost"]) for h in s["hs"] if h.get("side") == "SHORT"))), card("Cash that is yours", money(eq["cash"] - sum(abs(h["cost"]) for h in s["hs"] if h.get("side") == "SHORT"))), card("Realized today", money(sum(t["pnl"] for t in _today(c, s["now"]))), cls(sum(t["pnl"] for t in _today(c, s["now"])))), card("Invested now", "%s (%s)" % (money(sum(abs(h["cost"]) for h in s["hs"])), pct(eq["gross"]))), card("Drawdown", pct(snap["drawdown"] if snap else 0), "bad" if snap and snap["drawdown"] > 0.05 else ""),
            card("Regime", reg["regime"].replace("_", " ")), card("Survival probability", pct(snap["survival_probability"]) if snap else "n/a"), card("Worst stress loss", pct(snap["max_stress_loss"]) if snap else "n/a"),
            card("Market", market_state(s["now"])["session"]), card("Trading", "PAUSED" if paused else "active", "warn" if paused else "ok"), '</div>']
     out.append("<p class=mut>Regime mix: %s &middot; Last cycle: %s (%s)</p>" % (E(", ".join("%s %.0f%%" % (k.replace("_", " "), v * 100) for k, v in top)), E(to_nz(last["started"]) if last else "never"), E(last["status"] if last else "-")))
     vals = [r[0] for r in c.execute("SELECT equity FROM daily_values ORDER BY day DESC LIMIT 90")][::-1]
     out.append("<h2>Equity (last %d days)</h2>%s" % (len(vals), spark(vals)))
+    out.append(positions_section(c, cfg, s))
     sig = c.execute("SELECT s.created,p.ticker,s.trigger,s.reason,s.status FROM exit_signals s JOIN positions p ON p.id=s.position_id WHERE s.status='OPEN' ORDER BY s.created DESC LIMIT 10").fetchall()
     out.append("<h2>Open exit signals</h2>" + table(["Time", "Ticker", "Trigger", "Reason"], [[to_nz(r["created"]), r["ticker"], r["trigger"], r["reason"]] for r in sig]))
-    th = c.execute("SELECT name,state,probability,trend,net_strength FROM theses WHERE active=1 ORDER BY probability DESC LIMIT 6").fetchall()
-    out.append("<h2>Leading theses</h2>" + table(["Thesis", "State", "P", "7d trend", "Net"], [[r["name"], r["state"], pct(r["probability"], 0), "%+.1f pts" % (r["trend"] * 100), "%+.2f" % r["net_strength"]] for r in th]))
-    ev = c.execute("SELECT created,headline,event_type,direction,tickers_json FROM events WHERE stale=0 AND novelty>=0.9 ORDER BY id DESC LIMIT 12").fetchall()
-    out.append("<h2>Latest events</h2>" + table(["Seen", "Type", "Dir", "Tickers", "Headline"], [[to_nz(r["created"], "%d %b %H:%M"), r["event_type"], Raw('<span class=%s>%+.2f</span>' % (cls(r["direction"]), r["direction"])), ",".join(json.loads(r["tickers_json"])), r["headline"][:120]] for r in ev]))
     return "".join(out)
 
 
@@ -176,82 +173,41 @@ def options_section(c, now) -> str:
     return out
 
 
-def page_positions(c, cfg, s):
-    rows = []
+def dm(v) -> str:
+    """Dollars with the minus sign in front of the dollar sign: -$1,459, not $-1,459."""
+    return ("-$%s" % format(abs(v), ",.0f")) if v < 0 else ("$%s" % format(v, ",.0f"))
+
+
+def positions_section(c, cfg, s):
+    """Open and closed positions with the DOLLARS: what was put in, what it is worth now, and the gain or loss (a short is the dollar value sold short and the cost to buy it back now)."""
+    rows, tot_in, tot_now, tot_pl = [], 0.0, 0.0, 0.0
     for h in s["hs"]:
         p = c.execute("SELECT * FROM positions WHERE id=?", (h["position_id"],)).fetchone()
         plan = c.execute("SELECT * FROM position_forecast_plans WHERE position_id=? AND active=1 ORDER BY id DESC LIMIT 1", (h["position_id"],)).fetchone()
         ph = c.execute("SELECT * FROM position_health WHERE position_id=? ORDER BY id DESC LIMIT 1", (h["position_id"],)).fetchone()
         sig = [r[0] for r in c.execute("SELECT trigger FROM exit_signals WHERE position_id=? AND status='OPEN'", (h["position_id"],))]
-        unreal = h["unrealized"]                                                       # a short gains when the price FALLS; the holdings carry the right sign
-        rows.append([h["ticker"] + (" (SHORT)" if h.get("side") == "SHORT" else ""), h["phase"], "%.0f" % h["shares"], "%.2f" % p["entry_price"], "%.2f (%s)" % (h["price"], price_label(h["price_source"], h.get("price_age"))), Raw('<span class=%s>%s (%s)</span>' % (cls(unreal), money(unreal), pct(unreal / h["cost"] if h["cost"] else 0))),
-                     h["thesis_key"] or "", "%.0f" % ph["health"] if ph else "n/a", ("%+.1f%% / %+.1f%% / %dd" % (plan["target_return"] * 100, plan["stop_return"] * 100, plan["max_hold_days"])) if plan else "no plan", ", ".join(sig) or "-", to_nz(p["opened"], "%d %b")])
-    out = [table(["Ticker", "Phase", "Shares", "Entry", "Price", "Unrealised", "Thesis", "Health", "Target/Stop/Hold", "Signals", "Opened"], rows)]
-    cl = c.execute("SELECT ticker,side,opened,closed,entry_price,exit_price,pnl,review_code FROM positions WHERE status='CLOSED' ORDER BY id DESC LIMIT 25").fetchall()
-    out.append("<h2>Closed positions</h2>" + table(["Ticker", "Opened", "Closed", "Entry", "Exit", "P&L", "Exit reason"], [[r["ticker"] + (" (SHORT)" if r["side"] == "SHORT" else ""), to_nz(r["opened"], "%d %b"), to_nz(r["closed"], "%d %b"), "%.2f" % r["entry_price"], "%.2f" % (r["exit_price"] or 0), Raw('<span class=%s>%s</span>' % (cls(r["pnl"]), money(r["pnl"]))), r["review_code"]] for r in cl]))
+        invested, worth, unreal = abs(h["cost"]), abs(h["value"]), h["unrealized"]
+        tot_in, tot_now, tot_pl = tot_in + invested, tot_now + worth, tot_pl + unreal
+        rows.append([h["ticker"] + (" (SHORT)" if h.get("side") == "SHORT" else ""), "%.0f" % h["shares"], "%.2f" % p["entry_price"], "%.2f (%s)" % (h["price"], price_label(h["price_source"], h.get("price_age"))),
+                     money(invested), money(worth), Raw('<span class=%s>%s (%s)</span>' % (cls(unreal), dm(unreal), pct(unreal / invested if invested else 0, 2))),
+                     h["thesis_key"] or "", "%.0f" % ph["health"] if ph else "n/a", ("%+.1f%% / %+.1f%% / %dd" % (plan["target_return"] * 100, plan["stop_return"] * 100, plan["max_hold_days"])) if plan else "no plan", ", ".join(sig) or "-", to_nz(p["opened"], "%d %b %H:%M")])
+    if rows:
+        rows.append([Raw("<b>Total</b>"), "", "", "", Raw("<b>%s</b>" % E(money(tot_in))), Raw("<b>%s</b>" % E(money(tot_now))), Raw('<b class=%s>%s (%s)</b>' % (cls(tot_pl), E(dm(tot_pl)), E(pct(tot_pl / tot_in if tot_in else 0, 2)))), "", "", "", "", ""])
+    out = ["<h2>Open positions</h2>" + (table(["Stock", "Shares", "Entry", "Price now", "Invested $", "Worth now $", "Gain / loss $", "Thesis", "Health", "Target / stop / hold", "Signals", "Opened"], rows) if rows else "<p class=mut>No open positions.</p>")]
+    cl = c.execute("SELECT p.ticker,p.side,p.opened,p.closed,p.entry_price,p.exit_price,p.pnl,p.review_code,d.amount FROM positions p LEFT JOIN decisions d ON d.id=p.decision_id WHERE p.status='CLOSED' ORDER BY p.id DESC LIMIT 40").fetchall()
+    crow = []
+    for r in cl:
+        inv = abs(r["amount"]) if r["amount"] else None
+        crow.append([r["ticker"] + (" (SHORT)" if r["side"] == "SHORT" else ""), to_nz(r["opened"], "%d %b %H:%M"), to_nz(r["closed"], "%d %b %H:%M"), "%.2f" % r["entry_price"], "%.2f" % (r["exit_price"] or 0),
+                     money(inv) if inv is not None else "n/a", dm(inv + r["pnl"]) if inv is not None and r["pnl"] is not None else "n/a",
+                     Raw('<span class=%s>%s%s</span>' % (cls(r["pnl"] or 0), E(dm(r["pnl"] or 0)), E(" (%s)" % pct(r["pnl"] / inv, 2) if inv and r["pnl"] is not None else ""))), r["review_code"] or ""])
+    out.append("<h2>Closed positions (last 40)</h2>" + table(["Stock", "Opened", "Closed", "Entry", "Exit", "Invested $", "Returned $", "Gain / loss $", "Why it closed"], crow))
     out.append(options_section(c, s["now"]))
     return "".join(out)
 
 
 def _pts(rows, key):
     return "<br>".join("&bull; %s" % E(r[key]) for r in rows) or "<span class=mut>none</span>"
-
-
-def page_dossiers(c, cfg, s, q):
-    tk = (q.get("ticker") or [""])[0].upper()
-    if not tk:
-        rows = [[Raw('<a href="?tab=dossiers&ticker=%s">%s</a>' % (E(h["ticker"]), E(h["ticker"]))), h["thesis_key"] or "", pct((h["value"] - h["cost"]) / h["cost"] if h["cost"] else 0)] for h in s["hs"]]
-        recent = [r[0] for r in c.execute("SELECT DISTINCT ticker FROM decisions ORDER BY id DESC LIMIT 12")]
-        return "<h2>Open positions</h2>" + table(["Ticker", "Thesis", "Unrealised"], rows) + "<h2>Recent candidates</h2><p>" + " ".join('<a href="?tab=dossiers&ticker=%s">%s</a>' % (E(t), E(t)) for t in recent) + "</p>"
-    d = dossier_engine.build(c, cfg, tk, s["now"])
-    if not d:
-        return "<p class=mut>No data for %s yet.</p>" % E(tk)
-    out = ["<h2>%s &mdash; %s</h2>" % (E(tk), E(d["company"].get("name") or ""))]
-    comp = d["company"]
-    out.append("<p class=mut>%s &middot; %s &middot; regime %s &middot; completeness %s</p>" % (E(comp.get("sector")), E(comp.get("dna")), E(d["regime"]), pct(comp.get("completeness"), 0)))
-    cards = ["<div class=grid>"]
-    if d.get("position"):
-        p = d["position"]
-        cards += [card("Position", "%s @ %.2f" % (p["status"], p["entry"])), card("Unrealised", pct(p["pnl_pct"]) if p["pnl_pct"] is not None else "n/a", cls(p["pnl_pct"]))]
-    if d.get("forecast"):
-        f = d["forecast"]
-        cards += [card("Target / Stop", "%.2f / %.2f" % (f["target_price"], f["stop_price"])), card("P(target)", pct(f["probability"], 0)), card("Review date", to_nz(f["review_date"], "%d %b"))]
-    if d.get("thesis"):
-        t = d["thesis"]
-        cards += [card("Thesis", "%s (%s)" % (t["name"], t["state"])), card("Thesis probability", "%s (prior %s)" % (pct(t["probability"], 0), pct(t["prior"], 0)))]
-    cl = (d.get("confidence") or {}).get("latest")
-    if cl:
-        cards += [card("Thesis conf.", "%.0f%%" % (cl["thesis"] * 100)), card("Forecast conf.", "%.0f%%" % (cl["forecast"] * 100)), card("Target conf.", "%.0f%%" % (cl["target"] * 100)), card("Position conf.", "%.0f%%" % (cl["position"] * 100)), card("Valuation", cl["valuation"])]
-    cards.append("</div>")
-    out.append("".join(cards))
-    ev = d["evidence"]
-    out.append("<h2>Supporting evidence</h2>" + table(["Source", "Weight", "Scope", "Headline"], [[r["source"], "%.3f" % r["weight"], r["scope"], r["headline"][:120]] for r in ev["supporting"]]))
-    out.append("<h2>Contradicting evidence</h2>" + table(["Source", "Weight", "Scope", "Headline"], [[r["source"], "%.3f" % r["weight"], r["scope"], r["headline"][:120]] for r in ev["contradicting"]]))
-    rt = d.get("redteam")
-    if rt:
-        out.append("<h2>Red-team review</h2><p>Net conviction <b>%.2f</b> &middot; valuation <b>%s</b> &middot; fatal flaw <b>%s</b></p>" % (rt["net_conviction"], E(rt["valuation_view"]), "YES: " + E(rt["fatal_reason"]) if rt["fatal_flaw"] else "no"))
-        out.append("<table><tr><th>Bear case</th><th>Bull case</th></tr><tr><td>%s</td><td>%s</td></tr></table>" % (_pts(rt["bear_points"], "point"), _pts(rt["bull_points"], "point")))
-    kb = d.get("knowledge")
-    if kb:
-        lat = kb.get("latest") or {}
-        out.append("<h2>Company knowledge (read from SEC filings)</h2>")
-        out.append(table(["Revenue drivers", "Cost drivers", "Customers", "Competitors", "Benefits"], [[_pts([{"x": i} for i in kb.get(k, [])], "x") for k in ("revenue_drivers", "cost_drivers", "customers", "competitors", "benefits")]]))
-        out.append(table(["Risk", "Severity"], [[r["risk"], "%.0f%%" % (r["severity"] * 100)] for r in kb.get("risks", [])]))
-        g, res = lat.get("guidance") or {}, lat.get("results") or {}
-        out.append("<p class=mut>Latest (%s filed %s): guidance revenue %s, EPS %s &middot; revenue growth %s &middot; margins %s &middot; vs expectations %s &middot; backlog %s &middot; tone %+.2f &middot; valuation %s</p>" % (
-            E(lat.get("form")), E(lat.get("filed")), E(g.get("revenue")), E(g.get("eps")), pct(res.get("revenue_growth_yoy")) if res.get("revenue_growth_yoy") is not None else "n/a", E(res.get("margin_trend")), E(res.get("vs_expectations")),
-            money(lat.get("backlog_usd")), lat.get("mgmt_tone") or 0, E(json.dumps(kb.get("valuation") or {}))))
-        if lat.get("changes_vs_prior"):
-            out.append("<p><b>What changed:</b> %s</p>" % E("; ".join(lat["changes_vs_prior"])))
-    if d.get("tripwires"):
-        out.append("<h2>Tripwires (what would prove us wrong)</h2>" + table(["Kind", "Condition", "Status"], [[t["kind"], t["description"] + (" (%.2f)" % t["threshold"] if t["threshold"] else ""), t["status"]] for t in d["tripwires"]]))
-    it = d.get("intel")
-    if it:
-        out.append("<h2>Causal analysis</h2><p><b>%s</b><br>%s</p>" % (E(it["summary"]), E(it["why"])))
-        out.append(table(["Order", "Effect", "Confidence", "Tickers"], [[ch["order"], ch["effect"], "%.0f%%" % (ch["confidence"] * 100), ", ".join(ch["tickers"])] for ch in it["chain"]]))
-    out.append("<h2>Forecast revision ledger</h2>" + table(["When", "Field", "Old", "New", "Confidence", "Reason"], [[to_nz(r["ts"], "%d %b %H:%M"), r["field"], "" if r["old_value"] is None else "%.2f" % r["old_value"], "%.2f" % (r["new_value"] or 0),
-                                                                                                      ("%.0f%%" % (r["conf_new"] * 100)) if r["conf_new"] is not None else "", (r["reason"] or "")[:110]] for r in d["revisions"]]))
-    return "".join(out)
 
 
 def page_company(c, cfg, q) -> str:
@@ -649,7 +605,7 @@ def render(c, cfg, tab: str, q: Dict, ctx: Optional[dict] = None) -> str:
             health = {r["source_id"]: dict(r) for r in c.execute("SELECT source_id,last_status,failures,last_success FROM source_health")}
             inner = settings_ui.page_settings(cfg, base, dict(ctx, query=q), pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status(), health)
         return layout(inner, tab, cfg, ctx)
-    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "positions": lambda: page_positions(c, cfg, s), "dossiers": lambda: page_dossiers(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q), "reports": lambda: page_reports(c, cfg, s, q), "performance": lambda: page_performance(c, cfg, s, q),
+    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q), "reports": lambda: page_reports(c, cfg, s, q), "performance": lambda: page_performance(c, cfg, s, q),
           "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s, q), "company": lambda: page_company(c, cfg, q), "system": lambda: page_system(c, cfg, s, q)}.get(tab, lambda: page_overview(c, cfg, s))
     return layout((settings_ui.flash_html(ctx.get("flash")) if ctx.get("flash") else "") + fn(), tab, cfg, ctx)
 

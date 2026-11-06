@@ -54,3 +54,10 @@ Every mode below starts on **observe**. Observe records and measures what a part
 | kb.max_data_age_days, kb.financial_max_age_days | 90, 150 | After this, a fact is marked stale, never silently used as current |
 | kb.filing_window_days, kb.filing_rows_per_company | 120, 60 | Filing events kept (material ones are never pruned) |
 | kb.weekly_facts_companies | 60 | SEC financial facts fetched in the weekly job (0 = off) |
+
+## Adding to a stock you already hold (Build 47)
+| Setting | Default | Meaning |
+|---|---|---|
+| risk.allow_add_to_position | off | Off: a second position in a stock you hold is always skipped. On: allowed, subject to the two protections below. |
+| risk.add_cooldown_hours | 6 | A second entry within this many hours of the first is skipped as "the same bet bought twice" (ideas queued overnight all fill at the open). 0 = off. |
+| risk.add_only_when_winning | on | Never add to a position that is currently losing (a short loses when the price rises). |

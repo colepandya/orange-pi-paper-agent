@@ -70,6 +70,8 @@ class TestNoStacking(unittest.TestCase):
         w.setUp()
         try:
             w.cfg["risk"]["allow_add_to_position"] = True
+            w.cfg["risk"]["add_cooldown_hours"] = 0.0                                   # Build 47: adding is also guarded against ACCIDENTAL stacking unless these two are switched off
+            w.cfg["risk"]["add_only_when_winning"] = False
             w.cyc(TL.T_PRE, [TL.NVDA_NEWS, SECOND])
             w.cyc(TL.T_OPEN)
             self.assertNotIn("DUPLICATE", {d["status"] for d in w.decisions()})

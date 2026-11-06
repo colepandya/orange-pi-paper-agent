@@ -257,7 +257,33 @@ def load_labels(conn, path: Optional[str] = None, data: Optional[dict] = None) -
     return data
 
 
-def run(conn, cfg: dict, universe, data: dict, now=None) -> dict:
+def collapse_to_issuers(reads: Dict[str, dict], labels: Dict[str, dict], universe) -> None:
+    """Score at the level of the COMPANY, not the ticker: several tickers of one issuer (GOOG / GOOGL, a bank and the ETNs it issues, preferred series) are one company. A predicted ticker whose issuer is a labelled company counts as that
+    company; the other tickers of an unlabelled issuer count once. Mutates ``reads`` (tickers, direction and role maps follow)."""
+    issuer = getattr(universe, "issuer", None)
+    if not issuer:
+        return
+    for cid, E in reads.items():
+        gold = set((labels.get(cid) or {}).get("involved") or {})
+        gold_by_issuer = {issuer.get(t, t): t for t in gold}
+        rep: Dict[object, str] = {}
+        mapping: Dict[str, str] = {}
+        for t in sorted(E["tickers"]):
+            iss = issuer.get(t, t)
+            if iss in gold_by_issuer:
+                mapping[t] = gold_by_issuer[iss]
+            else:
+                mapping[t] = rep.setdefault(iss, t)
+        E["tickers"] = list(dict.fromkeys(mapping[t] for t in E["tickers"]))
+        for key in ("direction", "roles"):
+            if isinstance(E.get(key), dict):
+                new: Dict[str, object] = {}
+                for t, v in E[key].items():
+                    new.setdefault(mapping.get(t, t), v)
+                E[key] = new
+
+
+def run(conn, cfg: dict, universe, data: dict, now=None, issuer_level: bool = True) -> dict:
     """Score the engine on a labelled dataset. Pair cases (contradictions) and propagation cases are scored with their own rules."""
     now = now or utcnow()
     cases = data["cases"]
@@ -278,6 +304,8 @@ def run(conn, cfg: dict, universe, data: dict, now=None) -> dict:
         lb["involved"] = keep                                                                                   # a company that is not in the universe cannot be matched by any engine: it is not held against it
         labels[c["case_id"]] = lb
     reads = {c["case_id"]: engine_read(conn, cfg, universe, c, now) for c in cases}
+    if issuer_level:
+        collapse_to_issuers(reads, labels, universe)
     pairs = []
     byid = {c["case_id"]: c for c in cases}
     for p in data.get("pairs", []):

@@ -57,6 +57,39 @@ def _evidence_since(conn, ticker: str, views: List[dict], since_iso: str, now) -
     return {"dir": num / den if den else 0.0, "mass": den, "n": len(rows), "support": support, "contra": contra}
 
 
+def thesis_judgement(th, views, tev, sg: float):
+    """How a position (or a prospective one) looks against its thesis: (thesis net, trend, state, health 0-100, [signals]). THE ONE place this is decided: the monitor uses it on open positions and the entry gate uses it
+    BEFORE opening one, so the bot cannot open a position that its own monitor would close in the same minute."""
+    tnet = sg * (th["net_strength"] if th else 0.0)
+    trend = sg * (th["trend"] if th else 0.0)
+    state = th["state"] if th else "n/a"
+    bonus = {"Strong": 10, "Active": 6, "Overcrowded": -5, "Weakening": -15, "Broken": -35} if sg > 0 else {"Strong": -10, "Active": -6, "Overcrowded": 5, "Weakening": 15, "Broken": 35}
+    health = 50 + 25 * sg * tev["net"] + 20 * tnet + 150 * max(-0.1, min(0.1, trend)) + bonus.get(state, 0)
+    health = max(0.0, min(100.0, health))
+    signals = []
+    if th and state == "Broken" and sg > 0:                                           # a broken bullish thesis is CONFIRMATION for a short, not a reason to leave
+        signals.append(("THESIS_BROKEN", 0.9, "thesis %s is Broken (P=%.0f%%)" % (th["name"], th["probability"] * 100)))
+    elif health < 25:
+        signals.append(("THESIS_BROKEN", 0.75, "position health %.0f/100 (net ticker evidence %+.2f, thesis net %+.2f%s)" % (health, sg * tev["net"], tnet, ", seen from the short side" if sg < 0 else "")))
+    for v in views:
+        if v["sign"] * sg < 0 and v["state"] == "Strong" and v["probability"] >= 0.8:
+            signals.append(("RISK_ESCALATION", 0.6, "position is a victim of strong thesis %s" % v["name"]))
+    return tnet, trend, state, health, signals
+
+
+def entry_check(conn, cfg: dict, ticker: str, side: str, thesis_key, regime: dict, now=None) -> dict:
+    """Would the position monitor act on this position the moment it exists? Same facts, same rule as the monitor (no evidence has arrived since a plan that does not exist yet)."""
+    now = now or utcnow()
+    sg = -1.0 if (side or "LONG") == "SHORT" else 1.0
+    views = thesis_engine.views_for_ticker(conn, ticker, regime.get("regime", "unknown"))
+    th = conn.execute("SELECT * FROM theses WHERE key=?", (thesis_key,)).fetchone() if thesis_key else None
+    if not th and views:
+        th = conn.execute("SELECT * FROM theses WHERE key=?", (max(views, key=lambda v: abs(v["tilted_edge"]))["key"],)).fetchone()
+    tev = evidence_engine.ticker_evidence(conn, ticker, now)
+    _tn, _tr, state, health, signals = thesis_judgement(th, views, tev, sg)
+    return {"would_exit": bool(signals), "why": "; ".join(s[2] for s in signals), "health": health, "state": state, "signals": signals}
+
+
 def monitor(conn, cfg: dict, regime: dict, now=None, stress: Optional[dict] = None, holdings: Optional[List[dict]] = None) -> dict:
     now = now or utcnow()
     out = {"open_positions": 0, "plans_changed": 0, "signals": [], "details": []}
@@ -81,24 +114,11 @@ def monitor(conn, cfg: dict, regime: dict, now=None, stress: Optional[dict] = No
         if sg < 0:
             ev_new = dict(ev_new, dir=-ev_new["dir"], support=ev_new["contra"], contra=ev_new["support"])
         tev = evidence_engine.ticker_evidence(conn, p["ticker"], now)
-        tnet = sg * (th["net_strength"] if th else 0.0)
-        trend = sg * (th["trend"] if th else 0.0)
-        state = th["state"] if th else "n/a"
-        bonus = {"Strong": 10, "Active": 6, "Overcrowded": -5, "Weakening": -15, "Broken": -35} if sg > 0 else {"Strong": -10, "Active": -6, "Overcrowded": 5, "Weakening": 15, "Broken": 35}
-        health = 50 + 25 * sg * tev["net"] + 20 * tnet + 150 * max(-0.1, min(0.1, trend)) + bonus.get(state, 0)
-        health = max(0.0, min(100.0, health))
-        signals = []
-        if th and state == "Broken" and sg > 0:                                           # a broken bullish thesis is CONFIRMATION for a short, not a reason to leave
-            signals.append(("THESIS_BROKEN", 0.9, "thesis %s is Broken (P=%.0f%%)" % (th["name"], th["probability"] * 100)))
-        elif health < 25:
-            signals.append(("THESIS_BROKEN", 0.75, "position health %.0f/100 (net ticker evidence %+.2f, thesis net %+.2f%s)" % (health, sg * tev["net"], tnet, ", seen from the short side" if sg < 0 else "")))
+        tnet, trend, state, health, signals = thesis_judgement(th, views, tev, sg)
         if ev_new["dir"] <= -0.55 and ev_new["mass"] >= 0.15:
             signals.append(("RISK_ESCALATION", 0.8, "adverse evidence since plan: direction %+.2f over mass %.2f" % (ev_new["dir"], ev_new["mass"])))
         if worst_contrib == p["id"]:
             signals.append(("RISK_ESCALATION", 0.6, "largest contributor to worst stress loss %.0f%% (limit %.0f%%)" % (stress["worst_loss"] * 100, cfg["risk"]["max_stress_loss_pct"] * 100)))
-        for v in views:
-            if v["sign"] * sg < 0 and v["state"] == "Strong" and v["probability"] >= 0.8:
-                signals.append(("RISK_ESCALATION", 0.6, "position is a victim of strong thesis %s" % v["name"]))
         rv = conn.execute("SELECT valuation_view FROM redteam_reviews WHERE ticker=? ORDER BY id DESC LIMIT 1", (p["ticker"],)).fetchone()
         revisions.log_confidence(conn, p["id"], now, float(th["confidence_quality"]) if th else 0.0, float(plan["confidence"]) / 100.0 if plan else 0.0,
                                  float(plan["target_probability"]) if plan else 0.0, health / 100.0, rv["valuation_view"] if rv else "unknown", {"health": health, "state": state})

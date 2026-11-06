@@ -132,6 +132,29 @@ def execute_buy(conn, cfg: dict, c: dict, f: dict, sz: dict, q: dict, did: int, 
     return {"status": "EXECUTED", "position_id": pid, "cost": cost}
 
 
+def add_block(ticker: str, position_id: int, side: Optional[str], entry_price: Optional[float], price: Optional[float], age_hours: float, cooldown_hours: float, only_when_winning: bool) -> Optional[str]:
+    """Why a second entry in a stock already held is refused even though adding is allowed (None = it may proceed). Two reasons: it was bought moments ago (the same bet twice) or the position is losing (never average into a loser)."""
+    def num(x, default=None):
+        try:
+            v = float(x)
+        except (TypeError, ValueError, OverflowError):
+            return default
+        return v if math.isfinite(v) else default
+    age_hours, cooldown_hours, price, entry_price = num(age_hours, 1e9), num(cooldown_hours, 0.0), num(price), num(entry_price)       # a value that is not a finite number never raises into a trade: an unknown age counts as old, an unknown price as no price
+    if cooldown_hours > 0 and age_hours < cooldown_hours:
+        return "already holding %s (position #%s, opened %.1f hours ago): a second entry within %.0f hours is the same bet bought twice, not an add" % (ticker, position_id, age_hours, cooldown_hours)
+    if only_when_winning and price and entry_price:
+        gain = (price / entry_price - 1.0) * (-1.0 if side == "SHORT" else 1.0)          # a short wins when the price FALLS
+        if gain < 0:
+            return "already holding %s (position #%s) and it is losing %.1f%%: the bot does not add to a loser" % (ticker, position_id, -gain * 100)
+    return None
+
+
+def entry_side(f: dict) -> str:
+    """The side the position monitor will judge: a SHORT forecast is a short, everything else a long."""
+    return "SHORT" if f.get("verdict") == "SHORT" else "BUY"
+
+
 def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quote_fn: Callable, md_fetch=None, existing_decision: Optional[int] = None, intel: Optional[dict] = None) -> dict:
     t = c["ticker"]
     meta = universe.meta(t) if universe is not None else {}
@@ -211,6 +234,15 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
             sz["reasons"].append("moves with %s (correlation %.2f): size cut to %.0f%%" % (twin, corr, shrink * 100))
             if sz["pct"] < cfg["risk"]["min_position_pct"]:
                 return finish("CAPACITY_DEFERRED", "size after the correlation haircut with %s (%.2f) is below the minimum" % (twin, corr))
+    # ---- entry / exit consistency: never open a position that the bot's own monitor would close at once (it would cost the round-trip spread for nothing)
+    try:
+        from . import monitor as monitor_mod                                          # (lazy: the monitor imports this module)
+        mc = monitor_mod.entry_check(conn, cfg, c["ticker"], entry_side(f), f["thesis_key"], regime, now)
+    except Exception:  # noqa: BLE001 - a check that cannot run must not block trading
+        mc = None
+    if mc and mc["would_exit"]:
+        reason["monitor_check"] = {"health": round(mc["health"], 1), "state": mc["state"], "signals": [s[2] for s in mc["signals"]]}
+        return finish("RISK_REJECTED", "the position monitor would close this at once: " + mc["why"])
     # ---- red team: a separate LLM pass tries to prove the idea wrong; the deterministic gate decides what to do with it
     rt, size_mult = None, 1.0
     influence = str(cfg["intelligence"].get("influence", "guard"))
@@ -237,6 +269,13 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     since_open = minutes_since_open(now) if delay > 0 else None
     if since_open is not None and since_open < delay:
         return finish("AWAITING_MARKET", "the market opened %.0f minutes ago: spreads are widest and prices noisiest in the first %.0f, so the entry waits (retried every cycle)" % (max(0.0, since_open), delay))
+    if cfg["risk"].get("allow_add_to_position", False):                              # adding is allowed, but never by ACCIDENT: ideas queued overnight must not all fill together at the open
+        cool, only_win = float(cfg["risk"].get("add_cooldown_hours", 6.0) or 0.0), bool(cfg["risk"].get("add_only_when_winning", True))
+        vp = quotes.valuation_price(conn, t, now) if only_win else None
+        for hp in conn.execute("SELECT id,opened,entry_price,side FROM positions WHERE ticker=? AND status='OPEN' ORDER BY id", (t,)).fetchall():
+            msg = add_block(t, hp["id"], hp["side"], hp["entry_price"], (vp or {}).get("price"), (now - parse_ts(hp["opened"])).total_seconds() / 3600.0, cool, only_win)
+            if msg:
+                return finish("DUPLICATE", msg)
     if not cfg["risk"].get("allow_add_to_position", False):
         held = conn.execute("SELECT id,opened FROM positions WHERE ticker=? AND status='OPEN' ORDER BY id LIMIT 1", (t,)).fetchone() \
             or conn.execute("SELECT id,opened FROM option_positions WHERE underlying=? AND status='OPEN' ORDER BY id LIMIT 1", (t,)).fetchone()          # an open option on the stock is a position in it too
