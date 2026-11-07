@@ -146,7 +146,21 @@ def price_label(source: str, age_seconds) -> str:
 
 
 def options_section(c, now) -> str:
+    """Open and recent options, the scorecard and the feeds. One malformed record must never take a page down."""
+    try:
+        return _options_section(c, now)
+    except Exception:  # noqa: BLE001
+        return "<h2>Options</h2><p class=mut>The options could not be displayed: a record looks malformed. Nothing else is affected.</p>"
+
+
+def _options_section(c, now) -> str:
     """Open and recent options. Every price here is the MODEL's (there is no options data feed): the heading says so."""
+    from . import options
+    sc = options.scorecard(c)
+    score_html = ""
+    if sc:
+        rows = [[g["kind"], {"trial": "smaller trial", "rescue": "rescued from stock rules"}.get(g["tier"], "normal"), g["open"], g["closed"], "%d / %d" % (g["wins"], g["closed"]), dm(g["pnl"]), ("%+.0f%%" % (100 * g["return_on_premium"])) if g["return_on_premium"] is not None else "n/a", g["evidence"]] for g in sc]
+        score_html = "<h3>Option scorecard: what each kind has actually done</h3>" + table(["Kind", "Tier", "Open", "Closed", "Won / closed", "Realised $", "Return on premium", "Evidence"], rows) + "<p class=mut>A few trades is an anecdote: one winning put does not show that puts win. Treat this as a record, not a result, until it has dozens of closed trades.</p>"
     op = c.execute("SELECT * FROM option_positions WHERE status='OPEN' ORDER BY id").fetchall()
     cl = c.execute("SELECT * FROM option_positions WHERE status='CLOSED' ORDER BY id DESC LIMIT 15").fetchall()
     feeds = c.execute("SELECT * FROM option_feed_health ORDER BY feed").fetchall()
@@ -166,6 +180,7 @@ def options_section(c, now) -> str:
         out += "<h3>Free options feeds</h3>" + table(["Feed", "Status", "Contracts", "Last took", "Worked / failed", "Last problem"], [[f["feed"], ("OK" if f["last_ok"] and not f["last_error"] else "FAILING"), f["last_contracts"], "%.1f s" % ((f["last_ms"] or 0) / 1000.0), "%d / %d" % (f["ok_count"], f["fail_count"]), (f["last_error"] or "")[:70]] for f in feeds])
         out += ("<p class=mut>How good is the pure model against the real market? Across the last %d contracts priced, it was off by a median of %.0f%% (90th percentile %.0f%%). The bigger that is, the more the real quotes matter.</p>" % (len(srt), 100 * srt[len(srt) // 2], 100 * srt[int(len(srt) * 0.9)])) if srt else ""
     out += ("<h3>Open options</h3>" + table(["Stock", "Type", "Strike", "Expires", "Contracts", "Paid", "Worth now", "P&L", "Stock stop / target", "Why"], rows)) if rows else "<p class=mut>No open options.</p>"
+    out += score_html
     if cl:
         out += "<h3>Closed options</h3>" + table(["Stock", "Type", "Strike", "Opened", "Closed", "Paid", "Back", "P&L", "Exit reason"],
                [[o["underlying"], o["kind"], "%.2f" % o["strike"], to_nz(o["opened"], "%d %b"), to_nz(o["closed"], "%d %b"), money(o["cost"]), "%.2f" % (o["exit_premium"] or 0),
@@ -202,7 +217,10 @@ def positions_section(c, cfg, s):
                      money(inv) if inv is not None else "n/a", dm(inv + r["pnl"]) if inv is not None and r["pnl"] is not None else "n/a",
                      Raw('<span class=%s>%s%s</span>' % (cls(r["pnl"] or 0), E(dm(r["pnl"] or 0)), E(" (%s)" % pct(r["pnl"] / inv, 2) if inv and r["pnl"] is not None else ""))), r["review_code"] or ""])
     out.append("<h2>Closed positions (last 40)</h2>" + table(["Stock", "Opened", "Closed", "Entry", "Exit", "Invested $", "Returned $", "Gain / loss $", "Why it closed"], crow))
-    out.append(options_section(c, s["now"]))
+    try:
+        out.append(options_section(c, s["now"]))
+    except Exception:  # noqa: BLE001 - one malformed option record must not take the whole Overview down
+        out.append("<h2>Options</h2><p class=mut>The options could not be displayed: a record looks malformed. Nothing else is affected.</p>")
     return "".join(out)
 
 

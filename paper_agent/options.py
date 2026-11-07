@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import re
 from typing import Callable, Dict, Optional
 
 from . import db, marketdata as md, optionsdata, portfolio as pf
@@ -62,31 +63,138 @@ def sleeve_used(conn) -> float:
     return float(conn.execute("SELECT COALESCE(SUM(cost),0) FROM option_positions WHERE status='OPEN'").fetchone()[0] or 0.0)
 
 
-def plan_for(conn, cfg: dict, f: dict, c: dict, comp: dict, price: float, equity: float, now) -> Optional[dict]:
+RESCUE_WHY = re.compile(r"^(swing reward:risk|EV net [-+0-9.]+% below minimum)")
+
+
+def rescuable(f: dict, cfg: dict) -> bool:
+    """A bearish idea the STOCK rules turned down only for reasons that are about a stock position (the swing reward:risk shape, or an edge a little under the stock minimum). An option's loss is capped at its premium and its
+    payoff is not a stop-and-target plan, so those reasons do not apply to it. Anything else (negative EV, low confidence, an earnings report inside the hold, illiquidity ...) is NOT rescuable."""
+    if not isinstance(f, dict) or not isinstance(cfg, dict):
+        return False
+    inst = cfg.get("instruments") if isinstance(cfg.get("instruments"), dict) else {}
+    if not (inst.get("options_enabled") and inst.get("options_rescue_enabled", True)):
+        return False
+    try:
+        ev_ok = float(f.get("ev_net") or 0.0) > 0.0
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if f.get("verdict") != "WATCH" or f.get("direction") != "SHORT" or not ev_ok:
+        return False
+    why = f.get("why")
+    return isinstance(why, list) and bool(why) and all(isinstance(w, str) and RESCUE_WHY.match(w) for w in why)
+
+
+def option_ev(cfg: dict, f: dict, plan: dict, price: float, now) -> Optional[float]:
+    """The expected return on the PREMIUM of this actual contract, under the forecast's own scenarios: for each scenario the underlying moves, the option is repriced with time passed (decay) and sold at the BID (the exit
+    spread), commissions both ways. Each scenario's return is capped at +200% so a tail scenario cannot carry the number. None when the forecast has no scenarios."""
+    scen = f.get("scenarios") if isinstance(f, dict) else None
+    if not isinstance(scen, dict) or not scen or not isinstance(plan, dict) or not plan:
+        return None
+    try:
+        kind, K, expiry, sigma = plan["kind"], float(plan["strike"]), dt.date.fromisoformat(plan["expiry"]), float(plan["sigma"])
+        h = max(1, int(f.get("horizon_days") or 1))
+        then = now + dt.timedelta(days=int(math.ceil(h * 7 / 5)))
+        comm, ask = float(plan["commission"]), float(plan["ask"])
+        cap = float((cfg.get("instruments") or {}).get("options_scenario_cap", 2.0))
+        ev_, ptot = 0.0, 0.0
+        for v in scen.values():
+            p, ret = float(v["p"]), float(v["ret"])
+            s_t = max(0.01, price * (1.0 - ret) if kind == PUT else price * (1.0 + ret))
+            bid = price_option(kind, s_t, K, expiry, sigma, then, cfg)["bid"]
+            r = (bid * 100.0 - comm) / (ask * 100.0 + comm) - 1.0
+            ev_ += p * max(-1.0, min(cap, r))
+            ptot += p
+        return ev_ / ptot if ptot > 0 else None
+    except Exception:  # noqa: BLE001 - an expected return that cannot be computed is "unknown", never an error in a trade decision
+        return None
+
+
+def _no(refusals: Optional[list], msg: str) -> None:
+    """Refuse, and say why: every reason an approved idea did not become an option is recorded so the next review can see which limit actually binds."""
+    if refusals is not None:
+        refusals.append(msg)
+    return None
+
+
+def trial_breaker(conn, cfg: dict, equity: float) -> Optional[str]:
+    """The put trial pauses itself: if its last N closed trades have lost more than a set share of equity, no new trial trade opens until the record recovers."""
+    inst = cfg["instruments"]
+    n, pct = int(inst.get("options_trial_breaker_trades", 8)), float(inst.get("options_trial_breaker_pct", 0.005))
+    rows = conn.execute("SELECT pnl FROM option_positions WHERE status='CLOSED' AND (note LIKE '[TRIAL%' OR note LIKE '[RESCUE%') ORDER BY id DESC LIMIT ?", (n,)).fetchall()
+    if len(rows) < n:
+        return None
+    total = sum((r[0] or 0.0) for r in rows)
+    return ("the trial is paused: its last %d trades lost $%.0f, more than %.1f%% of equity" % (n, -total, pct * 100)) if total < -pct * equity else None
+
+
+def scorecard(conn) -> list:
+    """What each kind of option trade has actually done, by tier. The sample size is part of the answer: a handful of trades is an anecdote."""
+    out: dict = {}
+    for r in conn.execute("SELECT kind,note,status,cost,pnl FROM option_positions").fetchall():
+        n_ = r["note"] or ""
+        k = (r["kind"], "rescue" if n_.startswith("[RESCUE") else "trial" if n_.startswith("[TRIAL") else "core")
+        g = out.setdefault(k, {"kind": k[0], "tier": k[1], "open": 0, "closed": 0, "wins": 0, "pnl": 0.0, "cost_closed": 0.0, "best": None, "worst": None})
+        if r["status"] == "OPEN":
+            g["open"] += 1
+            continue
+        p = float(r["pnl"] or 0.0)
+        g["closed"] += 1
+        g["wins"] += 1 if p > 0 else 0
+        g["pnl"] += p
+        g["cost_closed"] += float(r["cost"] or 0.0)
+        g["best"] = p if g["best"] is None else max(g["best"], p)
+        g["worst"] = p if g["worst"] is None else min(g["worst"], p)
+    for g in out.values():
+        g["return_on_premium"] = (g["pnl"] / g["cost_closed"]) if g["cost_closed"] else None
+        g["evidence"] = "anecdote: too few trades to say anything" if g["closed"] < 10 else "informational" if g["closed"] < 30 else "preliminary" if g["closed"] < 60 else "review candidate"
+    return sorted(out.values(), key=lambda g: (g["kind"], g["tier"]))
+
+
+def plan_for(conn, cfg: dict, f: dict, c: dict, comp: dict, price: float, equity: float, now, refusals: Optional[list] = None) -> Optional[dict]:
     """Should this approved idea be expressed as an option? -> a plan, or None. Real contracts from the free feeds are used when they answer (the contract must really exist and be liquid); the pure model is the
     labelled fallback. Every reason it says no is a cost control, not a hunch."""
     inst = cfg["instruments"]
     if not inst.get("options_enabled"):
         return None
-    if f["ev_net"] < float(inst["options_min_ev"]) or f["horizon_days"] > int(inst["options_max_horizon_days"]):
-        return None                                                                              # time decay punishes weak and slow ideas
+    kind = PUT if f["verdict"] == "SHORT" else CALL
+    if f["horizon_days"] > int(inst["options_max_horizon_days"]):
+        return _no(refusals, "the idea runs %d sessions, longer than the %d an option can carry before time decay bites" % (f["horizon_days"], int(inst["options_max_horizon_days"])))
+    tier = "core"
+    if f.get("rescue"):
+        if float(f["ev_net"]) <= 0.0:
+            return _no(refusals, "edge %.1f%% is not positive" % (f["ev_net"] * 100))
+        paused = trial_breaker(conn, cfg, equity)
+        if paused:
+            return _no(refusals, paused)
+        tier = "rescue"
+    elif f["ev_net"] < float(inst["options_min_ev"]):                                              # time decay punishes weak ideas: only the half-size PUT trial may go lower
+        if not inst.get("options_trial_enabled", True):
+            return _no(refusals, "edge %.1f%% is below the %.0f%% an option needs" % (f["ev_net"] * 100, float(inst["options_min_ev"]) * 100))
+        if inst.get("options_trial_puts_only", True) and kind != PUT:
+            return _no(refusals, "edge %.1f%% is below the %.0f%% an option needs (the smaller trial tier is for puts only)" % (f["ev_net"] * 100, float(inst["options_min_ev"]) * 100))
+        floor = max(float(inst.get("options_trial_min_ev", 0.02)), float(inst["options_min_ev"]) - 0.02)          # the trial is a bounded step BELOW the normal minimum (never more than two points): an owner who raises the minimum has not asked for puts on much weaker ideas
+        if f["ev_net"] < floor:
+            return _no(refusals, "edge %.1f%% is below even the %.1f%% the smaller put trial needs" % (f["ev_net"] * 100, floor * 100))
+        paused = trial_breaker(conn, cfg, equity)
+        if paused:
+            return _no(refusals, paused)
+        tier = "trial"
     adv = (comp or {}).get("adv_usd")
     if price < float(inst["options_min_price"]) or not adv or adv < float(inst["options_min_adv_usd"]):
-        return None                                                                              # only liquid, higher-priced names have the option markets this resembles
+        return _no(refusals, "options need a stock over $%.0f trading at least $%.0fM a day; this one does not" % (float(inst["options_min_price"]), float(inst["options_min_adv_usd"]) / 1e6))      # only liquid, higher-priced names have the option markets this resembles
     if conn.execute("SELECT 1 FROM option_positions WHERE underlying=? AND status='OPEN'", (c["ticker"],)).fetchone():
-        return None
-    kind = PUT if f["verdict"] == "SHORT" else CALL
+        return _no(refusals, "an option on this stock is already open")
     model_sigma = iv_estimate(conn, c["ticker"], cfg, c.get("event_type", ""))
     source, contract, K, expiry, sigma, px, mkt_note = "MODEL", "", None, None, model_sigma, None, ""
     ch = optionsdata.chain_for(conn, cfg, c["ticker"], now, price) if inst.get("options_use_real_quotes", True) else None      # fetching also records TODAY's implied volatility
     rank = optionsdata.iv_rank(conn, c["ticker"])
     if rank is not None and rank > float(inst.get("options_max_iv_rank", 80)):
-        return None                                                                              # volatility is expensive: the option would be bought at the top of its range
+        return _no(refusals, "implied volatility is at the %.0fth percentile of its range: the option would be bought expensive" % rank)                                                                             # volatility is expensive: the option would be bought at the top of its range
     if inst.get("options_use_real_quotes", True):
         if ch:
             q, why = optionsdata.pick(ch["contracts"], kind, price, now, cfg)
             if q is None:
-                return None                                                                      # the real market has no liquid contract for this: trade the stock instead
+                return _no(refusals, "the real market has no liquid contract for this (%s)" % "spread, open interest or quote age failed")      # trade the stock instead
             a = optionsdata.anchor(q, price, ch.get("underlying"), now, cfg)
             if a:
                 source, K, expiry, sigma, px = "CHAIN", q["strike"], dt.date.fromisoformat(q["expiry"]), a["iv"], a
@@ -97,24 +205,32 @@ def plan_for(conn, cfg: dict, f: dict, c: dict, comp: dict, price: float, equity
                 except Exception:  # noqa: BLE001 - a log line must never stop a trade
                     pass
         if source != "CHAIN" and not inst.get("options_allow_model_fallback", True):
-            return None
+            return _no(refusals, "no real option quote answered and the model fallback is switched off")
     if px is None:
         expiry = next_expiry(now.date(), int(inst["options_min_dte"]))
         K = pick_strike(kind, price)
         px = price_option(kind, price, K, expiry, sigma, now, cfg)
         mkt_note = "MODEL price: no free feed answered"
     if px["ask"] < 0.30:
-        return None                                                                              # penny options do not trade like this
+        return _no(refusals, "the option costs under $0.30: penny options do not trade like this")                                                                             # penny options do not trade like this
     comm = float(inst.get("options_commission", 0.65))
     room = float(inst["options_max_premium_pct"]) * equity - sleeve_used(conn)
-    budget = min(float(inst["options_per_trade_pct"]) * equity, room)
+    per_trade = float(inst.get("options_rescue_per_trade_pct", 0.006)) if tier == "rescue" else float(inst.get("options_trial_per_trade_pct", 0.006)) if tier == "trial" else float(inst["options_per_trade_pct"])
+    budget = min(per_trade * equity, room)
     contracts = int(budget // (px["ask"] * 100.0 + comm))
     if contracts < 1:
-        return None
+        return _no(refusals, "the budget ($%.0f) does not buy one contract at $%.2f" % (budget, px["ask"] * 100.0))
     sg = -1.0 if kind == PUT else 1.0
-    return {"kind": kind, "strike": K, "expiry": expiry.isoformat(), "contracts": contracts, "sigma": sigma, "ask": px["ask"], "mid": px["mid"], "bid": px["bid"], "commission": comm, "source": source, "contract": contract,
+    oev = None
+    if tier != "core":                                                                           # the smaller tiers must pay on THIS contract: its premium, its decay, its exit spread
+        draft = {"kind": kind, "strike": K, "expiry": expiry.isoformat(), "sigma": sigma, "ask": px["ask"], "commission": comm}
+        oev = option_ev(cfg, f, draft, price, now)
+        need = float(inst.get("options_min_option_ev", 0.10))
+        if oev is None or oev < need:
+            return _no(refusals, "this contract's own expected return on the premium is %s, under the %.0f%% the smaller tiers need" % ("unknown" if oev is None else "%+.0f%%" % (oev * 100), need * 100))
+    return {"kind": kind, "strike": K, "expiry": expiry.isoformat(), "contracts": contracts, "sigma": sigma, "ask": px["ask"], "mid": px["mid"], "bid": px["bid"], "commission": comm, "source": source, "contract": contract, "tier": tier, "option_ev": oev,
             "stop_underlying": price * (1.0 - sg * abs(f["stop_return"])), "target_underlying": price * (1.0 + sg * f["target_return"]),
-            "why": "%s: edge %.1f%% over %d sessions is strong and short enough that time decay will not eat it; %s is liquid ($%.0fM a day); %s" % ("a put" if kind == PUT else "a call", f["ev_net"] * 100, f["horizon_days"], c["ticker"], adv / 1e6, mkt_note)}
+            "why": ("[TRIAL, half size] " if tier == "trial" else "[RESCUE, half size] " if tier == "rescue" else "") + "%s: edge %.1f%% over %d sessions is strong and short enough that time decay will not eat it; %s is liquid ($%.0fM a day); %s" % ("a put" if kind == PUT else "a call", f["ev_net"] * 100, f["horizon_days"], c["ticker"], adv / 1e6, mkt_note)}
 
 
 def open_option(conn, cfg: dict, c: dict, f: dict, plan: dict, price: float, did: int, fid: int, now, theme: str, sector: str, reason: dict, set_decision: Callable) -> dict:
@@ -140,7 +256,10 @@ def open_option(conn, cfg: dict, c: dict, f: dict, plan: dict, price: float, did
 
 
 def maybe_open(conn, cfg: dict, c: dict, f: dict, q: dict, did: int, fid: int, now, theme: str, comp: dict, sector: str, reason: dict, equity: float, set_decision: Callable) -> Optional[dict]:
-    plan = plan_for(conn, cfg, f, c, comp, float(q["price"]), equity, now)
+    why: list = []
+    plan = plan_for(conn, cfg, f, c, comp, float(q["price"]), equity, now, why)
+    if not plan and why:
+        reason["option_considered"] = why[0]                                                     # recorded for EVERY approved idea: why it stayed a stock trade
     return open_option(conn, cfg, c, f, plan, float(q["price"]), did, fid, now, theme, sector, reason, set_decision) if plan else None
 
 

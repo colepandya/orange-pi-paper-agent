@@ -69,3 +69,17 @@ Every mode below starts on **observe**. Observe records and measures what a part
 | shadow.cost_bps | 30 | Cost taken off every shadow outcome, round trip. |
 | shadow.min_abs_direction | 0.15 | Ideas with a weaker direction carry no view and are not followed. |
 | shadow.measure_per_cycle / shadow.max_seconds | 300 / 3 | Work a cycle may spend: both capture and measurement stop at the time limit. |
+
+## Put trial and opening delay (Build 50)
+| Setting | Default | Meaning |
+|---|---|---|
+| risk.open_delay_minutes | 30 | Wait this long after the open before entering (was 10). |
+| instruments.options_trial_enabled | on | Smaller puts on ideas slightly below the normal option minimum, to gather evidence faster. |
+| instruments.options_trial_min_ev | 2% | The weakest edge the trial accepts (and never more than two points below the normal minimum). |
+| instruments.options_trial_per_trade_pct | 0.6% | Premium per trial trade, at most. |
+| instruments.options_trial_puts_only | on | Keep the trial to puts. |
+| instruments.options_trial_breaker_trades / _pct | 8 / 0.5% | The trial pauses when its last N closed trades lost more than this share of equity. |
+| instruments.options_rescue_enabled | on | A bearish idea the stock rules turned down ONLY for stock-position reasons (swing reward:risk, an edge a little under the stock minimum) gets a second look as a put. |
+| instruments.options_rescue_per_trade_pct | 0.6% | Premium per rescued put, at most. |
+| instruments.options_min_option_ev | 10% | Trial and rescued puts: the contract itself must be expected to return at least this on its premium (after decay and the exit spread). |
+| instruments.options_min_adv_usd | $50M | Options only on stocks trading at least this a day (was $100M). |

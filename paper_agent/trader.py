@@ -192,7 +192,10 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     if score < cfg["portfolio"]["entry_score"]:
         return finish("REJECTED", "eligibility %.2f < %.2f" % (score, float(cfg["portfolio"]["entry_score"])), action="NO_TRADE")
     if f["verdict"] not in ("BUY", "SHORT"):
-        return finish("REJECTED", "; ".join(f["why"]) or f["verdict"], action="NO_TRADE")
+        if not options.rescuable(f, cfg):
+            return finish("REJECTED", "; ".join(f["why"]) or f["verdict"], action="NO_TRADE")
+        reason["rescue"] = {"stock_verdict": f["verdict"], "stock_blocked_by": list(f["why"])}                 # the STOCK rules said no for stock-only reasons: take a second look as a put (the forecast row keeps the original verdict)
+        f = dict(f, verdict="SHORT", rescue=True)
     c["side"] = "SHORT" if f["verdict"] == "SHORT" else "LONG"                                    # the last-look checks (news veto, shock, gap) read the position's side from here
     if paused(cfg):
         return finish("PAUSED", "trading paused by operator")
@@ -212,13 +215,13 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     gross_free = max(0.0, cfg["risk"]["max_gross_pct"] - eq["gross"])
     opp = opportunity.evaluate(conn, f, sz["ok"], state, cfg, now, headroom_pct=min(sz["pct"], gross_free))
     reason["opportunity"] = opp["reason"]
-    if not opp["ok"]:
+    if not opp["ok"] and not f.get("rescue"):                                                       # (a rescued idea is an option: the stock capacity and hurdle tests do not apply to it)
         if opp.get("rotate_out"):
             conn.execute("INSERT OR IGNORE INTO exit_signals(position_id,created,trigger,severity,reason,status) VALUES(?,?,?,?,?,'OPEN')",
                          (opp["rotate_out"], iso(now), "SUPERIOR_OPPORTUNITY", 0.6, "%s offers EV %.2f%% (%s)" % (t, f["ev_net"] * 100, opp["reason"])))
             return finish("AWAITING_CAPACITY", opp["reason"])
         return finish("RISK_REJECTED", opp["reason"])
-    if not sz["ok"]:
+    if not sz["ok"] and not f.get("rescue"):
         return finish("CAPACITY_DEFERRED", "size %.2f%% below minimum %.2f%% (%s)" % (sz["pct"] * 100, cfg["risk"]["min_position_pct"] * 100, sz["binding"]))
     # ---- two stocks that move together are ONE bet: shrink a new position that tracks a same-side holding, refuse a near-twin
     corr, twin = graph.max_same_side_corr(conn, t, hs, c["side"])
@@ -297,6 +300,8 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     if opt:
         opt["decision_id"] = did
         return opt
+    if f.get("rescue"):
+        return finish("REJECTED", "the stock rules turned this down (%s) and no put qualified: %s" % ("; ".join(reason["rescue"]["stock_blocked_by"])[:110], reason.get("option_considered") or "no reason recorded"), action="NO_TRADE")
     if f["verdict"] == "SHORT" and not cfg["instruments"].get("shorts_enabled"):
         return finish("REJECTED", "a bearish idea, but short selling is switched off and no put qualified (a put needs a strong, short-horizon edge in a liquid stock)")
     out = execute_buy(conn, cfg, c, f, sz, q, did, fid, now, theme, comp.get("sector") or "Unclassified", reason)

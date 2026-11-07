@@ -91,7 +91,8 @@ class TestNothingWasLost(unittest.TestCase):
             self.assertIn(path, now, "a setting was removed: " + path)
             f = now[path]
             self.assertEqual((f.label, f.kind, f.group, f.lo, f.hi, list(f.choices) if f.choices else None, f.restart), (label, kind, group, lo, hi, choices, restart), path)
-            self.assertEqual(S.get_path(BASE, path), default, "default changed: " + path)
+            deliberate = {"risk.open_delay_minutes": 30}                                           # Build 50: 12 of 12 entries in the first 15 minutes after the open lost money (3 won), median hold 18 minutes
+            self.assertEqual(S.get_path(BASE, path), deliberate.get(path, default), "default changed: " + path)
 
     def test_the_layout_places_every_setting_exactly_once_and_invents_none(self):
         self.assertEqual(U.layout_problems(), [])

@@ -192,7 +192,7 @@ class TestTheScorecard(unittest.TestCase):
 
 class TestTheVersion(unittest.TestCase):
     def test_the_version_is_s4_and_the_instrument_settings_are_decision_affecting(self):
-        self.assertIn(stamp.STRATEGY_VERSION, ("S9", "S10"))
+        self.assertIn(stamp.STRATEGY_VERSION, ("S9", "S10", "S11"))
         c = H.cfg()
         a = stamp.fingerprint(c)
         c["instruments"]["shorts_enabled"] = not c["instruments"]["shorts_enabled"]

@@ -23,7 +23,7 @@ class TestWhereOptionsAreNotUsed(TO.Base):
         self.assertEqual(self.one("SELECT COUNT(*) FROM positions")[0], 1)
 
     def test_an_illiquid_stock_stays_a_stock(self):
-        self.profile(3.0e12, 5.0e7)                                                                  # trades $50M a day: under the $100M option floor
+        self.profile(3.0e12, 3.0e7)                                                                  # trades $30M a day: under the $50M option floor (Build 50 lowered it from $100M: the real-contract spread and open-interest filters carry the liquidity test)
         self.stock_instead()
 
     def test_a_low_priced_stock_stays_a_stock(self):

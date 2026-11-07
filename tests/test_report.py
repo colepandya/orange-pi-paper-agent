@@ -53,8 +53,8 @@ class TestVerdicts(Base):
         tf = TF.TestWholeSystemAgainstTheSimulatedInternet("test_a_clean_morning_runs_without_a_single_stage_error_and_trades")
         tf.setUp()
         try:
-            c, errors, net = tf.morning(seed=1, cycles=14)
-            now = TF.T0 + dt.timedelta(minutes=5 * 14)
+            c, errors, net = tf.morning(seed=1, cycles=24)                                              # (the opening delay is 30 minutes since Build 50)
+            now = TF.T0 + dt.timedelta(minutes=5 * 24)
             with net:
                 net.now = now
                 rep = report.build(c, self.cfg(), TP.big_uni(), [], now, live=True, check_units=False)

@@ -170,6 +170,7 @@ tests/test_build43_scope.py
 tests/test_build46.py
 tests/test_build47.py
 tests/test_build49.py
+tests/test_build50.py
 tests/test_cleanup.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py
