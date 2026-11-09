@@ -84,6 +84,36 @@ def rescuable(f: dict, cfg: dict) -> bool:
     return isinstance(why, list) and bool(why) and all(isinstance(w, str) and RESCUE_WHY.match(w) for w in why)
 
 
+def reversal_view(f: dict, cfg: dict) -> Optional[dict]:
+    """A BULLISH idea whose forecast came out strongly negative: the model subtracts what the stock has already risen ("priced in"), and when that exceeds the news it predicts a FALL. The stock rules then stop at "buying would lose money"
+    and never act on the model's own forecast. This turns that forecast into a PUT view of the idea: the predicted move is cut by a haircut (the overshoot model is unvalidated), and the result must still clear every other test. None when
+    the idea is not of that kind."""
+    if not isinstance(f, dict) or not isinstance(cfg, dict):
+        return None
+    inst = cfg.get("instruments") if isinstance(cfg.get("instruments"), dict) else {}
+    if not (inst.get("options_enabled") and inst.get("options_reversal_enabled", True)):
+        return None
+    if f.get("verdict") != "REJECT_NEGATIVE_EV" or f.get("direction") != "LONG":
+        return None
+    try:
+        ev, hair, need = float(f.get("ev_net")), float(inst.get("options_reversal_haircut", 0.5)), float(inst.get("options_reversal_min_move", 0.04))
+        slip = float((cfg.get("portfolio") or {}).get("slippage_bps", 8))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not all(math.isfinite(x) for x in (ev, hair, need, slip)) or hair <= 0:
+        return None
+    cost = 2 * slip / 1e4 + 0.0005
+    ev_rev = -ev - 2 * cost                                                                       # a short wins what the long loses, and pays the round trip once more
+    scen = f.get("scenarios")
+    if ev_rev < need or not isinstance(scen, dict) or not scen:
+        return None
+    try:
+        flipped = {k: {"p": float(v["p"]), "ret": -float(v["ret"]) * hair} for k, v in scen.items()}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    return dict(f, verdict="SHORT", direction="SHORT", rescue=True, reversal=True, ev_net=ev_rev * hair, scenarios=flipped)
+
+
 def option_ev(cfg: dict, f: dict, plan: dict, price: float, now) -> Optional[float]:
     """The expected return on the PREMIUM of this actual contract, under the forecast's own scenarios: for each scenario the underlying moves, the option is repriced with time passed (decay) and sold at the BID (the exit
     spread), commissions both ways. Each scenario's return is capped at +200% so a tail scenario cannot carry the number. None when the forecast has no scenarios."""
@@ -120,7 +150,7 @@ def trial_breaker(conn, cfg: dict, equity: float) -> Optional[str]:
     """The put trial pauses itself: if its last N closed trades have lost more than a set share of equity, no new trial trade opens until the record recovers."""
     inst = cfg["instruments"]
     n, pct = int(inst.get("options_trial_breaker_trades", 8)), float(inst.get("options_trial_breaker_pct", 0.005))
-    rows = conn.execute("SELECT pnl FROM option_positions WHERE status='CLOSED' AND (note LIKE '[TRIAL%' OR note LIKE '[RESCUE%') ORDER BY id DESC LIMIT ?", (n,)).fetchall()
+    rows = conn.execute("SELECT pnl FROM option_positions WHERE status='CLOSED' AND (note LIKE '[TRIAL%' OR note LIKE '[RESCUE%' OR note LIKE '[REVERSAL%') ORDER BY id DESC LIMIT ?", (n,)).fetchall()
     if len(rows) < n:
         return None
     total = sum((r[0] or 0.0) for r in rows)
@@ -132,7 +162,7 @@ def scorecard(conn) -> list:
     out: dict = {}
     for r in conn.execute("SELECT kind,note,status,cost,pnl FROM option_positions").fetchall():
         n_ = r["note"] or ""
-        k = (r["kind"], "rescue" if n_.startswith("[RESCUE") else "trial" if n_.startswith("[TRIAL") else "core")
+        k = (r["kind"], "reversal" if n_.startswith("[REVERSAL") else "rescue" if n_.startswith("[RESCUE") else "trial" if n_.startswith("[TRIAL") else "core")
         g = out.setdefault(k, {"kind": k[0], "tier": k[1], "open": 0, "closed": 0, "wins": 0, "pnl": 0.0, "cost_closed": 0.0, "best": None, "worst": None})
         if r["status"] == "OPEN":
             g["open"] += 1
@@ -166,7 +196,10 @@ def plan_for(conn, cfg: dict, f: dict, c: dict, comp: dict, price: float, equity
         paused = trial_breaker(conn, cfg, equity)
         if paused:
             return _no(refusals, paused)
-        tier = "rescue"
+        tier = "reversal" if f.get("reversal") else "rescue"
+        hrs = float(inst.get("options_reversal_cooldown_hours", 24.0) or 0.0)
+        if tier == "reversal" and hrs > 0 and conn.execute("SELECT 1 FROM option_positions WHERE underlying=? AND status='CLOSED' AND note LIKE '[REVERSAL%' AND closed>=?", (c["ticker"], iso(now - dt.timedelta(hours=hrs)))).fetchone():
+            return _no(refusals, "a reversal put on this stock closed less than %.0f hours ago" % hrs)
     elif f["ev_net"] < float(inst["options_min_ev"]):                                              # time decay punishes weak ideas: only the half-size PUT trial may go lower
         if not inst.get("options_trial_enabled", True):
             return _no(refusals, "edge %.1f%% is below the %.0f%% an option needs" % (f["ev_net"] * 100, float(inst["options_min_ev"]) * 100))
@@ -215,7 +248,7 @@ def plan_for(conn, cfg: dict, f: dict, c: dict, comp: dict, price: float, equity
         return _no(refusals, "the option costs under $0.30: penny options do not trade like this")                                                                             # penny options do not trade like this
     comm = float(inst.get("options_commission", 0.65))
     room = float(inst["options_max_premium_pct"]) * equity - sleeve_used(conn)
-    per_trade = float(inst.get("options_rescue_per_trade_pct", 0.006)) if tier == "rescue" else float(inst.get("options_trial_per_trade_pct", 0.006)) if tier == "trial" else float(inst["options_per_trade_pct"])
+    per_trade = float(inst.get("options_reversal_per_trade_pct", 0.006)) if tier == "reversal" else float(inst.get("options_rescue_per_trade_pct", 0.006)) if tier == "rescue" else float(inst.get("options_trial_per_trade_pct", 0.006)) if tier == "trial" else float(inst["options_per_trade_pct"])
     budget = min(per_trade * equity, room)
     contracts = int(budget // (px["ask"] * 100.0 + comm))
     if contracts < 1:
@@ -230,7 +263,7 @@ def plan_for(conn, cfg: dict, f: dict, c: dict, comp: dict, price: float, equity
             return _no(refusals, "this contract's own expected return on the premium is %s, under the %.0f%% the smaller tiers need" % ("unknown" if oev is None else "%+.0f%%" % (oev * 100), need * 100))
     return {"kind": kind, "strike": K, "expiry": expiry.isoformat(), "contracts": contracts, "sigma": sigma, "ask": px["ask"], "mid": px["mid"], "bid": px["bid"], "commission": comm, "source": source, "contract": contract, "tier": tier, "option_ev": oev,
             "stop_underlying": price * (1.0 - sg * abs(f["stop_return"])), "target_underlying": price * (1.0 + sg * f["target_return"]),
-            "why": ("[TRIAL, half size] " if tier == "trial" else "[RESCUE, half size] " if tier == "rescue" else "") + "%s: edge %.1f%% over %d sessions is strong and short enough that time decay will not eat it; %s is liquid ($%.0fM a day); %s" % ("a put" if kind == PUT else "a call", f["ev_net"] * 100, f["horizon_days"], c["ticker"], adv / 1e6, mkt_note)}
+            "why": ("[TRIAL, half size] " if tier == "trial" else "[REVERSAL, half size] " if tier == "reversal" else "[RESCUE, half size] " if tier == "rescue" else "") + "%s: edge %.1f%% over %d sessions is strong and short enough that time decay will not eat it; %s is liquid ($%.0fM a day); %s" % ("a put" if kind == PUT else "a call", f["ev_net"] * 100, f["horizon_days"], c["ticker"], adv / 1e6, mkt_note)}
 
 
 def open_option(conn, cfg: dict, c: dict, f: dict, plan: dict, price: float, did: int, fid: int, now, theme: str, sector: str, reason: dict, set_decision: Callable) -> dict:

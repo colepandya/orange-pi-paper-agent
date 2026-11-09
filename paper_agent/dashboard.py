@@ -159,7 +159,7 @@ def _options_section(c, now) -> str:
     sc = options.scorecard(c)
     score_html = ""
     if sc:
-        rows = [[g["kind"], {"trial": "smaller trial", "rescue": "rescued from stock rules"}.get(g["tier"], "normal"), g["open"], g["closed"], "%d / %d" % (g["wins"], g["closed"]), dm(g["pnl"]), ("%+.0f%%" % (100 * g["return_on_premium"])) if g["return_on_premium"] is not None else "n/a", g["evidence"]] for g in sc]
+        rows = [[g["kind"], {"trial": "smaller trial", "rescue": "rescued from stock rules", "reversal": "reversal: the model forecast a fall"}.get(g["tier"], "normal"), g["open"], g["closed"], "%d / %d" % (g["wins"], g["closed"]), dm(g["pnl"]), ("%+.0f%%" % (100 * g["return_on_premium"])) if g["return_on_premium"] is not None else "n/a", g["evidence"]] for g in sc]
         score_html = "<h3>Option scorecard: what each kind has actually done</h3>" + table(["Kind", "Tier", "Open", "Closed", "Won / closed", "Realised $", "Return on premium", "Evidence"], rows) + "<p class=mut>A few trades is an anecdote: one winning put does not show that puts win. Treat this as a record, not a result, until it has dozens of closed trades.</p>"
     op = c.execute("SELECT * FROM option_positions WHERE status='OPEN' ORDER BY id").fetchall()
     cl = c.execute("SELECT * FROM option_positions WHERE status='CLOSED' ORDER BY id DESC LIMIT 15").fetchall()
@@ -517,6 +517,10 @@ def shadow_section(c, cfg) -> str:
     cal = rep.get("ev_calibration") or {}
     if cal.get("quintiles"):
         out.append("<h3>Does a higher estimated EV earn more? (n=%d)</h3>" % cal["n"] + table(["EV quintile (1 = lowest)", "Ideas", "Mean EV", "Realised net"], [[b["bucket"], b["n"], "%.4f" % b["mean_ev"], "%s%%" % b["mean_net_pct"]] for b in cal["quintiles"]]) + "<p class=mut>Rank correlation %s (permutation p %s). %s</p>" % (cal.get("spearman_rho"), cal.get("permutation_p"), E(cal["reading"])))
+    mf = rep.get("model_forecast") or {}
+    if mf.get("groups"):
+        out.append("<h3>Does the model's own forecast of a big move come true?</h3>" + table(["EV size", "Model predicted", "Observations", "Mean vs market after cost", "95% interval (%)", "Right", "Model said", "Evidence"],
+                   [[g["band"], g["predicted"], g["observations"], "%s%%" % g["mean_pct"], "%s" % (g["ci95_pct"] or "n/a"), pct(g["hit_rate"], 0), "%s%%" % g["mean_predicted_move_pct"], g["maturity"]] for g in mf["groups"]]) + "<p class=mut>%s</p>" % E(mf["note"]))
     out.append("<p class=mut><b>Read this first:</b> %s</p>" % E(rep["caveats"]))
     return "".join(out)
 

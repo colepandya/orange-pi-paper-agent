@@ -192,10 +192,15 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     if score < cfg["portfolio"]["entry_score"]:
         return finish("REJECTED", "eligibility %.2f < %.2f" % (score, float(cfg["portfolio"]["entry_score"])), action="NO_TRADE")
     if f["verdict"] not in ("BUY", "SHORT"):
-        if not options.rescuable(f, cfg):
-            return finish("REJECTED", "; ".join(f["why"]) or f["verdict"], action="NO_TRADE")
-        reason["rescue"] = {"stock_verdict": f["verdict"], "stock_blocked_by": list(f["why"])}                 # the STOCK rules said no for stock-only reasons: take a second look as a put (the forecast row keeps the original verdict)
-        f = dict(f, verdict="SHORT", rescue=True)
+        if options.rescuable(f, cfg):
+            reason["rescue"] = {"stock_verdict": f["verdict"], "stock_blocked_by": list(f["why"])}             # the STOCK rules said no for stock-only reasons: take a second look as a put (the forecast row keeps the original verdict)
+            f = dict(f, verdict="SHORT", rescue=True)
+        else:
+            rv = options.reversal_view(f, cfg)
+            if rv is None:
+                return finish("REJECTED", "; ".join(f["why"]) or f["verdict"], action="NO_TRADE")
+            reason["reversal"] = {"stock_verdict": f["verdict"], "stock_blocked_by": list(f["why"]), "model_expects_the_stock_to_fall_pct": round(-float(f["ev_net"]) * 100, 2), "put_edge_after_haircut_pct": round(rv["ev_net"] * 100, 2)}
+            f = rv                                                                                             # the model's own forecast is a FALL: express it as a put, with a haircut
     c["side"] = "SHORT" if f["verdict"] == "SHORT" else "LONG"                                    # the last-look checks (news veto, shock, gap) read the position's side from here
     if paused(cfg):
         return finish("PAUSED", "trading paused by operator")
@@ -243,7 +248,9 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
         mc = monitor_mod.entry_check(conn, cfg, c["ticker"], entry_side(f), f["thesis_key"], regime, now)
     except Exception:  # noqa: BLE001 - a check that cannot run must not block trading
         mc = None
-    if mc and mc["would_exit"]:
+    if mc and mc["would_exit"] and f.get("reversal"):
+        reason["monitor_check_ignored"] = "a reversal put is an option, which this monitor does not manage; the conflict with the stock's thesis is the point of the idea (and is why it is half size)"
+    elif mc and mc["would_exit"]:
         reason["monitor_check"] = {"health": round(mc["health"], 1), "state": mc["state"], "signals": [s[2] for s in mc["signals"]]}
         return finish("RISK_REJECTED", "the position monitor would close this at once: " + mc["why"])
     # ---- red team: a separate LLM pass tries to prove the idea wrong; the deterministic gate decides what to do with it
@@ -301,7 +308,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
         opt["decision_id"] = did
         return opt
     if f.get("rescue"):
-        return finish("REJECTED", "the stock rules turned this down (%s) and no put qualified: %s" % ("; ".join(reason["rescue"]["stock_blocked_by"])[:110], reason.get("option_considered") or "no reason recorded"), action="NO_TRADE")
+        return finish("REJECTED", "the stock rules turned this down (%s) and no put qualified: %s" % ("; ".join((reason.get("rescue") or reason.get("reversal"))["stock_blocked_by"])[:110], reason.get("option_considered") or "no reason recorded"), action="NO_TRADE")
     if f["verdict"] == "SHORT" and not cfg["instruments"].get("shorts_enabled"):
         return finish("REJECTED", "a bearish idea, but short selling is switched off and no put qualified (a put needs a strong, short-horizon edge in a liquid stock)")
     out = execute_buy(conn, cfg, c, f, sz, q, did, fid, now, theme, comp.get("sector") or "Unclassified", reason)

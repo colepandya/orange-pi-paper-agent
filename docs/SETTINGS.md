@@ -83,3 +83,8 @@ Every mode below starts on **observe**. Observe records and measures what a part
 | instruments.options_rescue_per_trade_pct | 0.6% | Premium per rescued put, at most. |
 | instruments.options_min_option_ev | 10% | Trial and rescued puts: the contract itself must be expected to return at least this on its premium (after decay and the exit spread). |
 | instruments.options_min_adv_usd | $50M | Options only on stocks trading at least this a day (was $100M). |
+| instruments.options_reversal_enabled | OFF | A bullish idea whose forecast is a fall becomes a half-size PUT. Off until the Intelligence tab shows the model's big forecasts coming true over several weeks. |
+| instruments.options_reversal_min_move | 8% | The forecast fall must be at least this, net of costs (the 4-8% band showed nothing in the first week). |
+| instruments.options_reversal_haircut | 0.5 | Believe this share of the predicted move (the overshoot model is unvalidated). |
+| instruments.options_reversal_per_trade_pct | 0.6% | Premium per reversal put, at most. |
+| instruments.options_reversal_cooldown_hours | 24 | Wait this long after a reversal put closes on the same stock. |

@@ -348,6 +348,41 @@ def _stats(rows: List[dict]) -> dict:
             "maturity": maturity(ne if ne else n), "verdict": verdict}
 
 
+def model_report(conn, cfg: Optional[dict] = None, horizon: int = 3) -> dict:
+    """Does the model's OWN forecast of a big move come true? The gate and EV tables above score the idea's side (the news direction); the forecast can disagree with it (bullish news on a stock that already ran up becomes a forecast of a FALL).
+    Here each idea is scored in the direction the model predicted, market-adjusted and after cost, one observation per stock, calendar week and direction (consecutive days overlap, so they are not independent)."""
+    if not (_has(conn, "shadow_candidates") and _has(conn, "forecasts")):
+        return {}
+    cost = float(((cfg or {}).get("shadow") or {}).get("cost_bps", 30.0)) / 1e4
+    rows = conn.execute("SELECT c.ticker,c.side,c.entry_day,f.direction AS fdir,f.ev_net AS fev,o.gross_ret,o.bench_ret FROM shadow_candidates c JOIN shadow_outcomes o ON o.decision_id=c.decision_id AND o.horizon=? "
+                        "JOIN forecasts f ON f.decision_id=c.decision_id WHERE o.bench_ret IS NOT NULL AND o.gross_ret IS NOT NULL AND f.ev_net IS NOT NULL AND c.entry_day IS NOT NULL", (horizon,)).fetchall()
+    groups: dict = {}
+    for r in rows:
+        try:
+            sg = 1.0 if r["side"] == "LONG" else -1.0
+            sp = 1.0 if r["fdir"] == "LONG" else -1.0
+            pred = sp if r["fev"] >= 0 else -sp                                                       # the position wins when EV > 0; a negative EV means the stock is forecast to go the OTHER way
+            mag = abs(float(r["fev"]))
+            band = "|EV| 8% or more" if mag >= 0.08 else "|EV| 4% to 8%" if mag >= 0.04 else "|EV| 1% to 4%" if mag >= 0.01 else None
+            if band is None or not all(math.isfinite(float(r[k])) for k in ("gross_ret", "bench_ret")):
+                continue
+            x = pred * (sg * r["gross_ret"] - r["bench_ret"]) - cost
+            iso_wk = dt.date.fromisoformat(r["entry_day"]).isocalendar()
+        except (TypeError, ValueError):
+            continue
+        key = (band, "FALL" if pred < 0 else "RISE")
+        groups.setdefault(key, {}).setdefault("%s|%d-%02d" % (r["ticker"], iso_wk[0], iso_wk[1]), []).append((x, mag))
+    out = []
+    for (band, pd), cl in sorted(groups.items()):
+        xs = [sum(v[0] for v in vs) / len(vs) for vs in cl.values()]
+        mags = [sum(v[1] for v in vs) / len(vs) for vs in cl.values()]
+        n = len(xs)
+        lo, hi = bootstrap_ci(xs)
+        out.append({"band": band, "predicted": pd, "observations": n, "mean_pct": round(100 * sum(xs) / n, 3), "ci95_pct": [round(100 * lo, 3), round(100 * hi, 3)] if lo is not None else None,
+                    "hit_rate": round(sum(1 for x in xs if x > 0) / n, 3), "mean_predicted_move_pct": round(100 * sum(mags) / n, 2), "maturity": maturity(n)})
+    return {"horizon": horizon, "groups": out, "note": "Positive means the model's predicted direction was right, after cost and against the market. One observation per stock-week: consecutive days overlap. A single market regime and a few weeks of data prove little."}
+
+
 def report(conn, cfg: Optional[dict] = None, horizon: int = 3) -> dict:
     """Everything the dashboard and `shadow report` show. Pure read."""
     if not _has(conn, "shadow_candidates"):
@@ -387,7 +422,7 @@ def report(conn, cfg: Optional[dict] = None, horizon: int = 3) -> dict:
     bench = [r["bench_ret"] for r in rows if r.get("bench_ret") is not None]
     traded = _stats([r for r in rows if r["gate"] == "traded"])
     blocked = _stats([r for r in rows if r["gate"] != "traded"])
-    return {"coverage": cov, "overall": {"traded": traded, "not_traded": blocked}, "by_gate": by_gate, "by_event_type": by_type, "ev_calibration": cal, "by_side": by_side, "market_move_pct": round(100 * sum(bench) / len(bench), 3) if bench else None, "caveats": CAVEATS, "gates_compared": len(by_gate), "event_types_compared": len(by_type)}
+    return {"coverage": cov, "overall": {"traded": traded, "not_traded": blocked}, "by_gate": by_gate, "by_event_type": by_type, "ev_calibration": cal, "model_forecast": model_report(conn, cfg, horizon), "by_side": by_side, "market_move_pct": round(100 * sum(bench) / len(bench), 3) if bench else None, "caveats": CAVEATS, "gates_compared": len(by_gate), "event_types_compared": len(by_type)}
 
 
 def format_report(rep: dict) -> str:
@@ -417,6 +452,12 @@ def format_report(rep: dict) -> str:
         L.append("  rank correlation %s (permutation p %s); against the market-adjusted outcome %s. %s" % (cal.get("spearman_rho"), cal.get("permutation_p"), cal.get("spearman_rho_excess"), cal.get("reading")))
     else:
         L.append("  not enough measured ideas yet")
+    mf = rep.get("model_forecast") or {}
+    if mf.get("groups"):
+        L.append("\nDOES THE MODEL'S OWN FORECAST OF A BIG MOVE COME TRUE? (scored in the direction the MODEL predicted)")
+        for g in mf["groups"]:
+            L.append("  %-16s predicted %-4s  obs %3d | mean %7s%% vs market after cost (95%% %-18s) | right %s of the time | model said %s%% | %s" % (g["band"], g["predicted"], g["observations"], g["mean_pct"], g["ci95_pct"], g["hit_rate"], g["mean_predicted_move_pct"], g["maturity"]))
+        L.append("  " + mf["note"])
     L.append("\nBY EVENT TYPE (shrunk mean pulls small samples toward the overall mean)")
     for t, s in sorted((rep.get("by_event_type") or {}).items(), key=lambda kv: -kv[1]["observations"])[:14]:
         L.append("  %-22s obs %4d | net %7s%% | shrunk %7s%% | hit %-5s | %s" % (t, s["observations"], s["mean_net_pct"], s.get("shrunk_mean_net_pct"), s["hit_rate_net"], s["maturity"]))
