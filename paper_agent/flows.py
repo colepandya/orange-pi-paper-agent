@@ -51,7 +51,7 @@ def fetch_insiders(conn, ticker: str, fetch: Callable = net.get_json) -> int:
 def record_event_flows(conn, since_iso: str) -> int:
     """Buyback / dividend-increase events -> capital_flows(kind='buyback')."""
     n = 0
-    for e in conn.execute("SELECT id,published,amount_usd,tickers_json,headline FROM events WHERE event_type='buyback_dividend' AND created>=?", (since_iso,)):
+    for e in conn.execute("SELECT id,published,amount_usd,tickers_json,headline FROM events WHERE event_type='buyback_dividend' AND created>=?", (since_iso,)).fetchall():
         for t in json.loads(e["tickers_json"] or "[]")[:2]:
             n += conn.execute("INSERT OR IGNORE INTO capital_flows(ticker,ts,kind,value,shares,detail_json,source,dedupe) VALUES(?,?,?,?,?,?,?,?)",
                               (t, e["published"] or iso(), "buyback", e["amount_usd"] or 0, None, json.dumps({"headline": e["headline"]}), "events", "ev%d" % e["id"])).rowcount

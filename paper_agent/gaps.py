@@ -27,14 +27,14 @@ def scan(conn, cfg: dict, now=None) -> int:
         if not q:
             n += _task(conn, "quote_gap", t, "No verified multi-provider quote for %s in 48h (exits will be blocked)" % t, 0.9, False, now)
     since = iso(now - __import__("datetime").timedelta(days=3))
-    for e in conn.execute("SELECT id,event_type,headline,amount_usd,tickers_json FROM events WHERE created>? AND stale=0 AND novelty>=0.9 AND tickers_json!='[]'", (since,)):
+    for e in conn.execute("SELECT id,event_type,headline,amount_usd,tickers_json FROM events WHERE created>? AND stale=0 AND novelty>=0.9 AND tickers_json!='[]'", (since,)).fetchall():
         if e["event_type"] in ("contract_win", "merger_acquisition") and not e["amount_usd"]:
             n += _task(conn, "missing_contract_value", "event:%d" % e["id"], "Unknown deal value: %s" % e["headline"][:110], 0.6, False, now)
         if e["event_type"] in ("earnings_beat", "earnings_miss") and "guidance" not in e["headline"].lower() and "outlook" not in e["headline"].lower():
             n += _task(conn, "missing_guidance", "event:%d" % e["id"], "Guidance not stated: %s" % e["headline"][:110], 0.55, False, now)
         if e["event_type"] == "contract_win" and not any(w in e["headline"].lower() for w in ("pentagon", "navy", "army", "air force", "nasa", "dod", "department", "agency", "government", "nato")):
             n += _task(conn, "missing_customer", "event:%d" % e["id"], "Customer unidentified: %s" % e["headline"][:110], 0.5, False, now)
-    for t in conn.execute("SELECT key,name,probability,confidence_quality,last_evidence FROM theses WHERE active=1"):
+    for t in conn.execute("SELECT key,name,probability,confidence_quality,last_evidence FROM theses WHERE active=1").fetchall():
         age_days = 999.0
         if t["last_evidence"]:
             from .timeutil import parse_ts
@@ -47,7 +47,7 @@ def scan(conn, cfg: dict, now=None) -> int:
     off = _sources.disabled_ids(cfg)                                          # a feed the owner switched off is not a problem to research
     for sid in off:
         conn.execute("UPDATE research_tasks SET status='RESOLVED',resolved_at=?,result='feed switched off in Settings' WHERE kind='source_down' AND subject=? AND status='OPEN'", (iso(now), sid))
-    for s in conn.execute("SELECT source_id,failures,last_error FROM source_health WHERE failures>=3"):
+    for s in conn.execute("SELECT source_id,failures,last_error FROM source_health WHERE failures>=3").fetchall():
         if s["source_id"] in off:
             continue
         n += _task(conn, "source_down", s["source_id"], "Source %s failing (%d consecutive): %s" % (s["source_id"], s["failures"], (s["last_error"] or "")[:80]), 0.4, False, now)
