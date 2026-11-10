@@ -16,6 +16,15 @@ EXIT_LABEL = {"STOP_REACHED": "Stop loss hit", "RUNNER_STOP": "Runner stopped ou
 HOLD_BUCKETS = ["same day", "1 night", "2 nights", "3+ nights"]
 
 
+def _num(x) -> Optional[float]:
+    """A finite number, or None: a stored value of the wrong type is 'unknown', never an error that takes a page down."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return v if math.isfinite(v) else None
+
+
 def closed_trades(conn) -> List[dict]:
     out = []
     rows = conn.execute("SELECT p.id pid,p.side,p.ticker,p.opened,p.closed,p.entry_price,p.exit_price,p.pnl,p.review_code,p.decision_id,d.amount,d.shares dshares,d.reason,d.thesis_key,d.ev_net "
@@ -23,18 +32,22 @@ def closed_trades(conn) -> List[dict]:
     for r in rows:
         try:
             rj = json.loads(r["reason"] or "{}")
-            et = (rj.get("candidate") or {}).get("event_type") if isinstance(rj, dict) else None
+            cand = rj.get("candidate") if isinstance(rj, dict) else None
+            et = cand.get("event_type") if isinstance(cand, dict) else None
+            et = et if isinstance(et, str) else None                                                  # a malformed record is "unknown", never an error that takes the Performance tab down
+            tier = "low-edge" if isinstance(rj, dict) and rj.get("low_edge") else "full size"
         except (ValueError, TypeError):
             et = None
-        basis = r["amount"] or ((r["dshares"] or 0) * (r["entry_price"] or 0)) or None
-        pnl = float(r["pnl"] or 0.0)
+            tier = "full size"
+        basis = _num(r["amount"]) or ((_num(r["dshares"]) or 0.0) * (_num(r["entry_price"]) or 0.0)) or None
+        pnl = _num(r["pnl"]) or 0.0
         o, c = parse_ts(r["opened"]), parse_ts(r["closed"])
         nights = max(0, (c.astimezone(NY).date() - o.astimezone(NY).date()).days) if o and c else 0
         parts = conn.execute("SELECT COUNT(*) FROM virtual_exit_actions WHERE position_id=? AND status='COMMITTED'", (r["pid"],)).fetchone()[0]
         out.append({"position_id": r["pid"], "decision_id": r["decision_id"], "ticker": r["ticker"], "opened": r["opened"], "closed": r["closed"], "entry": r["entry_price"], "exit": r["exit_price"],
                     "pnl": pnl, "basis": basis, "ret": (pnl / basis) if basis else None, "exit_reason": r["review_code"] or "UNKNOWN", "event_type": et or "unknown", "thesis": r["thesis_key"],
                     "hold_hours": ((c - o).total_seconds() / 3600.0) if o and c else None, "hold_bucket": HOLD_BUCKETS[min(3, nights)], "open_hour_ny": o.astimezone(NY).hour if o else None,
-                    "partial": parts > 1, "ev_net": r["ev_net"], "side": r["side"] or "LONG", "instrument": "SHORT" if (r["side"] or "LONG") == "SHORT" else "STOCK"})
+                    "partial": parts > 1, "size_tier": tier, "ev_net": r["ev_net"], "side": r["side"] or "LONG", "instrument": "SHORT" if (r["side"] or "LONG") == "SHORT" else "STOCK"})
     return out
 
 

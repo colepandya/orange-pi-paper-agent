@@ -90,8 +90,9 @@ class TestNothingWasLost(unittest.TestCase):
         for path, (label, kind, group, lo, hi, choices, restart, default) in BUILD43.items():
             self.assertIn(path, now, "a setting was removed: " + path)
             f = now[path]
-            self.assertEqual((f.label, f.kind, f.group, f.lo, f.hi, list(f.choices) if f.choices else None, f.restart), (label, kind, group, lo, hi, choices, restart), path)
-            deliberate = {"risk.open_delay_minutes": 30}                                           # Build 50: 12 of 12 entries in the first 15 minutes after the open lost money (3 won), median hold 18 minutes
+            widened = {"strategy.min_reward_risk": 0.2}                                                  # Build 53: the lower bound is widened so a minimum of 0.4 can be entered
+            self.assertEqual((f.label, f.kind, f.group, f.lo, f.hi, list(f.choices) if f.choices else None, f.restart), (label, kind, group, widened.get(path, lo), hi, choices, restart), path)
+            deliberate = {"risk.open_delay_minutes": 30, "risk.min_ev_net": 0.0, "strategy.min_reward_risk": 0.4}                                           # Build 50: 12 of 12 entries in the first 15 minutes after the open lost money (3 won), median hold 18 minutes
             self.assertEqual(S.get_path(BASE, path), deliberate.get(path, default), "default changed: " + path)
 
     def test_the_layout_places_every_setting_exactly_once_and_invents_none(self):

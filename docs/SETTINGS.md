@@ -88,3 +88,14 @@ Every mode below starts on **observe**. Observe records and measures what a part
 | instruments.options_reversal_haircut | 0.5 | Believe this share of the predicted move (the overshoot model is unvalidated). |
 | instruments.options_reversal_per_trade_pct | 0.6% | Premium per reversal put, at most. |
 | instruments.options_reversal_cooldown_hours | 24 | Wait this long after a reversal put closes on the same stock. |
+
+## More trades, kept small (Build 53)
+| Setting | Default | Meaning |
+|---|---|---|
+| risk.min_ev_net | 0 (was 0.6%) | Minimum expected value (net of costs) to trade at all. Negative-EV ideas are still rejected. |
+| strategy.min_reward_risk | 0.4 (was 1.0) | Minimum target-to-stop ratio to trade at all. |
+| risk.cash_hurdle_margin | 0.1% (was a fixed 0.2%) | Margin above cash an idea must beat, on top of the cash rate over its horizon. |
+| risk.full_size_min_ev | 0.6% | An idea below this expected value is traded SMALL. |
+| risk.full_size_min_rr | 1.0 | An idea below this reward:risk is traded SMALL. |
+| risk.low_edge_max_pct | 0.5% | Size of a small (low-edge) trade, at most. 0 switches the cap off. |
+| portfolio.daily_trade_target | 10 | Shown on the Overview. A target, not a quota. |

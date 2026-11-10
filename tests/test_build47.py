@@ -169,7 +169,7 @@ class TestTheNewOverview(unittest.TestCase):
 
     def test_the_strategy_version_moved_because_decision_logic_changed(self):
         from paper_agent import stamp
-        self.assertEqual(stamp.STRATEGY_VERSION, "S12")
+        self.assertEqual(stamp.STRATEGY_VERSION, "S13")
 
     def render(self, tab):
         import re

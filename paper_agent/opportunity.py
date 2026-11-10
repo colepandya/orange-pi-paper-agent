@@ -10,8 +10,9 @@ from .timeutil import add_trading_days, parse_ts, trading_days_between, utcnow
 CASH_RATE = 0.04          # annual hurdle for sitting in cash
 
 
-def cash_hurdle(horizon_days: int) -> float:
-    return CASH_RATE * horizon_days / 252.0 + 0.002
+def cash_hurdle(horizon_days: int, margin: float = 0.002) -> float:
+    """What an idea must beat to be worth more than cash: the cash rate over its horizon plus a margin for model error (`risk.cash_hurdle_margin`)."""
+    return CASH_RATE * horizon_days / 252.0 + margin
 
 
 def position_remaining(conn, h: dict, now=None) -> Optional[dict]:
@@ -31,13 +32,13 @@ def position_remaining(conn, h: dict, now=None) -> Optional[dict]:
     return {"position_id": h["position_id"], "ticker": h["ticker"], "remaining_ev": rem, "per_risk": rem / max(vol * math.sqrt(left), 1e-3), "days_left": left, "return": r, "age_h": age_h}
 
 
-def evaluate(conn, forecast: dict, sizing_ok: bool, state: dict, cfg: dict, now=None, headroom_pct: float = 1.0) -> dict:
+def evaluate(conn, forecast: dict, sizing_ok: bool, state: dict, cfg: dict, now=None, headroom_pct: float = 1.0, min_pct: Optional[float] = None) -> dict:
     """-> {'ok':bool,'reason':str,'rotate_out':position_id|None}.  headroom_pct = free capacity as a fraction of equity."""
-    hurdle = cash_hurdle(forecast["horizon_days"])
+    hurdle = cash_hurdle(forecast["horizon_days"], float(cfg["risk"].get("cash_hurdle_margin", 0.002)))
     if forecast["ev_net"] < hurdle:
         return {"ok": False, "reason": "EV %.2f%% does not beat cash hurdle %.2f%%" % (forecast["ev_net"] * 100, hurdle * 100), "rotate_out": None}
     cand_score = forecast["ev_net"] / max(forecast["sigma_h"], 1e-3)
-    if sizing_ok and headroom_pct >= cfg["risk"]["min_position_pct"]:
+    if sizing_ok and headroom_pct >= (cfg["risk"]["min_position_pct"] if min_pct is None else min_pct):
         return {"ok": True, "reason": "capacity available; beats cash hurdle", "rotate_out": None}
     rems = [x for x in (position_remaining(conn, h, now) for h in state["holdings"]) if x]
     if not rems:

@@ -394,7 +394,7 @@ class TestAFailingRetryIsNeverSilent(unittest.TestCase):
 class TestRewardRisk(unittest.TestCase):
     def test_the_default_minimum_is_one_not_one_point_two(self):
         base = config.load_config("/nonexistent", with_overrides=False)
-        self.assertEqual(base["strategy"]["min_reward_risk"], 1.0)
+        self.assertEqual(base["strategy"]["min_reward_risk"], 0.4)                                        # Build 53: ideas below the full-size bar are traded SMALL instead of skipped
         self.assertEqual(base["risk"]["shock_min_sources"], 2)
 
 

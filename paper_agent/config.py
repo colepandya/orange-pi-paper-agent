@@ -16,13 +16,13 @@ SYSTEMD_DIR = os.getenv("PAPER_AGENT_SYSTEMD_DIR", "/etc/systemd/system")       
 ADMIN_PATH = os.getenv("PAPER_AGENT_ADMIN", os.path.join(STATE_DIR, "admin.json"))              # dashboard login (salted PBKDF2 hash)
 
 DEFAULTS: Dict[str, Any] = {
-    "portfolio": {"starting_cash": 1_000_000.0, "slippage_bps": 8, "entry_score": 65},
+    "portfolio": {"starting_cash": 1_000_000.0, "slippage_bps": 8, "entry_score": 65, "daily_trade_target": 10},
     # Safer than the legacy 50% / 80% / 90% limits. Survival > returns (OMEGA principle 6).
     "risk": {
         "max_position_pct": 0.10, "max_issuer_pct": 0.15, "max_theme_pct": 0.30, "max_gross_pct": 0.80,
         "min_cash_pct": 0.20, "risk_per_trade_pct": 0.010, "open_delay_minutes": 30, "corr_haircut_from": 0.6, "corr_block": 0.92, "min_position_pct": 0.01,
         "drawdown_pause_pct": 0.12, "daily_loss_pause_pct": 0.03, "survival_floor": 0.80,
-        "ruin_loss_pct": 0.20, "max_stress_loss_pct": 0.20, "min_ev_net": 0.006, "min_confidence": 0.45, "max_new_per_cycle": 0, "veto_adverse_news": True, "allow_add_to_position": False, "add_cooldown_hours": 6.0, "add_only_when_winning": True, "rotation_min_hold_hours": 6, "full_size_edge": 0.5, "veto_news_direction": -0.35, "veto_news_magnitude": 0.30, "shock_direction": -0.6, "shock_hold_hours": 6, "shock_min_sources": 2, "shock_market_drop_pct": 0.01, "shock_applies_to": "after_decision", "max_gap_down_pct": 0.03, "max_gap_up_pct": 0.05,
+        "ruin_loss_pct": 0.20, "max_stress_loss_pct": 0.20, "min_ev_net": 0.0, "full_size_min_ev": 0.006, "cash_hurdle_margin": 0.001, "full_size_min_rr": 1.0, "low_edge_max_pct": 0.005, "min_confidence": 0.45, "max_new_per_cycle": 0, "veto_adverse_news": True, "allow_add_to_position": False, "add_cooldown_hours": 6.0, "add_only_when_winning": True, "rotation_min_hold_hours": 6, "full_size_edge": 0.5, "veto_news_direction": -0.35, "veto_news_magnitude": 0.30, "shock_direction": -0.6, "shock_hold_hours": 6, "shock_min_sources": 2, "shock_market_drop_pct": 0.01, "shock_applies_to": "after_decision", "max_gap_down_pct": 0.03, "max_gap_up_pct": 0.05,
         "max_spread_pct": 0.02, "min_adv_usd": 2_000_000,
     },
     "runtime": { "fetch_workers": 6,"min_available_memory_mb": 120, "max_load_per_core": 1.5, "pihole_health_required": False,
@@ -34,7 +34,7 @@ DEFAULTS: Dict[str, Any] = {
                           "ALPHA_VANTAGE": [20, 86400], "TIINGO": [40, 3600], "EODHD": [18, 86400], "YAHOO": [30, 60]}},
     "strategy": {   # SWING profile: in and out within ~1-3 sessions, small repeatable gains, tight risk. swing_enabled=False restores the older multi-week behaviour.
         "swing_enabled": True, "max_hold_days": 3, "stop_vol_mult": 1.0, "stop_min_pct": 0.012, "stop_max_pct": 0.03, "target_min_pct": 0.012, "target_max_pct": 0.04,
-        "min_reward_risk": 1.0, "partial_exit_pct": 0.6, "min_daily_vol_pct": 0.008, "runner_cap_pct": 0.06, "breakeven_trigger_pct": 0.01, "breakeven_lock_pct": 0.0015, "trail_pct": 0.01,
+        "min_reward_risk": 0.4, "partial_exit_pct": 0.6, "min_daily_vol_pct": 0.008, "runner_cap_pct": 0.06, "breakeven_trigger_pct": 0.01, "breakeven_lock_pct": 0.0015, "trail_pct": 0.01,
         "avoid_earnings": True, "earnings_exit_minutes_before_close": 45, "flatten_at_close": False, "flatten_minutes_before_close": 10,
         "plan_consistent_ev": True, "plan_gap_allowance": 0.5},
     # Which instruments the bot may trade (all paper money). Shorts and options start with SMALL caps so a bad idea cannot hurt the long book, and every result is reported per instrument.

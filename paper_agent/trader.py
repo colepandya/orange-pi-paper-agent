@@ -216,9 +216,20 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
         return finish("RISK_REJECTED", "daily loss limit hit")
     state = {"equity": eq["equity"], "cash": eq["cash"], "holdings": hs, "scenario_probs": pf.scenario_probabilities(conn, regime)}
     sz = sizing.size_position(f, comp, state, cfg, regime, {"state": th["state"], "score": th["score"], "primary": f["thesis_key"]})
+    le = sizing.low_edge(f, cfg)                                                                    # clears the bar to trade but not the bar for a FULL-size position: trade it SMALL
+    minpos = float(cfg["risk"]["min_position_pct"])
+    if le:
+        reason["low_edge"] = le
+        if sz["pct"] > le["cap_pct"]:
+            sz["amount"] *= le["cap_pct"] / sz["pct"]
+            sz["pct"] = le["cap_pct"]
+            sz["binding"] = "low-edge cap"
+            sz["reasons"].append("low-edge idea (%s): size capped at %.2f%% of equity" % ("; ".join(le["why"]), le["cap_pct"] * 100))
+        minpos = min(minpos, le["cap_pct"] * 0.5, 0.0025)                                           # a low-edge idea may be smaller than the usual minimum position: its floor is 0.25% (or half its cap), and raising the cap never makes it harder to open
+        sz["ok"] = sz["pct"] >= minpos
     reason["sizing"] = sz["reasons"]
     gross_free = max(0.0, cfg["risk"]["max_gross_pct"] - eq["gross"])
-    opp = opportunity.evaluate(conn, f, sz["ok"], state, cfg, now, headroom_pct=min(sz["pct"], gross_free))
+    opp = opportunity.evaluate(conn, f, sz["ok"], state, cfg, now, headroom_pct=min(sz["pct"], gross_free), min_pct=minpos)
     reason["opportunity"] = opp["reason"]
     if not opp["ok"] and not f.get("rescue"):                                                       # (a rescued idea is an option: the stock capacity and hurdle tests do not apply to it)
         if opp.get("rotate_out"):
@@ -227,7 +238,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
             return finish("AWAITING_CAPACITY", opp["reason"])
         return finish("RISK_REJECTED", opp["reason"])
     if not sz["ok"] and not f.get("rescue"):
-        return finish("CAPACITY_DEFERRED", "size %.2f%% below minimum %.2f%% (%s)" % (sz["pct"] * 100, cfg["risk"]["min_position_pct"] * 100, sz["binding"]))
+        return finish("CAPACITY_DEFERRED", "size %.2f%% below minimum %.2f%% (%s)" % (sz["pct"] * 100, minpos * 100, sz["binding"]))
     # ---- two stocks that move together are ONE bet: shrink a new position that tracks a same-side holding, refuse a near-twin
     corr, twin = graph.max_same_side_corr(conn, t, hs, c["side"])
     if twin:
@@ -240,7 +251,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
             sz["amount"] *= shrink
             sz["pct"] *= shrink
             sz["reasons"].append("moves with %s (correlation %.2f): size cut to %.0f%%" % (twin, corr, shrink * 100))
-            if sz["pct"] < cfg["risk"]["min_position_pct"]:
+            if sz["pct"] < minpos:
                 return finish("CAPACITY_DEFERRED", "size after the correlation haircut with %s (%.2f) is below the minimum" % (twin, corr))
     # ---- entry / exit consistency: never open a position that the bot's own monitor would close at once (it would cost the round-trip spread for nothing)
     try:
@@ -271,7 +282,7 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     if size_mult < 1.0:
         sz["amount"] *= size_mult
         sz["pct"] *= size_mult
-        if sz["pct"] < cfg["risk"]["min_position_pct"]:
+        if sz["pct"] < minpos:
             return finish("CAPACITY_DEFERRED", "size after red-team adjustment %.2f%% below minimum" % (sz["pct"] * 100))
     if not market_state(now)["execution"]:
         return finish("AWAITING_MARKET", "market session %s; will retry while the event is fresh" % market_state(now)["session"])

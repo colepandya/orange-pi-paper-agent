@@ -134,7 +134,9 @@ SECTION_META = [
         ("Cash and stress buffers", "", ["risk.min_cash_pct", "risk.max_stress_loss_pct", "risk.ruin_loss_pct"]),
         ("Circuit breakers", "New trades pause automatically when losses reach these levels.", ["risk.drawdown_pause_pct", "risk.daily_loss_pause_pct"])]),
     _sec("entry", "Trading", "Entry rules", "What an idea has to pass before the bot buys it.", [
-        ("Quality bar", "An idea is skipped unless it clears all of these.", ["risk.min_ev_net", "risk.min_confidence", "portfolio.entry_score", "strategy.min_reward_risk", "strategy.min_daily_vol_pct", "risk.min_adv_usd"]),
+        ("Quality bar", "An idea is skipped unless it clears all of these.", ["risk.min_ev_net", "risk.min_confidence", "portfolio.entry_score", "strategy.min_reward_risk", "strategy.min_daily_vol_pct", "risk.min_adv_usd", "risk.cash_hurdle_margin"]),
+        ("Low-edge ideas are traded small", "An idea that clears the quality bar but not the full-size bar below gets a small position, so more trades cost little.", ["risk.full_size_min_ev", "risk.full_size_min_rr", "risk.low_edge_max_pct"]),
+        ("Activity target", "", ["portfolio.daily_trade_target"]),
         ("How an idea is judged", "", ["strategy.plan_consistent_ev", "strategy.plan_gap_allowance"]),
         ("Timing", "", ["risk.open_delay_minutes", "intelligence.trade_event_max_age_hours", "risk.max_new_per_cycle"]),
         ("Avoiding doubling up", "Ideas that would just add to a position you already hold in disguise.", ["risk.corr_haircut_from", "risk.corr_block"])]),

@@ -18,7 +18,7 @@ from typing import Dict, List, Optional
 
 from . import auth as auth_mod, config, control, explain, maintain, performance, report as report_engine, db, funnel as funnel_engine, learning, llm_client, stamp, whatif, portfolio as pf, regime as regime_engine, revisions, settings as S, settings_ui, sources
 from .config import DB_PATH, load_config
-from .timeutil import market_state, parse_ts, to_nz, utcnow, iso, SESSION_LABEL
+from .timeutil import market_state, parse_ts, to_nz, utcnow, iso, NY, SESSION_LABEL
 
 E = lambda x: html.escape("" if x is None else str(x))  # noqa: E731
 CSS = """:root{--bg:#fff;--fg:#14181f;--mut:#5b6573;--card:#f5f7fa;--line:#dde2ea;--ok:#0a7d3b;--bad:#b3261e;--warn:#9a6700;--acc:#1f5fbf;--stripe:#f3f6fa}
@@ -87,6 +87,17 @@ def _today(c, now):
     return [t for t in performance.closed_trades(c) if to_nz(t["closed"], "%Y-%m-%d") == day]
 
 
+def trades_today_text(c, cfg, now) -> str:
+    """'7 / 10': trades opened since New York midnight against the target (a target, not a quota)."""
+    try:
+        d0 = now.astimezone(NY).replace(hour=0, minute=0, second=0, microsecond=0)
+        n = c.execute("SELECT COUNT(*) FROM decisions WHERE status='EXECUTED' AND created>=?", (iso(d0),)).fetchone()[0]
+        tgt = int(((cfg or {}).get("portfolio") or {}).get("daily_trade_target", 0) or 0)
+    except Exception:  # noqa: BLE001
+        return "n/a"
+    return ("%d / %d" % (n, tgt)) if tgt > 0 else "%d" % n
+
+
 def page_overview(c, cfg, s):
     eq, reg, snap = s["eq"], s["reg"], s["snap"]
     pnl = eq["equity"] - s["start"]
@@ -96,7 +107,7 @@ def page_overview(c, cfg, s):
     out = ['<div class=grid>', card("Equity (mark-to-market)", money(eq["equity"])), card("P&L vs start", "%s (%s)" % (money(pnl), pct(pnl / s["start"] if s["start"] else 0, 2)), cls(pnl)),
            card("Cash in account", money(eq["cash"])), card("Owed back on shorts", money(sum(abs(h["cost"]) for h in s["hs"] if h.get("side") == "SHORT"))), card("Your cash", money(eq["cash"] - sum(abs(h["cost"]) for h in s["hs"] if h.get("side") == "SHORT"))), card("Realized today", money(sum(t["pnl"] for t in _today(c, s["now"]))), cls(sum(t["pnl"] for t in _today(c, s["now"])))), card("Invested now", "%s \u00b7 %s" % (money(sum(abs(h["cost"]) for h in s["hs"])), pct(eq["gross"]))), card("Drawdown", pct(snap["drawdown"] if snap else 0), "bad" if snap and snap["drawdown"] > 0.05 else ""),
            card("Regime", reg["regime"].replace("_", " ")), card("Survival probability", pct(snap["survival_probability"]) if snap else "n/a"), card("Worst stress loss", pct(snap["max_stress_loss"]) if snap else "n/a"),
-           card("Market", market_state(s["now"])["session"]), card("Trading", "PAUSED" if paused else "active", "warn" if paused else "ok"), '</div>']
+           card("Trades today", trades_today_text(c, cfg, s["now"])), card("Market", market_state(s["now"])["session"]), card("Trading", "PAUSED" if paused else "active", "warn" if paused else "ok"), '</div>']
     out.append("<p class=mut>Regime mix: %s &middot; Last cycle: %s (%s)</p>" % (E(", ".join("%s %.0f%%" % (k.replace("_", " "), v * 100) for k, v in top)), E(to_nz(last["started"]) if last else "never"), E(last["status"] if last else "-")))
     vals = [r[0] for r in c.execute("SELECT equity FROM daily_values ORDER BY day DESC LIMIT 90")][::-1]
     out.append("<h2>Equity (last %d days)</h2>%s" % (len(vals), spark(vals)))
@@ -338,6 +349,7 @@ def page_performance(c, cfg, s, q):
     def grp(title, rows, label=lambda k: str(k)):
         return "<h2>%s</h2>%s" % (title, table(["", "Trades", "Win rate", "Avg trade", "Avg hold", "P&L"], [[label(r["key"]), r["n"], pct(r["win_rate"], 0), pct(r["avg_ret"], 2) if r["avg_ret"] is not None else "n/a",
                                                                                                            ("%.1f h" % r["avg_hold_hours"]) if r["avg_hold_hours"] is not None else "n/a", Raw("<span class=%s>%s</span>" % (cls(r["total_pnl"]), money(r["total_pnl"])))] for r in rows]))
+    out.append(grp("By size tier (low-edge ideas are traded small)", performance.group(tr, lambda t: t.get("size_tier") or "full size"), lambda k: k))
     out.append(grp("How trades ended", by_exit, lambda k: performance.EXIT_LABEL.get(k, k.replace("_", " ").lower())))
     out.append(grp("By kind of news", performance.group(tr, lambda t: t["event_type"]), lambda k: explain.EVENT_LABEL.get(k, k.replace("_", " ")).capitalize()))
     out.append(grp("By how long it was held", performance.group(tr, lambda t: t["hold_bucket"], performance.HOLD_BUCKETS)))

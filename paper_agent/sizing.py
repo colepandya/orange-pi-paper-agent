@@ -1,9 +1,30 @@
 """Position sizing. Never from conviction alone: EV, thesis strength, risk, portfolio fit, liquidity and regime all bind."""
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Optional
 
 from . import portfolio as pf
+
+
+def low_edge(f: dict, cfg: dict) -> Optional[dict]:
+    """An idea that clears the bar to TRADE but not the bar for a FULL-size position: an expected value under `risk.full_size_min_ev`, or a target smaller than `risk.full_size_min_rr` times its stop. Such an idea is traded SMALL
+    (`risk.low_edge_max_pct` of equity), so that trading it more often costs little: each round trip costs about 0.3% of what is traded, and these ideas have the least edge to pay for it. None for an ordinary idea."""
+    r = (cfg or {}).get("risk") or {}
+    try:
+        ev = float(f.get("ev_net"))
+        full_ev, full_rr, cap = float(r.get("full_size_min_ev", 0.006)), float(r.get("full_size_min_rr", 1.0)), float(r.get("low_edge_max_pct", 0.005))
+        tgt, stp = abs(float(f.get("target_return") or 0.0)), abs(float(f.get("stop_return") or 0.0))
+    except (TypeError, ValueError, AttributeError, OverflowError):
+        return None
+    if not all(math.isfinite(x) for x in (ev, full_ev, full_rr, cap)) or cap <= 0:
+        return None
+    why = []
+    if ev < full_ev:
+        why.append("expected value %.2f%% is under the %.2f%% for a full-size position" % (ev * 100, full_ev * 100))
+    if stp > 0 and tgt / stp < full_rr:
+        why.append("target is %.2f times its stop, under the %.2f for a full-size position" % (tgt / stp, full_rr))
+    return {"cap_pct": cap, "why": why} if why else None
 
 
 def size_position(forecast: dict, ticker_meta: dict, state: dict, cfg: dict, regime: dict, thesis_info: dict) -> dict:
