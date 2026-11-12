@@ -144,6 +144,11 @@ def build(conn, cand: dict, cfg: dict, regime: dict, now=None, universe=None) ->
         verdict, why = "REJECT_NOT_SHORTABLE", blockers
     elif ev_net <= 0:
         verdict, why = "REJECT_NEGATIVE_EV", ["EV net %.2f%% <= 0" % (ev_net * 100)]
+        if sign > 0 and psign > 0:                                                                       # good news that the model expects to FALL (the price already ran): say what the other side is worth
+            hair = float(inst.get("options_reversal_haircut", 0.6))
+            opp_ev = (-ev_net - 2 * cost) * hair
+            inputs_opposite = {"side": "SHORT", "ev_net_after_haircut": opp_ev, "haircut": hair}
+            why.append(("the model expects a FALL: a short or put would earn about %+.1f%% after costs and a %.0f%% haircut" if opp_ev > 0 else "and the opposite side does not pay either (about %+.1f%% after costs and a %.0f%% haircut)") % (opp_ev * 100, hair * 100))
     elif ev_net < cfg["risk"]["min_ev_net"]:
         verdict, why = "WATCH", ["EV net %.2f%% below minimum %.2f%%" % (ev_net * 100, cfg["risk"]["min_ev_net"] * 100)]
     elif conf < cfg["risk"]["min_confidence"]:
@@ -160,9 +165,10 @@ def build(conn, cand: dict, cfg: dict, regime: dict, now=None, universe=None) ->
     elif adv is not None and adv < cfg["risk"]["min_adv_usd"]:
         verdict, why = "REJECT_ILLIQUID", ["ADV $%.1fM below minimum" % (adv / 1e6)]
     runner = max(target * 1.6, scen["bull"]["ret"]) if target else 0.0
+    inputs_opposite = locals().get("inputs_opposite")
     inputs = {"event_type": etype, "direction": direction, "magnitude": mag, "amount_usd": cand.get("amount_usd"), "materiality_ratio": ratio, "vol_daily": vol_d, "horizon_days": h, "swing": swing, "partial_exit_pct": float(sw.get("partial_exit_pct", 0.6)) if swing else None, "event_horizon_days": h0, "capture": capture, "stop": stop,
               "side": "SHORT" if psign < 0 else "LONG", "edge_pos": edge_pos, "ev_model_net": ev_model_net, "plan_consistent_ev": bool(sw.get("plan_consistent_ev", False)), "move_prior": prior, "priced_in": priced_in, "thesis_score": tt["score"], "thesis_primary": tt["primary"], "flow": fl, "edge_mult": edge_mult, "confidence": conf,
-              "p_dir": p_dir, "cost": cost, "adv_usd": adv, "regime": regime.get("regime"), "risk_mult": regime.get("risk_mult")}
+              "p_dir": p_dir, "cost": cost, "opposite": inputs_opposite, "adv_usd": adv, "regime": regime.get("regime"), "risk_mult": regime.get("risk_mult")}
     out = {"ticker": t, "direction": "LONG" if sign > 0 else "SHORT", "horizon_days": h, "p_up": p_dir, "p_positive": p_pos, "ev_gross": ev_gross, "ev_net": ev_net, "risk_score": risk_score,
            "confidence": conf, "target_return": target, "stop_return": -stop, "target_probability": p_hit, "runner_target": min(float(sw.get("runner_cap_pct", 0.35)) if swing else 0.35, runner), "scenarios": scen, "verdict": verdict, "why": why,
            "inputs": inputs, "thesis_key": tt["primary"], "sigma_h": sigma_h, "edge": e, "regime": regime.get("regime"), "completeness": completeness}

@@ -54,7 +54,8 @@ class TestTheOpportunityTestAcceptsASmallPosition(unittest.TestCase):
         cfg = DEF()
         f = {"horizon_days": 3, "ev_net": 0.004, "sigma_h": 0.02}
         state = {"holdings": [], "equity": 1e6, "cash": 1e6}
-        old = opportunity.evaluate(c, f, True, state, cfg, utcnow(), headroom_pct=0.005)                      # 0.5% against the usual 1% minimum
+        cfg["risk"]["min_position_pct"] = 0.01
+        old = opportunity.evaluate(c, f, True, state, cfg, utcnow(), headroom_pct=0.005)                      # 0.5% against a 1% minimum
         self.assertFalse(old["ok"])
         self.assertIn("no capacity", old["reason"])
         new = opportunity.evaluate(c, f, True, state, cfg, utcnow(), headroom_pct=0.005, min_pct=0.005)
@@ -127,7 +128,7 @@ class TestThroughARealCycle(unittest.TestCase):
         run_cycle(w, forecast_as(0.003))
         self.assertIsNone(self.cost(w))                                                                  # its natural size (about 0.57%) is under the 1% minimum position
         d = dict(w.c.execute("SELECT * FROM decisions WHERE ticker='NVDA' ORDER BY id LIMIT 1").fetchone())
-        self.assertEqual(d["status"], "RISK_REJECTED")
+        self.assertEqual(d["status"], "AWAITING_CAPACITY")                                                 # Build 55: a full book is a wait, not a rejection
         self.assertIn("no capacity", d["reason"])
         w2 = self.world(cap=0.005)
         run_cycle(w2, forecast_as(0.003))
@@ -169,7 +170,7 @@ class TestTheTradesTodayTile(unittest.TestCase):
                                 ("2026-11-09T20:00:00+00:00", "EXECUTED"), ("2026-11-10T03:00:00+00:00", "EXECUTED")):                         # 03:00Z is 22:00 on the 9th in New York
             c.execute("INSERT INTO decisions(created,ticker,action,status,reason) VALUES(?,?,?,?,?)", (created, "AAA", "BUY", status, "{}"))
         c.commit()
-        self.assertEqual(dashboard.trades_today_text(c, cfg, now), "2 / 10")
+        self.assertEqual(dashboard.trades_today_text(c, cfg, now), "2 / 30")
         cfg["portfolio"]["daily_trade_target"] = 0
         self.assertEqual(dashboard.trades_today_text(c, cfg, now), "2")
         self.assertEqual(dashboard.trades_today_text(None, cfg, now), "n/a")
@@ -219,9 +220,9 @@ class TestSettingsAndDefaults(unittest.TestCase):
         d = DEF()
         self.assertEqual(d["risk"]["cash_hurdle_margin"], 0.001)
         self.assertEqual((d["risk"]["min_ev_net"], d["risk"]["full_size_min_ev"], d["risk"]["full_size_min_rr"], d["risk"]["low_edge_max_pct"], d["strategy"]["min_reward_risk"], d["portfolio"]["daily_trade_target"], d["portfolio"]["entry_score"]),
-                         (0.0, 0.006, 1.0, 0.005, 0.4, 10, 65))
+                         (0.0, 0.006, 1.0, 0.005, 0.4, 30, 65))
         self.assertGreater(d["risk"]["low_edge_max_pct"], 0.0)
-        self.assertLess(d["risk"]["low_edge_max_pct"], d["risk"]["min_position_pct"])                          # the cap sits BELOW the usual minimum position, which is why the minimum is relaxed for it
+        self.assertLessEqual(d["risk"]["low_edge_max_pct"], d["risk"]["min_position_pct"] * 1.0001)             # (Build 55 lowered the usual minimum position to 0.5%, level with the low-edge cap)
 
     def test_the_settings_exist_with_bounds_that_admit_the_defaults_and_the_layout_is_valid(self):
         f = {x.path: x for x in S.FIELDS}

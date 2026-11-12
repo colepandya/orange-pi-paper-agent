@@ -110,3 +110,15 @@ Every mode below starts on **observe**. Observe records and measures what a part
 | research.enabled | on | Run the studies weekly while the US market is closed. |
 | research.rerun_days | 7 | Repeat the studies this often. |
 | research.max_seconds | 60 | Seconds a study may take inside a cycle. |
+
+## Risk engine and sell-the-news (Build 55)
+| Setting | Default | Meaning |
+|---|---|---|
+| risk.position_slots | 20 | No new position may take more than the invested limit divided by this. 0 = off. |
+| risk.min_position_pct | 0.5% (was 1%) | Smallest position worth opening. |
+| instruments.options_reversal_enabled | on (was off) | Good news on a stock that already ran up, which the model expects to fall, becomes a half-size put. |
+| instruments.options_reversal_min_move | 3% (was 8%) | The forecast fall must be at least this, net of costs. |
+| instruments.options_reversal_haircut | 0.6 (was 0.5) | Share of the predicted move believed (realised/predicted was 0.63). |
+| risk.position_slots | 40 (was 20) | No new position may take more than the invested limit divided by this. |
+| portfolio.daily_trade_target | 30 (was 10) | Shown on the Overview. A target, not a quota. |
+| risk.low_edge_breaker_trades / _pct | 30 / 0.5% | The small-trade tier pauses when its last N closed trades lost more than this share of equity. 0 = never pause. |

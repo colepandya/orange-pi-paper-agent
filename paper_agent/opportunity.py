@@ -36,20 +36,20 @@ def evaluate(conn, forecast: dict, sizing_ok: bool, state: dict, cfg: dict, now=
     """-> {'ok':bool,'reason':str,'rotate_out':position_id|None}.  headroom_pct = free capacity as a fraction of equity."""
     hurdle = cash_hurdle(forecast["horizon_days"], float(cfg["risk"].get("cash_hurdle_margin", 0.002)))
     if forecast["ev_net"] < hurdle:
-        return {"ok": False, "reason": "EV %.2f%% does not beat cash hurdle %.2f%%" % (forecast["ev_net"] * 100, hurdle * 100), "rotate_out": None}
+        return {"ok": False, "kind": "edge", "reason": "EV %.2f%% does not beat cash hurdle %.2f%%" % (forecast["ev_net"] * 100, hurdle * 100), "rotate_out": None}          # an EDGE verdict, not a risk limit
     cand_score = forecast["ev_net"] / max(forecast["sigma_h"], 1e-3)
     if sizing_ok and headroom_pct >= (cfg["risk"]["min_position_pct"] if min_pct is None else min_pct):
         return {"ok": True, "reason": "capacity available; beats cash hurdle", "rotate_out": None}
     rems = [x for x in (position_remaining(conn, h, now) for h in state["holdings"]) if x]
     if not rems:
-        return {"ok": False, "reason": "no capacity and no rotation candidate", "rotate_out": None}
+        return {"ok": False, "kind": "capacity", "reason": "no capacity and no rotation candidate", "rotate_out": None}
     protect = float(cfg["risk"].get("rotation_min_hold_hours", 6))
-    old_enough = [x for x in rems if x.get("age_h", 9999.0) >= protect]            # a position bought minutes ago is not churned out for a marginally better idea (the round trip costs money and proves nothing)
+    old_enough = [x for x in rems if x.get("age_h", 9999.0) >= protect or x.get("remaining_ev", 1.0) <= 0]            # a holding whose remaining edge is gone is rotatable at any age; # a position bought minutes ago is not churned out for a marginally better idea (the round trip costs money and proves nothing)
     if not old_enough:
-        return {"ok": False, "reason": "capacity full and every holding is too new to rotate out (protected for %g hours after buying)" % protect, "rotate_out": None}
+        return {"ok": False, "kind": "capacity", "reason": "capacity full and every holding is too new to rotate out (protected for %g hours after buying)" % protect, "rotate_out": None}
     rems = old_enough
     weakest = min(rems, key=lambda x: x["per_risk"])
     if cand_score >= 1.5 * max(weakest["per_risk"], 0.0) + 0.05 and forecast["ev_net"] > weakest["remaining_ev"]:
         return {"ok": False, "reason": "capacity full: rotate out %s (remaining EV/risk %.2f vs candidate %.2f)" % (weakest["ticker"], weakest["per_risk"], cand_score),
                 "rotate_out": weakest["position_id"], "rotate_ticker": weakest["ticker"], "superior": True}
-    return {"ok": False, "reason": "capacity full and candidate not superior to weakest holding %s" % weakest["ticker"], "rotate_out": None}
+    return {"ok": False, "kind": "capacity", "reason": "capacity full and candidate not superior to weakest holding %s" % weakest["ticker"], "rotate_out": None}

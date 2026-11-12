@@ -27,6 +27,22 @@ def low_edge(f: dict, cfg: dict) -> Optional[dict]:
     return {"cap_pct": cap, "why": why} if why else None
 
 
+def low_edge_breaker(conn, cfg: dict, equity) -> Optional[str]:
+    """The small-trade tier pauses itself. Trading more often only pays if each small trade earns more than its cost; if the last N closed small trades lost more than a set share of equity, no new one opens until the record recovers (the normal tier is untouched)."""
+    r = (cfg or {}).get("risk") or {}
+    try:
+        n, pct, eq = int(r.get("low_edge_breaker_trades", 30)), float(r.get("low_edge_breaker_pct", 0.005)), float(equity)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if n <= 0 or not math.isfinite(pct) or not math.isfinite(eq) or eq <= 0:
+        return None
+    rows = conn.execute("SELECT p.pnl FROM positions p JOIN decisions d ON d.id=p.decision_id WHERE p.status='CLOSED' AND d.reason LIKE '%\"low_edge\"%' ORDER BY p.closed DESC, p.id DESC LIMIT ?", (n,)).fetchall()
+    if len(rows) < n:
+        return None
+    total = sum(float(x[0] or 0.0) for x in rows)
+    return ("the small-trade tier is paused: its last %d closed trades lost $%.0f, more than %.2f%% of equity" % (n, -total, pct * 100)) if total < -pct * eq else None
+
+
 def size_position(forecast: dict, ticker_meta: dict, state: dict, cfg: dict, regime: dict, thesis_info: dict) -> dict:
     """state: {'equity','cash','holdings':[...]}. Returns {'pct','amount','reasons':[...],'binding':str}."""
     r = cfg["risk"]
@@ -52,6 +68,9 @@ def size_position(forecast: dict, ticker_meta: dict, state: dict, cfg: dict, reg
             reasons.append("capped by %s at %.1f%%" % (label, val * 100))
 
     cap(r["max_position_pct"], "max position")
+    slots = int(r.get("position_slots", 0) or 0)
+    if slots > 0:
+        cap(float(r["max_gross_pct"]) / slots, "slot budget (1/%d of the invested limit)" % slots)        # a book of a few large positions has no room for the next idea: spread it over at least this many
     stop = abs(forecast["stop_return"]) or 0.05
     cap(r["risk_per_trade_pct"] / stop, "risk-per-trade (stop %.1f%%)" % (stop * 100))
     state_mult = {"Strong": 1.0, "Active": 0.9, "Forming": 0.7, "Emerging": 0.5, "Overcrowded": 0.5, "Weakening": 0.4, "Broken": 0.0}.get(thesis_info.get("state") or "", 0.8 if not thesis_info.get("state") else 0.6)

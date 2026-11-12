@@ -178,6 +178,7 @@ tests/test_build51.py
 tests/test_build52.py
 tests/test_build53.py
 tests/test_build54.py
+tests/test_build55.py
 tests/test_cleanup.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py

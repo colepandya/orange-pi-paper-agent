@@ -27,8 +27,9 @@ def neg_long(ev_net=-0.082, ret=-0.09):
 class TestReversalView(unittest.TestCase):
     def cfg(self):
         c = config.load_config("/nonexistent", with_overrides=False)
-        c["instruments"]["options_reversal_enabled"] = True                                          # (it ships OFF: the one-week evidence is confounded by a falling market)
-        c["instruments"]["options_reversal_min_move"] = 0.04
+        c["instruments"]["options_reversal_enabled"] = True
+        c["instruments"]["options_reversal_min_move"] = 0.04                                         # the numbers below are worked out at a 4% threshold and a 0.5 haircut
+        c["instruments"]["options_reversal_haircut"] = 0.5
         return c
 
     def test_the_numbers(self):
@@ -46,13 +47,14 @@ class TestReversalView(unittest.TestCase):
         self.assertIsNone(O.reversal_view(dict(neg_long(), verdict="WATCH"), c))
         self.assertIsNone(O.reversal_view(dict(neg_long(), verdict="BUY"), c))
 
-    def test_it_ships_off_and_does_nothing_until_switched_on(self):
+    def test_it_ships_on_with_a_3_percent_threshold_and_a_0_6_haircut(self):
         shipped = config.load_config("/nonexistent", with_overrides=False)
-        self.assertIsNone(O.reversal_view(neg_long(), shipped))
-        shipped["instruments"]["options_reversal_enabled"] = True
-        self.assertIsNone(O.reversal_view(neg_long(-0.05, -0.06), shipped))                         # and the shipped threshold is 8%, where the (weak) evidence is
-        self.assertIsNone(O.reversal_view(neg_long(-0.082), shipped))                               # 8.2% less two round trips of cost is 7.8%: under 8%
-        self.assertIsNotNone(O.reversal_view(neg_long(-0.09, -0.10), shipped))                       # 9% less costs is 8.6%
+        self.assertIsNotNone(O.reversal_view(neg_long(-0.05, -0.06), shipped))                       # a 5% predicted fall less costs is 4.6%: over the 3% threshold
+        self.assertIsNone(O.reversal_view(neg_long(-0.03, -0.04), shipped))                         # 3% less two round trips of cost is 2.6%: under it
+        v = O.reversal_view(neg_long(-0.10, -0.12), shipped)
+        self.assertAlmostEqual(v["scenarios"]["x"]["ret"], 0.12 * 0.6)                              # a 12% predicted fall, 60% of it believed
+        shipped["instruments"]["options_reversal_enabled"] = False
+        self.assertIsNone(O.reversal_view(neg_long(-0.10, -0.12), shipped))                         # and it can be switched off
 
     def test_switches_and_haircut(self):
         c = self.cfg()
@@ -122,7 +124,7 @@ class TestReversalTier(T50.Base):
 
     def test_new_settings(self):
         d = config.load_config("/nonexistent", with_overrides=False)["instruments"]
-        self.assertEqual((d["options_reversal_enabled"], d["options_reversal_min_move"], d["options_reversal_haircut"], d["options_reversal_per_trade_pct"], d["options_reversal_cooldown_hours"]), (False, 0.08, 0.5, 0.006, 24))
+        self.assertEqual((d["options_reversal_enabled"], d["options_reversal_min_move"], d["options_reversal_haircut"], d["options_reversal_per_trade_pct"], d["options_reversal_cooldown_hours"]), (True, 0.03, 0.6, 0.006, 24))
         paths = {f.path for f in S.FIELDS}
         for k in ("enabled", "min_move", "haircut", "per_trade_pct", "cooldown_hours"):
             self.assertIn("instruments.options_reversal_" + k, paths)

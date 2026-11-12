@@ -16,13 +16,13 @@ from typing import Dict, Iterator, List, Optional, Tuple
 
 from .timeutil import iso, utcnow
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 LEGACY = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS news(id INTEGER PRIMARY KEY,uid TEXT UNIQUE,source TEXT,title TEXT,summary TEXT,url TEXT,published TEXT,ingested TEXT,trust REAL);
 CREATE TABLE IF NOT EXISTS decisions(id INTEGER PRIMARY KEY,created TEXT,news_uid TEXT,ticker TEXT,action TEXT,score REAL,reason TEXT,rules_version TEXT,status TEXT,entry_price REAL,shares INTEGER,amount REAL,theme TEXT,FOREIGN KEY(news_uid) REFERENCES news(uid));
-CREATE TABLE IF NOT EXISTS positions(id INTEGER PRIMARY KEY,ticker TEXT,theme TEXT,opened TEXT,entry_price REAL,shares INTEGER,cost REAL,decision_id INTEGER,status TEXT,closed TEXT,exit_price REAL,pnl REAL,review_code TEXT,side TEXT DEFAULT 'LONG',FOREIGN KEY(decision_id) REFERENCES decisions(id));
+CREATE TABLE IF NOT EXISTS positions(id INTEGER PRIMARY KEY,ticker TEXT,theme TEXT,opened TEXT,entry_price REAL,shares INTEGER,cost REAL,decision_id INTEGER,status TEXT,closed TEXT,exit_price REAL,pnl REAL,review_code TEXT,side TEXT DEFAULT 'LONG',entry_shares INTEGER,entry_cost REAL,FOREIGN KEY(decision_id) REFERENCES decisions(id));
 CREATE TABLE IF NOT EXISTS option_positions(id INTEGER PRIMARY KEY,underlying TEXT,kind TEXT,strike REAL,expiry TEXT,contracts INTEGER,multiplier INTEGER DEFAULT 100,opened TEXT,entry_premium REAL,entry_underlying REAL,entry_iv REAL,cost REAL,decision_id INTEGER,forecast_id INTEGER,status TEXT,closed TEXT,exit_premium REAL,exit_underlying REAL,pnl REAL,review_code TEXT,last_mark REAL,last_underlying REAL,last_mark_at TEXT,stop_underlying REAL,target_underlying REAL,max_hold_days INTEGER,theme TEXT,sector TEXT,event_type TEXT,note TEXT,price_source TEXT,contract TEXT,last_iv REAL);
 CREATE TABLE IF NOT EXISTS option_chain_cache(ticker TEXT PRIMARY KEY,fetched TEXT,underlying REAL,sources TEXT,payload TEXT);
 CREATE TABLE IF NOT EXISTS option_feed_health(feed TEXT PRIMARY KEY,last_ok TEXT,last_error TEXT,last_ms INTEGER,ok_count INTEGER DEFAULT 0,fail_count INTEGER DEFAULT 0,last_contracts INTEGER,updated TEXT);
@@ -364,6 +364,11 @@ def create_schema(c: sqlite3.Connection) -> Tuple[List[str], List[str]]:
         if s.upper().startswith("CREATE TABLE"):
             c.execute(s)
     added, unfixable = reconcile_columns(c)
+    try:                                                                                                # a position's ORIGINAL size: positions.shares is the REMAINING quantity (a target halves it, a close zeroes it), so older rows are filled in from their decision
+        c.execute("UPDATE positions SET entry_shares=(SELECT d.shares FROM decisions d WHERE d.id=positions.decision_id), entry_cost=(SELECT d.amount FROM decisions d WHERE d.id=positions.decision_id) "
+                  "WHERE entry_shares IS NULL AND decision_id IS NOT NULL")
+    except sqlite3.OperationalError:
+        pass
     for s in stmts:
         if not s.upper().startswith("CREATE TABLE"):
             try:

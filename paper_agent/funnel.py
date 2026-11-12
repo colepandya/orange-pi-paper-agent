@@ -2,13 +2,69 @@
 Answers "why are there no decisions?" with evidence instead of guesses, and flags the usual causes (skipped cycles, no news, nothing qualifying)."""
 from __future__ import annotations
 
+import re
+
+import collections
+
 import datetime as dt
 import json
+import math
 from typing import Dict, List, Optional
 
 from . import config, candqueue
 from .evidence import GATE_LABELS
 from .timeutil import iso, market_state, parse_ts, to_nz, utcnow, SESSION_LABEL
+
+
+def reason_text(raw) -> str:
+    """The first stated reason of a decision (its first gate, or the opportunity / veto / why text)."""
+    try:
+        j = json.loads(raw) if isinstance(raw, (str, bytes)) else None
+    except (ValueError, TypeError):
+        return "(unreadable record)"
+    if not isinstance(j, dict):
+        return "(no reason recorded)"
+    g = j.get("gates")
+    if isinstance(g, list) and g:
+        return str(g[0])
+    for k in ("opportunity", "veto", "why", "reason"):
+        v = j.get(k)
+        if v:
+            return str(v) if not isinstance(v, (list, dict)) else json.dumps(v)[:140]
+    return "(no reason recorded)"
+
+
+def normalise_reason(g: str) -> str:
+    """Group reasons that differ only in numbers or stock names."""
+    g = re.sub(r"moves almost exactly with [A-Z.\-]+, which is already held on the same side \(correlation [0-9.]+ over 60 sessions\)", "moves almost exactly with <STOCK>, already held on the same side (correlation #)", str(g))
+    g = re.sub(r"capacity full and candidate not superior to weakest holding [A-Z.\-]+", "capacity full and candidate not superior to weakest holding <STOCK>", g)
+    g = re.sub(r"[-+]?[0-9]+\.?[0-9]*", "#", g)
+    return re.sub(r"\s+", " ", g).strip()[:170]
+
+
+def outcome_breakdown(conn, now, hours: float = 24.0, top: int = 8) -> dict:
+    """What happened to every idea in the window: counts and shares by outcome, and for each outcome that did not trade the most common reasons (counts and share of that outcome)."""
+    try:
+        hours = float(hours)
+        hours = hours if (math.isfinite(hours) and 0 < hours <= 24 * 366) else 24.0
+    except (TypeError, ValueError, OverflowError):
+        hours = 24.0
+    try:
+        top = int(top)
+        top = top if 1 <= top <= 50 else 8
+    except (TypeError, ValueError, OverflowError):
+        top = 8
+    since = iso(now - dt.timedelta(hours=hours))
+    rows = conn.execute("SELECT status,reason FROM decisions WHERE created>?", (since,)).fetchall()
+    n = len(rows)
+    st = collections.Counter((r["status"] if not isinstance(r["status"], (int, float)) else "?") or "?" for r in rows)
+    out = {"hours": hours, "total": n, "status": [(s, k, round(100.0 * k / n, 1)) for s, k in st.most_common()] if n else [], "reasons": {}}
+    for s in ("RISK_REJECTED", "AWAITING_CAPACITY", "CAPACITY_DEFERRED", "REJECTED", "VETOED", "DUPLICATE", "EXPIRED"):
+        rs = [r for r in rows if r["status"] == s]
+        if rs:
+            cnt = collections.Counter(normalise_reason(reason_text(r["reason"])) for r in rs)
+            out["reasons"][s] = {"total": len(rs), "top": [(g, k, round(100.0 * k / len(rs), 1)) for g, k in cnt.most_common(int(top))], "other": max(0, len(cnt) - int(top))}
+    return out
 
 
 def indication_text(ind: dict) -> str:

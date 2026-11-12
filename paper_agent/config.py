@@ -16,13 +16,13 @@ SYSTEMD_DIR = os.getenv("PAPER_AGENT_SYSTEMD_DIR", "/etc/systemd/system")       
 ADMIN_PATH = os.getenv("PAPER_AGENT_ADMIN", os.path.join(STATE_DIR, "admin.json"))              # dashboard login (salted PBKDF2 hash)
 
 DEFAULTS: Dict[str, Any] = {
-    "portfolio": {"starting_cash": 1_000_000.0, "slippage_bps": 8, "entry_score": 65, "daily_trade_target": 10},
+    "portfolio": {"starting_cash": 1_000_000.0, "slippage_bps": 8, "entry_score": 65, "daily_trade_target": 30},
     # Safer than the legacy 50% / 80% / 90% limits. Survival > returns (OMEGA principle 6).
     "risk": {
         "max_position_pct": 0.10, "max_issuer_pct": 0.15, "max_theme_pct": 0.30, "max_gross_pct": 0.80,
-        "min_cash_pct": 0.20, "risk_per_trade_pct": 0.010, "open_delay_minutes": 30, "corr_haircut_from": 0.6, "corr_block": 0.92, "min_position_pct": 0.01,
+        "min_cash_pct": 0.20, "risk_per_trade_pct": 0.010, "open_delay_minutes": 30, "corr_haircut_from": 0.6, "corr_block": 0.92, "min_position_pct": 0.005, "position_slots": 40,
         "drawdown_pause_pct": 0.12, "daily_loss_pause_pct": 0.03, "survival_floor": 0.80,
-        "ruin_loss_pct": 0.20, "max_stress_loss_pct": 0.20, "min_ev_net": 0.0, "full_size_min_ev": 0.006, "cash_hurdle_margin": 0.001, "full_size_min_rr": 1.0, "low_edge_max_pct": 0.005, "min_confidence": 0.45, "max_new_per_cycle": 0, "veto_adverse_news": True, "allow_add_to_position": False, "add_cooldown_hours": 6.0, "add_only_when_winning": True, "rotation_min_hold_hours": 6, "full_size_edge": 0.5, "veto_news_direction": -0.35, "veto_news_magnitude": 0.30, "shock_direction": -0.6, "shock_hold_hours": 6, "shock_min_sources": 2, "shock_market_drop_pct": 0.01, "shock_applies_to": "after_decision", "max_gap_down_pct": 0.03, "max_gap_up_pct": 0.05,
+        "ruin_loss_pct": 0.20, "max_stress_loss_pct": 0.20, "min_ev_net": 0.0, "full_size_min_ev": 0.006, "cash_hurdle_margin": 0.001, "full_size_min_rr": 1.0, "low_edge_max_pct": 0.005, "low_edge_breaker_trades": 30, "low_edge_breaker_pct": 0.005, "min_confidence": 0.45, "max_new_per_cycle": 0, "veto_adverse_news": True, "allow_add_to_position": False, "add_cooldown_hours": 6.0, "add_only_when_winning": True, "rotation_min_hold_hours": 6, "full_size_edge": 0.5, "veto_news_direction": -0.35, "veto_news_magnitude": 0.30, "shock_direction": -0.6, "shock_hold_hours": 6, "shock_min_sources": 2, "shock_market_drop_pct": 0.01, "shock_applies_to": "after_decision", "max_gap_down_pct": 0.03, "max_gap_up_pct": 0.05,
         "max_spread_pct": 0.02, "min_adv_usd": 2_000_000,
     },
     "runtime": { "fetch_workers": 6,"min_available_memory_mb": 120, "max_load_per_core": 1.5, "pihole_health_required": False,
@@ -43,7 +43,7 @@ DEFAULTS: Dict[str, Any] = {
                     "options_enabled": True, "options_max_premium_pct": 0.05, "options_per_trade_pct": 0.012, "options_min_ev": 0.03, "options_max_horizon_days": 5, "options_min_adv_usd": 50_000_000,
                     "options_min_price": 20.0, "options_min_dte": 21, "options_exit_dte": 5, "options_stop_loss_pct": 0.5, "options_target_pct": 1.0, "options_iv_mult": 1.15, "options_risk_free": 0.04,
                     "options_commission": 0.65, "options_max_hold_days": 6,
-                    "options_reversal_enabled": False, "options_reversal_min_move": 0.08, "options_reversal_haircut": 0.5, "options_reversal_per_trade_pct": 0.006, "options_reversal_cooldown_hours": 24, "options_rescue_enabled": True, "options_rescue_per_trade_pct": 0.006, "options_min_option_ev": 0.10, "options_scenario_cap": 2.0, "options_trial_enabled": True, "options_trial_min_ev": 0.02, "options_trial_per_trade_pct": 0.006, "options_trial_puts_only": True, "options_trial_breaker_trades": 8, "options_trial_breaker_pct": 0.005,
+                    "options_reversal_enabled": True, "options_reversal_min_move": 0.03, "options_reversal_haircut": 0.6, "options_reversal_per_trade_pct": 0.006, "options_reversal_cooldown_hours": 24, "options_rescue_enabled": True, "options_rescue_per_trade_pct": 0.006, "options_min_option_ev": 0.10, "options_scenario_cap": 2.0, "options_trial_enabled": True, "options_trial_min_ev": 0.02, "options_trial_per_trade_pct": 0.006, "options_trial_puts_only": True, "options_trial_breaker_trades": 8, "options_trial_breaker_pct": 0.005,
                     "options_use_real_quotes": True, "options_allow_model_fallback": True, "options_max_spread_pct": 0.15, "options_min_open_interest": 100, "options_quote_max_age_minutes": 45, "options_max_iv_rank": 80,
                     "options_feed_cboe": True, "options_feed_alpaca": True, "options_feed_nasdaq": True, "options_feed_yahoo": True},
     # Relationship graph: an event at one company becomes a smaller, discounted idea at its suppliers, customers, competitors and peers (rules + data, no LLM).

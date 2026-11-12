@@ -114,8 +114,8 @@ def execute_buy(conn, cfg: dict, c: dict, f: dict, sz: dict, q: dict, did: int, 
             return {"status": "CAPACITY_DEFERRED"}
         new_cash = round(cash + (cost if short else -cost), 2)
         conn.execute("INSERT INTO ledger(created,kind,amount,ref,balance) VALUES(?,?,?,?,?)", (iso(now), "VIRTUAL_SHORT" if short else "VIRTUAL_BUY", cost if short else -cost, "%s:%d" % (c["ticker"], did), new_cash))
-        cur = conn.execute("INSERT INTO positions(ticker,theme,opened,entry_price,shares,cost,decision_id,status,thesis_key,forecast_id,sector,side) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?)",
-                           (c["ticker"], theme, iso(now), fill, shares, cost, did, f["thesis_key"], forecast_id, sector, "SHORT" if short else "LONG"))
+        cur = conn.execute("INSERT INTO positions(ticker,theme,opened,entry_price,shares,cost,decision_id,status,thesis_key,forecast_id,sector,side,entry_shares,entry_cost) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?)",
+                           (c["ticker"], theme, iso(now), fill, shares, cost, did, f["thesis_key"], forecast_id, sector, "SHORT" if short else "LONG", shares, cost))
         pid = cur.lastrowid
         conn.execute("INSERT INTO position_lifecycle(position_id,phase,remaining_shares,remaining_cost,updated) VALUES(?,?,?,?,?)", (pid, "OPEN", shares, cost, iso(now)))
         insert_plan(conn, pid, did, f, fill, iso(now))
@@ -220,6 +220,9 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
     minpos = float(cfg["risk"]["min_position_pct"])
     if le:
         reason["low_edge"] = le
+        tier_paused = sizing.low_edge_breaker(conn, cfg, eq["equity"])
+        if tier_paused:
+            return finish("RISK_REJECTED", tier_paused)                                                      # the small-trade tier has been losing: pause it until its record recovers
         if sz["pct"] > le["cap_pct"]:
             sz["amount"] *= le["cap_pct"] / sz["pct"]
             sz["pct"] = le["cap_pct"]
@@ -236,6 +239,10 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
             conn.execute("INSERT OR IGNORE INTO exit_signals(position_id,created,trigger,severity,reason,status) VALUES(?,?,?,?,?,'OPEN')",
                          (opp["rotate_out"], iso(now), "SUPERIOR_OPPORTUNITY", 0.6, "%s offers EV %.2f%% (%s)" % (t, f["ev_net"] * 100, opp["reason"])))
             return finish("AWAITING_CAPACITY", opp["reason"])
+        if opp.get("kind") == "edge":
+            return finish("REJECTED", opp["reason"], action="NO_TRADE")                                 # not enough edge over cash: that is an EV verdict, not a portfolio risk limit
+        if opp.get("kind") == "capacity":
+            return finish("AWAITING_CAPACITY", opp["reason"])                                           # a full book is a WAIT: the idea is retried every cycle while it is fresh (and rotates in when something frees up)
         return finish("RISK_REJECTED", opp["reason"])
     if not sz["ok"] and not f.get("rescue"):
         return finish("CAPACITY_DEFERRED", "size %.2f%% below minimum %.2f%% (%s)" % (sz["pct"] * 100, minpos * 100, sz["binding"]))

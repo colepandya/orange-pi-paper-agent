@@ -129,13 +129,13 @@ def _sec(id_, group, title, blurb, subs, kind="settings"):
 
 SECTION_META = [
     _sec("size", "Trading", "Position sizing & risk", "How much the bot risks, and how big any trade or exposure is allowed to get.", [
-        ("How big each trade is", "", ["risk.risk_per_trade_pct", "risk.max_position_pct", "risk.min_position_pct", "risk.full_size_edge", "risk.allow_add_to_position", "risk.add_cooldown_hours", "risk.add_only_when_winning"]),
+        ("How big each trade is", "", ["risk.risk_per_trade_pct", "risk.max_position_pct", "risk.min_position_pct", "risk.position_slots", "risk.full_size_edge", "risk.allow_add_to_position", "risk.add_cooldown_hours", "risk.add_only_when_winning"]),
         ("Concentration limits", "Caps on how much can sit in one company, one theme, or the whole book.", ["risk.max_issuer_pct", "risk.max_theme_pct", "risk.max_gross_pct"]),
         ("Cash and stress buffers", "", ["risk.min_cash_pct", "risk.max_stress_loss_pct", "risk.ruin_loss_pct"]),
         ("Circuit breakers", "New trades pause automatically when losses reach these levels.", ["risk.drawdown_pause_pct", "risk.daily_loss_pause_pct"])]),
     _sec("entry", "Trading", "Entry rules", "What an idea has to pass before the bot buys it.", [
         ("Quality bar", "An idea is skipped unless it clears all of these.", ["risk.min_ev_net", "risk.min_confidence", "portfolio.entry_score", "strategy.min_reward_risk", "strategy.min_daily_vol_pct", "risk.min_adv_usd", "risk.cash_hurdle_margin"]),
-        ("Low-edge ideas are traded small", "An idea that clears the quality bar but not the full-size bar below gets a small position, so more trades cost little.", ["risk.full_size_min_ev", "risk.full_size_min_rr", "risk.low_edge_max_pct"]),
+        ("Low-edge ideas are traded small", "An idea that clears the quality bar but not the full-size bar below gets a small position, so more trades cost little.", ["risk.full_size_min_ev", "risk.full_size_min_rr", "risk.low_edge_max_pct", "risk.low_edge_breaker_trades", "risk.low_edge_breaker_pct"]),
         ("Activity target", "", ["portfolio.daily_trade_target"]),
         ("How an idea is judged", "", ["strategy.plan_consistent_ev", "strategy.plan_gap_allowance"]),
         ("Timing", "", ["risk.open_delay_minutes", "intelligence.trade_event_max_age_hours", "risk.max_new_per_cycle"]),

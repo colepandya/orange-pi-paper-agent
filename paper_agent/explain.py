@@ -60,6 +60,8 @@ _RULES: List[Tuple[re.Pattern, str, Optional[bool]]] = [
     (re.compile(r"^all gates passed$"), "Every check passed.", True),
     (re.compile(r"^eligibility ([\d.]+) < ([\d.]+)"), r"The story's quality score is \1 out of 100; \2 is needed. It is too weak, too old, or from too unreliable a source to act on.", False),
     (re.compile(r"^EV net (-?[\d.]+)% <= 0"), r"Expected profit after costs is \1%, i.e. negative on average. Buying would lose money in expectation.", False),
+    (re.compile(r"^the model expects a FALL: a short or put would earn about ([-+\d.]+)% after costs and a (\d+)% haircut"), r"The model expects this stock to FALL: the good news came after a run-up, so it is already priced in. Betting on the fall (a short or a put) would earn about \1% after costs, believing only \2% of the predicted move.", False),
+    (re.compile(r"^and the opposite side does not pay either \(about ([-+\d.]+)% after costs and a (\d+)% haircut\)"), r"The other side (a short or a put) does not pay either: about \1% after costs. There is no edge in either direction.", False),
     (re.compile(r"^EV net (-?[\d.]+)% below minimum ([\d.]+)%"), r"Expected profit after costs is only \1%; at least \2% is needed to be worth the risk. Not enough edge.", False),
     (re.compile(r"^bearish event; long-only book"), "This is bad news for the company. The portfolio only buys (it never shorts), so it stays out.", False),
     (re.compile(r"^confidence (\d+)% below minimum"), r"Our confidence in this read is only \1%, below the minimum.", False),

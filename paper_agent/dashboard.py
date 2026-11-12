@@ -112,6 +112,7 @@ def page_overview(c, cfg, s):
     vals = [r[0] for r in c.execute("SELECT equity FROM daily_values ORDER BY day DESC LIMIT 90")][::-1]
     out.append("<h2>Equity (last %d days)</h2>%s" % (len(vals), spark(vals)))
     out.append(positions_section(c, cfg, s))
+    out.append(outcomes_section(c, s["now"]))
     sig = c.execute("SELECT s.created,p.ticker,s.trigger,s.reason,s.status FROM exit_signals s JOIN positions p ON p.id=s.position_id WHERE s.status='OPEN' ORDER BY s.created DESC LIMIT 10").fetchall()
     out.append("<h2>Open exit signals</h2>" + table(["Time", "Ticker", "Trigger", "Reason"], [[to_nz(r["created"]), r["ticker"], r["trigger"], r["reason"]] for r in sig]))
     return "".join(out)
@@ -202,6 +203,28 @@ def _options_section(c, now) -> str:
 def dm(v) -> str:
     """Dollars with the minus sign in front of the dollar sign: -$1,459, not $-1,459."""
     return ("-$%s" % format(abs(v), ",.0f")) if v < 0 else ("$%s" % format(v, ",.0f"))
+
+
+def outcomes_section(c, now) -> str:
+    """What happened to the ideas in the last 24 hours, by outcome and by the stated reason, so the pile of rejections is never a mystery. One malformed record must never take the Overview down."""
+    try:
+        return _outcomes_section(c, now)
+    except Exception:  # noqa: BLE001
+        return "<h2>What happened to the ideas</h2><p class=mut>This could not be displayed: a record looks malformed. Nothing else is affected.</p>"
+
+
+def _outcomes_section(c, now) -> str:
+    from . import funnel
+    b = funnel.outcome_breakdown(c, now, 24.0, 8)
+    if not b["total"]:
+        return "<h2>What happened to the ideas (last 24 hours)</h2><p class=mut>No decisions in the last 24 hours.</p>"
+    out = ["<h2>What happened to the ideas (last 24 hours)</h2><p class=mut>%d decisions. The reasons are the first thing each decision recorded.</p>" % b["total"],
+           table(["Outcome", "Decisions", "Share"], [[s, k, "%.1f%%" % p] for s, k, p in b["status"]])]
+    for st in ("RISK_REJECTED", "AWAITING_CAPACITY", "CAPACITY_DEFERRED", "REJECTED", "VETOED", "DUPLICATE", "EXPIRED"):
+        r = b["reasons"].get(st)
+        if r:
+            out.append("<h3>%s: why (%d)</h3>" % (E(st), r["total"]) + table(["Reason", "Count", "Share of %s" % st], [[g, k, "%.1f%%" % p] for g, k, p in r["top"]]) + ("<p class=mut>plus %d rarer reasons</p>" % r["other"] if r["other"] else ""))
+    return "".join(out)
 
 
 def positions_section(c, cfg, s):
@@ -538,12 +561,12 @@ def _research_section(c, cfg) -> str:
         if rows and "h" in rows[0]:
             hs = list(rows[0]["h"])
             out.append(table(["Situation"] + ["%s session%s later" % (h, "" if h == "1" else "s") for h in hs] + (["Forecast subtracts"] if nm == "post_move" else []),
-                             [[E(r["label"])] + [E(lab._cell(r["h"].get(h))) for h in hs] + ([("%.1f%%" % r["model_subtracts_pct"]) if r.get("model_subtracts_pct") else "-"] if nm == "post_move" else []) for r in rows]))
+                             [[r["label"]] + [lab._cell(r["h"].get(h)) for h in hs] + ([("%.1f%%" % r["model_subtracts_pct"]) if r.get("model_subtracts_pct") else "-"] if nm == "post_move" else []) for r in rows]))
         elif rows and rows[0].get("kind") in ("bin", "event_type"):
-            out.append(table(["Forecast said", "Forecasts", "Came true", "95% interval", "Reading"], [[E(r["label"] + (" (said %.0f%%)" % r["said_pct"] if "said_pct" in r else "")), r["n"], "%s%%" % r["came_true_pct"], "%s-%s%%" % (r["lo_pct"], r["hi_pct"]), E(r["flag"])] for r in rows])
+            out.append(table(["Forecast said", "Forecasts", "Came true", "95% interval", "Reading"], [[r["label"] + (" (said %.0f%%)" % r["said_pct"] if "said_pct" in r else ""), r["n"], "%s%%" % r["came_true_pct"], "%s-%s%%" % (r["lo_pct"], r["hi_pct"]), r["flag"]] for r in rows])
                        + ("<p class=mut>%d forecasts; Brier score %s (always saying 50%% scores 0.250).</p>" % (st["summary"]["n"], st["summary"]["brier"]) if st.get("summary") else ""))
         elif rows and "trades" in rows[0]:
-            out.append(table(["Exit plan", "Trades", "Won", "Average win", "Average loss", "Net per trade", "A signal must add"], [[E(r["label"]), r["trades"], "%s%%" % r["win_pct"], "%s%%" % r["avg_win_pct"], "%s%%" % r["avg_loss_pct"], "%+.2f%%" % r["net_per_trade_pct"], "%.2f%%" % r["signal_must_add_pct"]] for r in rows]))
+            out.append(table(["Exit plan", "Trades", "Won", "Average win", "Average loss", "Net per trade", "A signal must add"], [[r["label"], r["trades"], "%s%%" % r["win_pct"], "%s%%" % r["avg_win_pct"], "%s%%" % r["avg_loss_pct"], "%+.2f%%" % r["net_per_trade_pct"], "%.2f%%" % r["signal_must_add_pct"]] for r in rows]))
         else:
             out.append("<p class=mut>%s</p>" % E("; ".join(st.get("notes") or ["no result"])))
         for n in (st.get("notes") or []):
