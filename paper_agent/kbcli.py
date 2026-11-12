@@ -184,6 +184,8 @@ def is_read_only(args) -> bool:
         return True
     if args.cmd == "shadow":
         return getattr(args, "what", None) in (None, "report", "status")
+    if args.cmd == "research":
+        return getattr(args, "what", None) in (None, "report", "status")
     if args.cmd == "eval":
         return not getattr(args, "save", False)
     what = getattr(args, "what", None)

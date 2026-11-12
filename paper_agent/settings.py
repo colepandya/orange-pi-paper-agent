@@ -216,6 +216,13 @@ FIELDS: List[Field] = [
     F("kb.filing_window_days", "Keep filing events for the last (days)", "int", "Company knowledge", 30, 400, "Older filings are not stored as events."),
     F("kb.filing_rows_per_company", "Filing events kept per company (at most)", "int", "Company knowledge", 10, 500, "Material events (auditor change, delisting, bankruptcy, late reports ...) are never pruned; routine ones (insider forms, foreign reports) are kept as a recent window."),
     F("kb.weekly_facts_companies", "SEC financial facts fetched in the weekly job (companies)", "int", "Company knowledge", 0, 300, "Highest-priority operating companies first; each takes about 20 requests. 0 turns it off."),
+    F("history.enabled", "Backfill long price history for the research lab", "bool", "Research lab", help="Fetches several years of daily prices for the stocks the bot tracks, a few per cycle, so ideas can be tested on more than one market regime before any trading rule uses them. Observation only."),
+    F("history.years", "Years of history to keep", "int", "Research lab", 1, 10, "5 is about 40 MB of database for 400 stocks."),
+    F("history.symbols_per_cycle", "Stocks fetched per cycle (at most)", "int", "Research lab", 0, 20, "The first full backfill takes about a day at 3."),
+    F("history.max_seconds", "Seconds a cycle may spend fetching history", "float", "Research lab", 1.0, 60.0, "Fetching stops at this limit and carries on next cycle."),
+    F("research.enabled", "Run the research studies", "bool", "Research lab", help="Once a week, while the US market is closed, one study per cycle: what stocks do after a 5-day move, after earnings, after big-volume days; whether the forecast probabilities come true; what an exit plan earns with no signal. Observation only."),
+    F("research.rerun_days", "Repeat the studies every (days)", "int", "Research lab", 1, 60, ""),
+    F("research.max_seconds", "Seconds a study may take inside a cycle", "float", "Research lab", 5.0, 120.0, "A study that is too slow for the Pi is retried later, and after three tries left to the command line: python3 -m paper_agent research run"),
     F("shadow.enabled", "Follow every idea to a costed outcome (shadow book)", "bool", "Shadow book", help="Observation only. Every decision, traded or not, is followed with stored daily bars so gates and thresholds can be judged on many ideas, not the few that traded."),
     F("shadow.cost_bps", "Cost taken off every shadow outcome (basis points, round trip)", "float", "Shadow book", 0.0, 300.0, "30 matches the spread and slippage your real round trips showed (about 0.3%)."),
     F("shadow.min_abs_direction", "Smallest view worth following", "float", "Shadow book", 0.0, 1.0, "Ideas with a weaker direction than this carry no view and are not followed."),
@@ -224,7 +231,7 @@ FIELDS: List[Field] = [
     F("kb.max_hops", "Relationship hops considered", "int", "Company knowledge", 1, 3, "First-hop effects can influence trading (when active); second-hop are research ideas only; third-hop are explanation only."),
 ]
 BY_NAME = {f.name: f for f in FIELDS}
-GROUP_ORDER = ["Risk limits", "Swing strategy", "Instruments", "Relationship graph", "Execution", "Refresh times", "LLM analyst", "Article reader", "Missed-trade analysis", "Database", "System", "Company knowledge", "Shadow book"]
+GROUP_ORDER = ["Risk limits", "Swing strategy", "Instruments", "Relationship graph", "Execution", "Refresh times", "LLM analyst", "Article reader", "Missed-trade analysis", "Database", "System", "Company knowledge", "Shadow book", "Research lab"]
 TIERS = ("triage", "analyst")
 PROVIDERS = ("anthropic", "github")
 MODEL_RX = re.compile(r"^[A-Za-z0-9._:/-]{3,80}$")

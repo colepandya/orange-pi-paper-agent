@@ -91,6 +91,8 @@ def cfg():
     c["intelligence"]["influence"] = "off"                                       # the shared tests keep the OLD behaviour (no analyst or red team without an LLM key); the rules engine has its own tests that switch it on
     c["instruments"]["shorts_enabled"] = False                                # the shared tests are about the long-only book; shorts, options and the graph have their own tests that switch them on
     c["instruments"]["options_enabled"] = False
+    c["history"]["enabled"] = False                                              # the shared tests make no price fetches and run no studies: the research lab has its own tests
+    c["research"]["enabled"] = False
     c["risk"]["low_edge_max_pct"] = 0.0                                          # the shared tests keep full-size sizing for every idea: the low-edge cap (Build 53) has its own tests
     c["risk"]["min_ev_net"] = 0.006                                              # ... and the OLD gates (the shipped defaults are tested separately)
     c["strategy"]["min_reward_risk"] = 1.0

@@ -16,7 +16,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 
 from .timeutil import iso, utcnow
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 LEGACY = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -242,6 +242,8 @@ CREATE INDEX IF NOT EXISTS shadow_c_ticker ON shadow_candidates(ticker, entry_da
 CREATE TABLE IF NOT EXISTS shadow_outcomes(
  decision_id INTEGER NOT NULL, horizon INTEGER NOT NULL, exit_day TEXT, exit_price REAL, gross_ret REAL, net_ret REAL, bench_ret REAL, excess_net REAL, mfe REAL, mae REAL, measured TEXT,
  PRIMARY KEY(decision_id, horizon));
+CREATE TABLE IF NOT EXISTS history_status(symbol TEXT PRIMARY KEY, status TEXT NOT NULL, years INTEGER, first_day TEXT, last_day TEXT, rows INTEGER, tries INTEGER NOT NULL DEFAULT 0, next_try TEXT, last_error TEXT, updated TEXT);
+CREATE TABLE IF NOT EXISTS research_runs(id INTEGER PRIMARY KEY AUTOINCREMENT, started TEXT NOT NULL, finished TEXT, status TEXT, data_from TEXT, data_to TEXT, symbols INTEGER, rows INTEGER, studies_json TEXT);
 """
 
 NEW_COLUMNS = {

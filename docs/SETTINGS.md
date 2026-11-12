@@ -99,3 +99,14 @@ Every mode below starts on **observe**. Observe records and measures what a part
 | risk.full_size_min_rr | 1.0 | An idea below this reward:risk is traded SMALL. |
 | risk.low_edge_max_pct | 0.5% | Size of a small (low-edge) trade, at most. 0 switches the cap off. |
 | portfolio.daily_trade_target | 10 | Shown on the Overview. A target, not a quota. |
+
+## Research lab (Build 54)
+| Setting | Default | Meaning |
+|---|---|---|
+| history.enabled | on | Backfill long daily price history for the research lab. Observation only. |
+| history.years | 5 | Years of history to keep (1-10). About 40 MB for 400 stocks at 5. |
+| history.symbols_per_cycle | 3 | Stocks fetched per cycle. |
+| history.max_seconds | 12 | Seconds a cycle may spend fetching history. |
+| research.enabled | on | Run the studies weekly while the US market is closed. |
+| research.rerun_days | 7 | Repeat the studies this often. |
+| research.max_seconds | 60 | Seconds a study may take inside a cycle. |

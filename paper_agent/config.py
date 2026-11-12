@@ -55,6 +55,8 @@ DEFAULTS: Dict[str, Any] = {
     "prices": {"refresh_closed_minutes": 10, "refresh_open_minutes": 5, "max_symbols": 25, "extended_hours": True},
     "schedule": {"cycle_minutes": 10, "guard_minutes": 2, "update_hours": 3},      # applied to systemd timers by the control worker
     "source_overrides": {},                                                       # {"<source id>": {"enabled": bool, "interval": seconds}}
+    "history": {"enabled": True, "years": 5, "symbols_per_cycle": 3, "max_seconds": 12.0, "max_symbols": 500},                       # long price history for the research lab (build 54): observation only
+    "research": {"enabled": True, "rerun_days": 7, "max_seconds": 60.0},                                                              # the research lab: one study per quiet cycle, weekly
     "shadow": {"enabled": True, "cost_bps": 30.0, "min_abs_direction": 0.15, "measure_per_cycle": 300, "max_seconds": 3.0},                       # the shadow book (build 49): observation only
     "kb": {                                                                          # company knowledge base (build 45). Every mode starts in observe: it records and measures, and changes nothing the bot does. 
         "enabled": True, "relationship_mode": "observe", "expiry_mode": "observe", "materiality_mode": "observe", "state_mode": "observe", "regime_mode": "observe",

@@ -49,6 +49,10 @@ def main(argv=None) -> int:
     sp.add_argument("what", nargs="?", default="report", choices=["report", "status", "sync", "measure"])
     sp.add_argument("--horizon", type=int, default=3, choices=[1, 3, 5, 10], help="sessions to hold in the shown outcomes")
     sp.add_argument("--json", action="store_true")
+    rp = sub.add_parser("research", help="the research lab: report | status | run | history (tests the engine's assumptions on stored prices; observation only)")
+    rp.add_argument("what", nargs="?", default="report", choices=["report", "status", "run", "history"])
+    rp.add_argument("--study", choices=["post_move", "earnings", "big_days", "calibration", "exit_plans"], help="run just one study")
+    rp.add_argument("--limit", type=int, default=50, help="history: stocks to fetch now")
     kp.add_argument("--tickers", default="V,NEM,GOOG,BRK-B,TSM,ASML,MA,JPM")
     cop = sub.add_parser("company", help="what the bot knows about one company, and what it does not")
     cop.add_argument("ticker")
@@ -251,7 +255,7 @@ def main(argv=None) -> int:
         except Exception:  # noqa: BLE001 - the growth record is a nicety; the backup itself succeeded
             pass
         return 0
-    if args.cmd in ("kb", "company", "eval", "shadow"):                                     # the company knowledge base and the evaluation: heavy work is run from here, never inside the trading cycle
+    if args.cmd in ("kb", "company", "eval", "shadow", "research"):                                     # the company knowledge base and the evaluation: heavy work is run from here, never inside the trading cycle
         from . import kbcli
         import sqlite3
         try:
@@ -266,6 +270,9 @@ def main(argv=None) -> int:
             if args.cmd == "shadow":
                 from . import shadow as shadow_mod
                 return shadow_mod.run_cli(args, conn, cfg)
+            if args.cmd == "research":
+                from . import lab as lab_mod
+                return lab_mod.run_cli(args, conn, cfg)
             return kbcli.run(args, conn, cfg)
         except (sqlite3.OperationalError, PermissionError) as ex:
             print(kbcli.permission_message(args, ex))                                  # not a traceback: what to type instead

@@ -28,6 +28,7 @@ docs/OPTIONS_FEEDS.md
 docs/PARALLEL.md
 docs/REASONING_ENGINE.md
 docs/RELATIONSHIP_GRAPH.md
+docs/RESEARCH_LAB.md
 docs/REVIEW_FINDINGS.md
 docs/SETTINGS.md
 docs/SHADOW_BOOK.md
@@ -68,6 +69,7 @@ paper_agent/funnel.py
 paper_agent/gaps.py
 paper_agent/golden.py
 paper_agent/graph.py
+paper_agent/history.py
 paper_agent/kb.py
 paper_agent/kbbench.py
 paper_agent/kbcli.py
@@ -80,6 +82,7 @@ paper_agent/kbrel.py
 paper_agent/kbsnap.py
 paper_agent/kbstage.py
 paper_agent/keys.py
+paper_agent/lab.py
 paper_agent/learning.py
 paper_agent/lens.py
 paper_agent/llm.py
@@ -174,6 +177,7 @@ tests/test_build50.py
 tests/test_build51.py
 tests/test_build52.py
 tests/test_build53.py
+tests/test_build54.py
 tests/test_cleanup.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py

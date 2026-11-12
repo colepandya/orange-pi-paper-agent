@@ -509,6 +509,50 @@ def scorecard_panel(c, cfg) -> str:
     return "".join(h)
 
 
+def research_section(c, cfg) -> str:
+    """The research lab, read-only. One malformed saved result must never take the Intelligence tab down."""
+    try:
+        return _research_section(c, cfg)
+    except Exception:  # noqa: BLE001
+        return "<h2>Research lab</h2><p class=mut>The research results could not be displayed: a saved record looks malformed. Nothing else is affected.</p>"
+
+
+def _research_section(c, cfg) -> str:
+    from . import history, lab
+    try:
+        cov, run = history.coverage(c, cfg), lab.latest_run(c)
+    except Exception:  # noqa: BLE001 - a missing table or a malformed record must not take the tab down
+        return ""
+    out = ["<h2>Research lab: do the engine's assumptions hold up on history?</h2>",
+           "<p class=mut>Price history: %d of %d stocks hold %d years (%d pending, %d failed); %s to %s, %s bars. It fills a few stocks per cycle. Observation only: nothing here changes a trade.</p>" % (
+               cov["done"], cov["symbols_wanted"], cov["years_wanted"], cov["pending"], cov["failed"], cov["earliest_day"] or "n/a", cov["latest_day"] or "n/a", format(cov["rows"], ","))]
+    if not run or not run.get("studies"):
+        return "".join(out) + "<p class=mut>No study has run yet. They run once a week while the market is closed, one per cycle, or now with <code>python3 -m paper_agent research run</code>.</p>"
+    out.append("<p class=mut>Run of %s (%s), data %s to %s.</p>" % (E((run.get("started") or "")[:16]), E(run.get("status") or ""), E(run.get("data_from") or "n/a"), E(run.get("data_to") or "n/a")))
+    for nm in lab.STUDY_ORDER:
+        st = (run["studies"] or {}).get(nm)
+        if not isinstance(st, dict):
+            continue
+        out.append("<h3>%s</h3>" % E(st.get("title") or nm))
+        rows = st.get("rows") or []
+        if rows and "h" in rows[0]:
+            hs = list(rows[0]["h"])
+            out.append(table(["Situation"] + ["%s session%s later" % (h, "" if h == "1" else "s") for h in hs] + (["Forecast subtracts"] if nm == "post_move" else []),
+                             [[E(r["label"])] + [E(lab._cell(r["h"].get(h))) for h in hs] + ([("%.1f%%" % r["model_subtracts_pct"]) if r.get("model_subtracts_pct") else "-"] if nm == "post_move" else []) for r in rows]))
+        elif rows and rows[0].get("kind") in ("bin", "event_type"):
+            out.append(table(["Forecast said", "Forecasts", "Came true", "95% interval", "Reading"], [[E(r["label"] + (" (said %.0f%%)" % r["said_pct"] if "said_pct" in r else "")), r["n"], "%s%%" % r["came_true_pct"], "%s-%s%%" % (r["lo_pct"], r["hi_pct"]), E(r["flag"])] for r in rows])
+                       + ("<p class=mut>%d forecasts; Brier score %s (always saying 50%% scores 0.250).</p>" % (st["summary"]["n"], st["summary"]["brier"]) if st.get("summary") else ""))
+        elif rows and "trades" in rows[0]:
+            out.append(table(["Exit plan", "Trades", "Won", "Average win", "Average loss", "Net per trade", "A signal must add"], [[E(r["label"]), r["trades"], "%s%%" % r["win_pct"], "%s%%" % r["avg_win_pct"], "%s%%" % r["avg_loss_pct"], "%+.2f%%" % r["net_per_trade_pct"], "%.2f%%" % r["signal_must_add_pct"]] for r in rows]))
+        else:
+            out.append("<p class=mut>%s</p>" % E("; ".join(st.get("notes") or ["no result"])))
+        for n in (st.get("notes") or []):
+            if rows:
+                out.append("<p class=mut>%s</p>" % E(n))
+    out.append("<p class=mut><b>Read this first:</b> %s</p>" % E(lab.CAVEAT))
+    return "".join(out)
+
+
 def shadow_section(c, cfg) -> str:
     """The shadow book, read-only: does what the gates blocked earn money after costs, and does a higher estimated EV earn more?"""
     from . import shadow
@@ -544,6 +588,7 @@ def page_intel(c, cfg, s, q=None):
     out.append("<h2>Calibration</h2>" + table(["Predicted range", "N", "Predicted", "Actual"], [[b["range"], b["n"], pct(b["predicted"], 0), pct(b["actual"], 0)] for b in m["bins"]]))
     for key, label in (("event_types", "Event-type accuracy"), ("sources", "Source accuracy"), ("theses", "Thesis accuracy")):
         out.append("<h2>%s</h2>" % label + table(["Name", "N", "Hit rate", "Brier"], [[k, v["n"], pct(v["hit"], 0), "%.3f" % v["brier"]] for k, v in sorted(m[key].items(), key=lambda x: -x[1]["n"])[:15]]))
+    out.append(research_section(c, cfg))
     out.append(shadow_section(c, cfg))
     out.append("<h2>Regime features</h2>" + table(["Feature", "Value"], [[k, "n/a" if v is None else "%.4f" % v] for k, v in sorted((s["reg"].get("features") or {}).items())]))
     out.append("<h2>Research tasks</h2>" + table(["Priority", "Kind", "Subject", "Description", "Status", "Result"], [[("%.1f" % r["priority"]), r["kind"], r["subject"], r["description"][:140], r["status"], r["result"] or ""] for r in c.execute("SELECT * FROM research_tasks ORDER BY status='OPEN' DESC,priority DESC,id DESC LIMIT 40")]))

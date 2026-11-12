@@ -20,13 +20,15 @@ NOW = dt.datetime(2026, 11, 1, 3, 0, tzinfo=dt.timezone.utc)
 
 
 class KbEnv(FI_T.Env):
-    def morning_kb(self, kb_on=True, cycles=10, patch=None, shadow_on=True):
+    def morning_kb(self, kb_on=True, cycles=10, patch=None, shadow_on=True, cfg_over=None):
         c = H.fresh_db()
         cfg = H.cfg()
         cfg["strategy"]["swing_enabled"] = False
         cfg["runtime"]["min_available_memory_mb"] = 0
         cfg["kb"]["enabled"] = kb_on
         cfg["shadow"]["enabled"] = shadow_on
+        for k, v in (cfg_over or {}).items():
+            cfg[k].update(v)
         errors = []
         inet = FI_T.FI.Internet(T0, self.co, self.heads, 1, 0.0, False, False)
         reports = []

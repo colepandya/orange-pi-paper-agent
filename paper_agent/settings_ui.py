@@ -183,6 +183,9 @@ SECTION_META = [
         ("Refreshing from the SEC", "A full refresh of the whole universe is run from the command line, outside the trading cycle.", ["kb.refresh_companies_per_cycle", "kb.sec_requests_per_second", "kb.max_network_seconds", "kb.max_db_seconds", "kb.retry_delay_hours", "kb.failure_backoff_max_hours"]),
         ("How fresh is fresh", "", ["kb.max_data_age_days", "kb.financial_max_age_days"]),
         ("Filing events and financial facts", "What the weekly job stores and how much it fetches.", ["kb.filing_window_days", "kb.filing_rows_per_company", "kb.weekly_facts_companies"])]),
+    _sec("research", "Intelligence", "Research lab", "Tests the engine's own assumptions against years of stored prices before any rule is changed to use them. Observation only: it never changes a trade.", [
+        ("Price history", "", ["history.enabled", "history.years", "history.symbols_per_cycle", "history.max_seconds"]),
+        ("Studies", "", ["research.enabled", "research.rerun_days", "research.max_seconds"])]),
     _sec("shadow", "Intelligence", "Shadow book", "Every idea, traded or not, followed to a costed outcome so gates and thresholds are judged on hundreds of ideas instead of the few that traded. Observation only: it never changes a trade.", [
         ("Switch", "", ["shadow.enabled"]),
         ("How outcomes are counted", "Daily bars only; the cost is taken off every outcome.", ["shadow.cost_bps", "shadow.min_abs_direction"]),
