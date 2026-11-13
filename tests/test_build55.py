@@ -408,7 +408,7 @@ class TestWhatHappenedToTheIdeas(unittest.TestCase):
         self.assertIn("What happened to the ideas (last 24 hours)", empty)
         self.assertIn("No decisions in that time", empty)
         full = dashboard.render(self.world(), DEF(), "overview", {}, {"authed": True})
-        self.assertIn("What happened to the ideas", full)
+        self.assertNotIn("What happened to the ideas", full)                                                  # (Build 58) the section is no longer on the Overview; the function remains
         with unittest.mock.patch.object(funnel, "outcome_breakdown", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("bad record"))):
             self.assertIn("could not be displayed", dashboard.outcomes_section(H.fresh_db(), T_OPEN))
 

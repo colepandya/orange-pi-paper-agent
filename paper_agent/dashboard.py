@@ -112,9 +112,13 @@ def page_overview(c, cfg, s, q=None):
     out.append("<p class=mut>Regime mix: %s &middot; Last cycle: %s (%s)</p>" % (E(", ".join("%s %.0f%%" % (k.replace("_", " "), v * 100) for k, v in top)), E(to_nz(last["started"]) if last else "never"), E(last["status"] if last else "-")))
     vals = [r[0] for r in c.execute("SELECT equity FROM daily_values ORDER BY day DESC LIMIT 90")][::-1]
     out.append("<h2>Equity (last %d days)</h2>%s" % (len(vals), spark(vals)))
+    try:
+        rep = funnel_engine.report(c, hours, s["now"])                                                   # computed once: the waiting buys come first, the funnel after the positions
+    except Exception:  # noqa: BLE001
+        rep = None
+    out.append(pending_buys_section(rep))
     out.append(positions_section(c, cfg, s))
-    out.append(outcomes_section(c, s["now"], hours))
-    out.append(safe_funnel_section(c, cfg, s, hours))
+    out.append(safe_funnel_section(c, cfg, s, hours, rep))
     sig = c.execute("SELECT s.created,p.ticker,s.trigger,s.reason,s.status FROM exit_signals s JOIN positions p ON p.id=s.position_id WHERE s.status='OPEN' ORDER BY s.created DESC LIMIT 10").fetchall()
     out.append("<h2>Open exit signals</h2>" + table(["Time", "Ticker", "Trigger", "Reason"], [[to_nz(r["created"]), r["ticker"], r["trigger"], r["reason"]] for r in sig]))
     return "".join(out)
@@ -159,6 +163,25 @@ def price_label(source: str, age_seconds) -> str:
     return "%s, %s" % (what, "just now" if m < 2 else ("%d min ago" % m if m < 120 else "%.0fh ago" % (m / 60)))
 
 
+def options_feeds_section(c) -> str:
+    """The free options-data feeds and how well the pure model agrees with the real market (System tab). One malformed record must never take the tab down."""
+    try:
+        return _options_feeds_section(c)
+    except Exception:  # noqa: BLE001
+        return "<h2>Free options feeds</h2><p class=mut>The feeds could not be displayed: a record looks malformed. Nothing else is affected.</p>"
+
+
+def _options_feeds_section(c) -> str:
+    feeds = c.execute("SELECT * FROM option_feed_health ORDER BY feed").fetchall()
+    if not feeds:
+        return ""
+    chk = [r[0] for r in c.execute("SELECT ABS(err_pct) FROM option_model_checks ORDER BY id DESC LIMIT 300")]
+    srt = sorted(chk)
+    out = "<h2>Free options feeds</h2><p class=mut>Four free public feeds (about 15 minutes delayed) supply the option contracts, their spreads and implied volatility.</p>"
+    out += table(["Feed", "Status", "Contracts", "Last took", "Worked / failed", "Last problem"], [[f["feed"], ("OK" if f["last_ok"] and not f["last_error"] else "FAILING"), f["last_contracts"], "%.1f s" % ((f["last_ms"] or 0) / 1000.0), "%d / %d" % (f["ok_count"], f["fail_count"]), (f["last_error"] or "")[:70]] for f in feeds])
+    out += ("<p class=mut>How good is the pure model against the real market? Across the last %d contracts priced, it was off by a median of %.0f%% (90th percentile %.0f%%). The bigger that is, the more the real quotes matter.</p>" % (len(srt), 100 * srt[len(srt) // 2], 100 * srt[int(len(srt) * 0.9)])) if srt else ""
+    return out
+
 def options_section(c, now) -> str:
     """Open and recent options, the scorecard and the feeds. One malformed record must never take a page down."""
     try:
@@ -177,9 +200,7 @@ def _options_section(c, now) -> str:
         score_html = "<h3>Option scorecard: what each kind has actually done</h3>" + table(["Kind", "Tier", "Open", "Closed", "Won / closed", "Realised $", "Return on premium", "Evidence"], rows) + "<p class=mut>A few trades is an anecdote: one winning put does not show that puts win. Treat this as a record, not a result, until it has dozens of closed trades.</p>"
     op = c.execute("SELECT * FROM option_positions WHERE status='OPEN' ORDER BY id").fetchall()
     cl = c.execute("SELECT * FROM option_positions WHERE status='CLOSED' ORDER BY id DESC LIMIT 15").fetchall()
-    feeds = c.execute("SELECT * FROM option_feed_health ORDER BY feed").fetchall()
-    chk = [r[0] for r in c.execute("SELECT ABS(err_pct) FROM option_model_checks ORDER BY id DESC LIMIT 300")]
-    if not op and not cl and not feeds:
+    if not op and not cl:
         return ""
     rows = []
     for o in op:
@@ -189,10 +210,6 @@ def _options_section(c, now) -> str:
         rows.append([o["underlying"], o["kind"] + (" (real contract)" if (o["price_source"] or "") == "CHAIN" else " (MODEL)"), "%.2f" % o["strike"], "%s (%dd)" % (o["expiry"][5:], days), o["contracts"], money(o["cost"]), money(value),
                      Raw('<span class=%s>%s (%s)</span>' % (cls(pnl), money(pnl), pct(pnl / o["cost"] if o["cost"] else 0))), "%.2f / %.2f" % (o["stop_underlying"], o["target_underlying"]), (o["note"] or "")[:90]])
     out = "<h2>Options</h2><p class=mut>Contracts, spreads and implied volatility come from four FREE public feeds (about 15 minutes delayed) and are repriced at the live stock price; a position marked MODEL had no feed answer and is priced by a Black-Scholes model. Either way it is paper money, and the most a bought option can lose is its premium.</p>"
-    if feeds:
-        srt = sorted(chk)
-        out += "<h3>Free options feeds</h3>" + table(["Feed", "Status", "Contracts", "Last took", "Worked / failed", "Last problem"], [[f["feed"], ("OK" if f["last_ok"] and not f["last_error"] else "FAILING"), f["last_contracts"], "%.1f s" % ((f["last_ms"] or 0) / 1000.0), "%d / %d" % (f["ok_count"], f["fail_count"]), (f["last_error"] or "")[:70]] for f in feeds])
-        out += ("<p class=mut>How good is the pure model against the real market? Across the last %d contracts priced, it was off by a median of %.0f%% (90th percentile %.0f%%). The bigger that is, the more the real quotes matter.</p>" % (len(srt), 100 * srt[len(srt) // 2], 100 * srt[int(len(srt) * 0.9)])) if srt else ""
     out += ("<h3>Open options</h3>" + table(["Stock", "Type", "Strike", "Expires", "Contracts", "Paid", "Worth now", "P&L", "Stock stop / target", "Why"], rows)) if rows else "<p class=mut>No open options.</p>"
     out += score_html
     if cl:
@@ -413,6 +430,16 @@ def page_reports(c, cfg, s, q):
     return "".join(out)
 
 
+def pending_buys_section(r) -> str:
+    """BUY decisions waiting for the market or a quote, from the funnel report. Shown just before the open positions."""
+    try:
+        if not r or not r.get("pending"):
+            return ""
+        return "<h2>BUY decisions waiting</h2>" + table(["Ticker", "Status", "Since", "EV net", "Waiting for"], [[p["ticker"], p["status"], to_nz(p["since"], "%d %b %H:%M"), pct(p["ev_net"], 2) if p["ev_net"] is not None else "n/a", p["waiting_for"][:200]] for p in r["pending"]])
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def hours_of(q) -> float:
     """The window the Overview reports on (6 / 24 / 72 hours): a number in the address, else 24."""
     try:
@@ -423,17 +450,17 @@ def hours_of(q) -> float:
     return h if (h == h and 1.0 <= h <= 100000.0) else 24.0
 
 
-def safe_funnel_section(c, cfg, s, hours) -> str:
+def safe_funnel_section(c, cfg, s, hours, r=None) -> str:
     """The funnel is one section of the Overview: a malformed record in the news or events must cost this section, never the page."""
     try:
-        return funnel_section(c, cfg, s, hours)
+        return funnel_section(c, cfg, s, hours, r)
     except Exception:  # noqa: BLE001
         return "<h2 id=flow>How ideas flow: news to decisions</h2><p class=mut>This section could not be displayed: a news or event record looks malformed. The rest of the page is unaffected.</p>"
 
 
-def funnel_section(c, cfg, s, hours):
+def funnel_section(c, cfg, s, hours, r=None):
     """How news became decisions: ingested, events, candidates, decisions, the reasons ideas stopped, mergers. (It was the Funnel tab; it is part of the Overview now.)"""
-    r = funnel_engine.report(c, hours, s["now"])
+    r = r if r is not None else funnel_engine.report(c, hours, s["now"])
     out = ["<h2 id=flow>How ideas flow: news to decisions</h2><p class=mut>Window: " + " ".join('<a href="?tab=overview&hours=%d#flow">%dh</a>' % (h, h) for h in (6, 24, 72)) + " &middot; US market now: <b>%s</b></p>" % E(r["market"])]
     out.append('<div class=grid>%s%s%s%s%s</div>' % (card("News ingested", r["news"]), card("Events", r["events"]), card("Trade candidates", r["candidates"]), card("Decisions", r["decisions_total"]), card("Trades opened", r["executed"])))
     out.append("<p class=mut>Cycles: %s &middot; last cycle %s &middot; last decision %s</p>" % (E(", ".join("%s=%d" % kv for kv in sorted(r["cycles"].items())) or "none"), E(to_nz(r["last_cycle"]) if r["last_cycle"] else "never"), E(to_nz(r["last_decision"]) if r["last_decision"] else "never")))
@@ -443,14 +470,11 @@ def funnel_section(c, cfg, s, hours):
             ar["read"], ar["page"], ar["snippet"], ar["changed"], (" &middot; sites left alone after refusing us: " + E(", ".join(ar["left_alone"]))) if ar.get("left_alone_n") else ""))
     for f in r["findings"]:
         out.append(settings_ui.flash_html(None, [f["text"] + (" Fix: " + f["fix"] if f["fix"] else "")] if f["severity"] == "HIGH" else None, [f["text"]] if f["severity"] == "MEDIUM" else None) if f["severity"] != "INFO" else "<p class=mut>%s</p>" % E(f["text"]))
-    if r["pending"]:
-        out.append("<h2>BUY decisions waiting</h2>" + table(["Ticker", "Status", "Since", "EV net", "Waiting for"], [[p["ticker"], p["status"], to_nz(p["since"], "%d %b %H:%M"), pct(p["ev_net"], 2) if p["ev_net"] is not None else "n/a", p["waiting_for"][:200]] for p in r["pending"]]))
     rows = []
     for g, n in r["gates"].items():
         ex = r["samples"].get(g, [])
         rows.append([n, g, funnel_engine.GATE_LABELS.get(g, ""), Raw("<br>".join(E("[%s %s] %s" % (x["type"], ",".join(x["tickers"]) or "-", x["headline"])) for x in ex[:2]))])
     out.append("<h2>Why events did or did not become candidates</h2>" + table(["Events", "Reason", "Meaning", "Examples"], rows))
-    out.append("<h2>Recent merger / acquisition events</h2>" + table(["Seen", "Reason / gate", "Decision", "Companies", "Headline"], [[to_nz(m["seen"], "%d %b %H:%M"), m["gate"], m["decision"], ", ".join(m["tickers"]) or "none recognised", m["headline"]] for m in r["mna"]]))
     return "".join(out)
 
 
@@ -753,6 +777,7 @@ def page_system(c, cfg, s, q=None):
     u = llm_client.LLMClient(c, cfg).usage_summary()
     out = ["<div class=grid>" + card("LLM spend today", "$%.3f / $%.2f" % (u["today_usd"], u["daily_budget"])) + card("LLM spend this month", "$%.2f / $%.0f" % (u["month_usd"], u["monthly_budget"])) + card("LLM calls today", "%d" % u["calls_today"]), card("LLM cache hits", "%d" % u["cache_hits_today"]), card("LLM failed calls", "%d" % u["failures_today"]) + "</div>", "<h2>Sources</h2>" + _sources_table(c, cfg)]
     out.append(provider_section(c, cfg, s["now"]))
+    out.append(options_feeds_section(c))
     out.append(database_section(c, cfg, s["now"], "db" in ((q or {}).get("refresh") or [])))
     out.append("<h2>Recent cycles</h2>" + table(["Started", "Mode", "Status", "Errors"], [[to_nz(r["started"], "%d %b %H:%M"), r["mode"], r["status"], ", ".join(json.loads(r["report_json"] or "{}").get("errors", []))] for r in c.execute("SELECT * FROM cycle_runs ORDER BY id DESC LIMIT 15")]))
     out.append("<h2>Executor runs</h2>" + table(["Time", "Status", "Checked", "Committed", "Blocked", "Errors"], [[to_nz(r["created"], "%d %b %H:%M"), r["status"], r["positions_checked"], r["actions_committed"], r["blocked_stale"], r["errors"]] for r in c.execute("SELECT * FROM executor_runs ORDER BY id DESC LIMIT 10")]))

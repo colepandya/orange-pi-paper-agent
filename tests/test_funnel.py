@@ -171,8 +171,9 @@ class TestSurfaces(unittest.TestCase):
 
     def test_dashboard_funnel_tab_renders_reasons_and_mergers(self):
         html = dashboard.render(self.c, H.cfg(), "funnel", {})
-        for needle in ("Why events did or did not become candidates", "market_wide_event", "Recent merger", "Chevron to acquire Hess", "Trade candidates"):
+        for needle in ("Why events did or did not become candidates", "market_wide_event", "Trade candidates"):
             self.assertIn(needle, html)
+        self.assertNotIn("Recent merger / acquisition events", html)                                         # (Build 58) removed from the page (the CLI funnel report still lists them)
         self.assertIn("Window", dashboard.render(self.c, H.cfg(), "funnel", {"hours": ["72"]}))
 
     def test_doctor_summarises_the_funnel_and_flags_skipped_cycles(self):

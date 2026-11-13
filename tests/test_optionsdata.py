@@ -438,10 +438,13 @@ class TestRealContractsThroughThePipeline(RealBase):
     def test_the_page_shows_the_feeds_and_how_good_the_model_is(self):
         self.open_real()
         html = dashboard.options_section(self.c, T_OPEN)
-        self.assertIn("Free options feeds", html)
-        self.assertIn("CBOE", html)
+        self.assertNotIn("Free options feeds", html)                                                     # (Build 58) the feeds are on the System tab now
         self.assertIn("real contract", html)
-        self.assertIn("How good is the pure model", html)
+        feeds = dashboard.options_feeds_section(self.c)
+        self.assertIn("Free options feeds", feeds)
+        self.assertIn("CBOE", feeds)
+        self.assertIn("How good is the pure model", feeds)
+        self.assertIn("Free options feeds", dashboard.render(self.c, H.cfg(), "system", {}, {"authed": True}))
 
 
 if __name__ == "__main__":

@@ -27,9 +27,11 @@ class TestTheFunnelIsPartOfTheOverview(unittest.TestCase):
 
     def test_the_overview_carries_the_funnel_and_the_outcomes(self):
         t = text(dashboard.render(H.fresh_db(), DEF(), "overview", {}, {"authed": True}))
-        for need in ("How ideas flow: news to decisions", "News ingested", "Trade candidates", "What happened to the ideas (last 24 hours)", "Equity (mark-to-market)"):
+        for need in ("How ideas flow: news to decisions", "News ingested", "Trade candidates", "Equity (mark-to-market)"):
             self.assertIn(need, t)
-        self.assertNotIn("Decisions by outcome", t)                                                          # the outcomes section replaces it, with the reasons
+        self.assertNotIn("Decisions by outcome", t)
+        self.assertNotIn("What happened to the ideas", t)                                                    # (Build 58) removed from the Overview
+        self.assertNotIn("Recent merger / acquisition events", t)
 
     def test_the_old_address_still_opens_the_same_page(self):
         c = H.fresh_db()
@@ -43,10 +45,10 @@ class TestTheFunnelIsPartOfTheOverview(unittest.TestCase):
         c = H.fresh_db()
         raw = dashboard.render(c, DEF(), "overview", {"hours": ["72"]}, {"authed": True})
         t = text(raw)
-        self.assertIn("What happened to the ideas (last 72 hours)", t)
+        self.assertIn("How ideas flow: news to decisions", t)
         for h in (6, 24, 72):
             self.assertIn('href="?tab=overview&hours=%d#flow"' % h, raw)
-        self.assertIn("What happened to the ideas (last 24 hours)", text(dashboard.render(c, DEF(), "overview", {"hours": ["junk"]}, {"authed": True})))
+        self.assertIn("How ideas flow", text(dashboard.render(c, DEF(), "overview", {"hours": ["junk"]}, {"authed": True})))
 
     def test_hours_of(self):
         for q, want in (({}, 24.0), (None, 24.0), ({"hours": ["6"]}, 6.0), ({"hours": ["72"]}, 72.0), ({"hours": "48"}, 48.0), ({"hours": ["x"]}, 24.0), ({"hours": [""]}, 24.0), ({"hours": []}, 24.0),
@@ -632,7 +634,6 @@ class TestOneBadRecordCostsOneSectionNotThePage(unittest.TestCase):
                 page = dashboard.render(c, DEF_CFG(), "overview", {}, {"authed": True})
             t = plain(page)
             self.assertIn("Equity (mark-to-market)", t)                                                       # the rest of the Overview is intact
-            self.assertIn("What happened to the ideas", t)
             self.assertIn("How ideas flow: news to decisions", t)
             self.assertIn("could not be displayed", t)                                                        # and the broken section says so
             self.assertIn("The rest of the page is unaffected", t)

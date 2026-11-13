@@ -185,6 +185,7 @@ tests/test_build54.py
 tests/test_build55.py
 tests/test_build56.py
 tests/test_build57.py
+tests/test_build58.py
 tests/test_cleanup.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py

@@ -1,3 +1,10 @@
+# Build 58 (hotfix): dashboard layout
+Requested: BUY decisions waiting just before Open positions; the free options feeds on the System tab; remove "What happened to the ideas"; remove "Recent merger / acquisition events".
+* **Overview order:** cards, equity line, **BUY decisions waiting** (now directly above Open positions; it also lists ideas waiting for capacity), Open positions, Closed positions, Options, "How ideas flow: news to decisions", open exit signals. The funnel report is computed once per page and shared by the waiting-buys section and the funnel section.
+* **System tab:** a "Free options feeds" section (the feeds table with each feed's status, contracts, speed and last problem, and how closely the pure option model agrees with the real market) after the quote providers. It is no longer inside the Overview's Options section; with no feeds recorded it does not appear.
+* **Removed from the Overview:** the "What happened to the ideas (last 24 hours)" section and the "Recent merger / acquisition events" table. (The functions behind the first remain in the code and `breakdown.py` still gives the same numbers on request; the CLI `funnel` report still lists the mergers.)
+* Dashboard only: no trading, scoring, settings or database change; strategy version unchanged (S16).
+
 # Build 57: the news-intelligence engine, and the Funnel is part of the Overview
 Requested: "the engine cannot determine the quality of news and does not realise the credibility of the news agency; a full-scale improvement; merge the Funnel into the Overview".
 **What the audit found (code and data).**
