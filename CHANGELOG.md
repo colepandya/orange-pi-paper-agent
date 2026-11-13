@@ -1,3 +1,11 @@
+# Build 59 (hotfix): the trade type on waiting decisions
+Reported: the waiting decisions on the Overview do not show the trade type (Short, Put, etc.).
+* The "BUY decisions waiting" section is now **"Trade decisions waiting"** (a short is not a BUY) and has a **Type** column right after the ticker: **Long**, **Short**, **Put (the model expects a fall)** (a reversal put) or **Put (stock rules said no)** (a rescued put), taken from the decision's own record; an older record with no action shows "-".
+* A note under the table says what the type does and does not tell you: whether a long or a short is bought as stock or as a call/put is decided only at the moment it executes, so a waiting "Long" may still become a call.
+* The CLI `funnel` report shows the same type, under the same new heading.
+* Hardened the funnel report's waiting-decision loop, found by a hunt with hostile stored records (these existed in Build 58 too and cannot be written by the trader, only by a corrupt row): a record that is valid JSON but not an object, gates that are not a list, a reference price that is not a number (it crashed the price lookup once a quote was cached), and a non-numeric or infinite EV used to raise in the funnel report and therefore in the CLI `funnel` command; the Overview already survived it by showing its notice.
+* Display only: no trading, scoring, settings or database change; strategy version unchanged (S16).
+
 # Build 58 (hotfix): dashboard layout
 Requested: BUY decisions waiting just before Open positions; the free options feeds on the System tab; remove "What happened to the ideas"; remove "Recent merger / acquisition events".
 * **Overview order:** cards, equity line, **BUY decisions waiting** (now directly above Open positions; it also lists ideas waiting for capacity), Open positions, Closed positions, Options, "How ideas flow: news to decisions", open exit signals. The funnel report is computed once per page and shared by the waiting-buys section and the funnel section.

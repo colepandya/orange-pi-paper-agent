@@ -16,6 +16,17 @@ from .evidence import GATE_LABELS
 from .timeutil import iso, market_state, parse_ts, to_nz, utcnow, SESSION_LABEL
 
 
+def trade_type(action, reason) -> str:
+    """What kind of trade a decision is: its direction and tier. A put tier is flagged in the decision's record (the model expected a fall after good news, or the stock rules said no and a put got a second look). Whether a long or a short is bought
+    as stock or as a call/put is decided only at the moment it executes, so a waiting 'Long' may still become a call."""
+    if isinstance(reason, dict):
+        if reason.get("reversal"):
+            return "Put (the model expects a fall)"
+        if reason.get("rescue"):
+            return "Put (stock rules said no)"
+    return {"BUY": "Long", "SHORT": "Short", "OPTION_PUT": "Put", "OPTION_CALL": "Call"}.get(str(action or "").strip().upper(), "-")
+
+
 def reason_text(raw) -> str:
     """The first stated reason of a decision (its first gate, or the opportunity / veto / why text)."""
     try:
@@ -118,19 +129,21 @@ def report(conn, hours: float = 24, now=None, samples: int = 3, cfg: Optional[di
         except ValueError:
             pass
     pend = []
-    for r in conn.execute("SELECT ticker,status,created,ev_net,reason FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') ORDER BY id DESC LIMIT 30"):
+    for r in conn.execute("SELECT ticker,status,created,ev_net,reason,action FROM decisions WHERE status IN ('AWAITING_MARKET','AWAITING_QUOTE','AWAITING_CAPACITY','HELD') ORDER BY id DESC LIMIT 30"):
         try:
             rj = json.loads(r["reason"] or "{}")
-            pgates = rj.get("gates") or []
-            ref = rj.get("ref_price")
-        except ValueError:
-            pgates, ref = [], None
+        except (ValueError, TypeError):
+            rj = {}
+        rj = rj if isinstance(rj, dict) else {}                                                       # valid JSON that is not an object (a number, a list, a string) is an empty record, not an error
+        pgates = rj.get("gates") if isinstance(rj.get("gates"), list) else []
+        ref = rj.get("ref_price") if isinstance(rj.get("ref_price"), (int, float)) and not isinstance(rj.get("ref_price"), bool) else None
+        ev = r["ev_net"] if isinstance(r["ev_net"], (int, float)) and abs(r["ev_net"]) != float("inf") else None            # (SQLite stores NaN as NULL, so only infinity and non-numbers need excluding)
         from . import prices as _prices
         ind = _prices.indication(conn, r["ticker"], ref, now)                   # where it is trading right now (pre-market / after-hours) versus the price it was decided against
         if ind:
             rk = (cfg or config.DEFAULTS)["risk"]                                # what the last look will do with that gap at the open (your thresholds)
             ind["verdict"] = "cancel_down" if ind["gap"] <= -float(rk["max_gap_down_pct"]) else ("cancel_up" if ind["gap"] >= float(rk["max_gap_up_pct"]) else None)
-        pend.append({"ticker": r["ticker"], "status": r["status"], "since": r["created"], "ev_net": r["ev_net"], "waiting_for": pgates[-1] if pgates else "", "indication": ind})
+        pend.append({"ticker": r["ticker"], "type": trade_type(r["action"], rj), "status": r["status"], "since": r["created"], "ev_net": ev, "waiting_for": str(pgates[-1]) if pgates else "", "indication": ind})
     from . import db as _db
     base = _db.error_baseline(conn, now)
     err_since = max(since, base) if base else since
@@ -231,9 +244,9 @@ def text(rep: dict) -> str:
         L.append("slowest stages of the last cycle: " + ", ".join("%s %.0fs" % kv for kv in rep["slowest_stages"]))
     L.append("candidate queue: %s%s" % (rep["queue"] or "empty", (" (oldest waiting since %s)" % to_nz(rep["queue_oldest"])) if rep["queue_oldest"] else ""))
     if rep["pending"]:
-        L.append("BUY decisions waiting (%d):" % len(rep["pending"]))
+        L.append("Trade decisions waiting (%d):" % len(rep["pending"]))
         for p in rep["pending"][:8]:
-            L.append("   %-6s %-17s EV %s  %s%s" % (p["ticker"], p["status"], ("%+.2f%%" % (p["ev_net"] * 100)) if p["ev_net"] is not None else "n/a", p["waiting_for"][:150], ("  " + indication_text(p["indication"])) if p.get("indication") else ""))
+            L.append("   %-6s %-9s %-17s EV %s  %s%s" % (p["ticker"], p["type"].split(" (")[0], p["status"], ("%+.2f%%" % (p["ev_net"] * 100)) if p["ev_net"] is not None else "n/a", p["waiting_for"][:150], ("  " + indication_text(p["indication"])) if p.get("indication") else ""))
     L.append("news items ingested: %d (last %s)" % (rep["news"], to_nz(rep["last_news"]) if rep["last_news"] else "never"))
     L.append("events created:     %d (last %s)" % (rep["events"], to_nz(rep["last_event"]) if rep["last_event"] else "never"))
     L.append("  -> trade candidates: %d" % rep["candidates"])

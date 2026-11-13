@@ -431,11 +431,12 @@ def page_reports(c, cfg, s, q):
 
 
 def pending_buys_section(r) -> str:
-    """BUY decisions waiting for the market or a quote, from the funnel report. Shown just before the open positions."""
+    """Trade decisions waiting for the market, a quote or capacity, from the funnel report: what each is (long, short, a put tier) and what it waits for. Shown just before the open positions."""
     try:
         if not r or not r.get("pending"):
             return ""
-        return "<h2>BUY decisions waiting</h2>" + table(["Ticker", "Status", "Since", "EV net", "Waiting for"], [[p["ticker"], p["status"], to_nz(p["since"], "%d %b %H:%M"), pct(p["ev_net"], 2) if p["ev_net"] is not None else "n/a", p["waiting_for"][:200]] for p in r["pending"]])
+        return ("<h2>Trade decisions waiting</h2>" + table(["Ticker", "Type", "Status", "Since", "EV net", "Waiting for"], [[p["ticker"], p.get("type") or "-", p["status"], to_nz(p["since"], "%d %b %H:%M"), pct(p["ev_net"], 2) if p["ev_net"] is not None else "n/a", p["waiting_for"][:200]] for p in r["pending"]])
+                + "<p class=mut>Type is the direction and tier each decision was made with. Whether a long or a short is bought as stock or as a call or put is decided only when it executes (an option is used for strong, short-horizon ideas when a real contract qualifies).</p>")
     except Exception:  # noqa: BLE001
         return ""
 
