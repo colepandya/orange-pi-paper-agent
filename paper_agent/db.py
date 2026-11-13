@@ -16,11 +16,11 @@ from typing import Dict, Iterator, List, Optional, Tuple
 
 from .timeutil import iso, utcnow
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 LEGACY = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS news(id INTEGER PRIMARY KEY,uid TEXT UNIQUE,source TEXT,title TEXT,summary TEXT,url TEXT,published TEXT,ingested TEXT,trust REAL);
+CREATE TABLE IF NOT EXISTS news(id INTEGER PRIMARY KEY,uid TEXT UNIQUE,source TEXT,title TEXT,summary TEXT,url TEXT,published TEXT,ingested TEXT,trust REAL,outlet TEXT);
 CREATE TABLE IF NOT EXISTS decisions(id INTEGER PRIMARY KEY,created TEXT,news_uid TEXT,ticker TEXT,action TEXT,score REAL,reason TEXT,rules_version TEXT,status TEXT,entry_price REAL,shares INTEGER,amount REAL,theme TEXT,FOREIGN KEY(news_uid) REFERENCES news(uid));
 CREATE TABLE IF NOT EXISTS positions(id INTEGER PRIMARY KEY,ticker TEXT,theme TEXT,opened TEXT,entry_price REAL,shares INTEGER,cost REAL,decision_id INTEGER,status TEXT,closed TEXT,exit_price REAL,pnl REAL,review_code TEXT,side TEXT DEFAULT 'LONG',entry_shares INTEGER,entry_cost REAL,FOREIGN KEY(decision_id) REFERENCES decisions(id));
 CREATE TABLE IF NOT EXISTS option_positions(id INTEGER PRIMARY KEY,underlying TEXT,kind TEXT,strike REAL,expiry TEXT,contracts INTEGER,multiplier INTEGER DEFAULT 100,opened TEXT,entry_premium REAL,entry_underlying REAL,entry_iv REAL,cost REAL,decision_id INTEGER,forecast_id INTEGER,status TEXT,closed TEXT,exit_premium REAL,exit_underlying REAL,pnl REAL,review_code TEXT,last_mark REAL,last_underlying REAL,last_mark_at TEXT,stop_underlying REAL,target_underlying REAL,max_hold_days INTEGER,theme TEXT,sector TEXT,event_type TEXT,note TEXT,price_source TEXT,contract TEXT,last_iv REAL);
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS events(
  id INTEGER PRIMARY KEY AUTOINCREMENT,news_uid TEXT UNIQUE,created TEXT NOT NULL,published TEXT,source TEXT,source_id TEXT,
  headline TEXT,event_type TEXT NOT NULL,scope TEXT NOT NULL,direction REAL NOT NULL,magnitude REAL NOT NULL,amount_usd REAL,
  tickers_json TEXT NOT NULL DEFAULT '[]',regions_json TEXT NOT NULL DEFAULT '[]',tokens TEXT,cluster_id INTEGER,
- novelty REAL NOT NULL DEFAULT 1,credibility REAL NOT NULL DEFAULT 0.5,age_hours REAL,stale INTEGER NOT NULL DEFAULT 0,llm_json TEXT);
+ novelty REAL NOT NULL DEFAULT 1,credibility REAL NOT NULL DEFAULT 0.5,age_hours REAL,stale INTEGER NOT NULL DEFAULT 0,llm_json TEXT,outlet TEXT,origin TEXT,quality REAL);
 CREATE INDEX IF NOT EXISTS ix_events_created ON events(created DESC);
 CREATE INDEX IF NOT EXISTS ix_events_type ON events(event_type,created DESC);
 CREATE TABLE IF NOT EXISTS evidence(
@@ -243,6 +243,10 @@ CREATE TABLE IF NOT EXISTS shadow_outcomes(
  decision_id INTEGER NOT NULL, horizon INTEGER NOT NULL, exit_day TEXT, exit_price REAL, gross_ret REAL, net_ret REAL, bench_ret REAL, excess_net REAL, mfe REAL, mae REAL, measured TEXT,
  PRIMARY KEY(decision_id, horizon));
 CREATE TABLE IF NOT EXISTS history_status(symbol TEXT PRIMARY KEY, status TEXT NOT NULL, years INTEGER, first_day TEXT, last_day TEXT, rows INTEGER, tries INTEGER NOT NULL DEFAULT 0, next_try TEXT, last_error TEXT, updated TEXT);
+CREATE TABLE IF NOT EXISTS event_quality(event_id INTEGER PRIMARY KEY, score REAL, components_json TEXT, flags_json TEXT);
+CREATE TABLE IF NOT EXISTS reputation_events(event_id INTEGER PRIMARY KEY, key TEXT, kind TEXT, measured TEXT, signed_ret REAL, followed INTEGER);
+CREATE INDEX IF NOT EXISTS ix_reputation_events_key ON reputation_events(key);
+CREATE TABLE IF NOT EXISTS source_reputation(key TEXT PRIMARY KEY, kind TEXT, n INTEGER, follow_n INTEGER, mean_ret REAL, prior REAL, posterior REAL, factor REAL, updated TEXT);
 CREATE TABLE IF NOT EXISTS research_runs(id INTEGER PRIMARY KEY AUTOINCREMENT, started TEXT NOT NULL, finished TEXT, status TEXT, data_from TEXT, data_to TEXT, symbols INTEGER, rows INTEGER, studies_json TEXT);
 """
 

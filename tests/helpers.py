@@ -96,6 +96,7 @@ def cfg():
     c["instruments"]["options_reversal_enabled"] = False                         # ... and the old option behaviour: sell-the-news puts are tested on their own
     c["instruments"]["options_reversal_min_move"] = 0.08
     c["instruments"]["options_reversal_haircut"] = 0.5
+    c["intelligence"]["news_intel"] = False                                       # the shared tests keep the old one-number-per-feed credibility: the news-intelligence engine has its own tests
     c["history"]["enabled"] = False                                              # the shared tests make no price fetches and run no studies: the research lab has its own tests
     c["research"]["enabled"] = False
     c["risk"]["low_edge_max_pct"] = 0.0                                          # the shared tests keep full-size sizing for every idea: the low-edge cap (Build 53) has its own tests

@@ -128,3 +128,12 @@ Every mode below starts on **observe**. Observe records and measures what a part
 |---|---|---|
 | strategy.escalation_grace_minutes | 60 | A new position waits this long before a "risk escalated" (evidence) exit applies. 0 = act at once. |
 | strategy.escalation_grace_loss_pct | 1% | ...unless it has already lost at least this much. |
+
+## How each story is judged (Build 57)
+| Setting | Default | Meaning |
+|---|---|---|
+| intelligence.news_intel | on | Off: one hand-set credibility per feed, as before. On: publisher, text quality, outlet record, syndication-aware corroboration. |
+| intelligence.quality_weight | 0.4 | Credibility x (1 + w x (quality - 0.58)), held between 0.7 and 1.1: a typical story is untouched. Not applied to primary sources. |
+| intelligence.reputation_apply | on | Let an outlet's measured record change its credibility. |
+| intelligence.reputation_min_n | 30 | Measured stories before an outlet's record counts. |
+| intelligence.reputation_prior_n | 40 | Pseudo-observations pulling a new outlet toward the average. |

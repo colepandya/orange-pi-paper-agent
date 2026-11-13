@@ -383,7 +383,7 @@ class TestThePersistedRun(unittest.TestCase):
         cfg = DEF()
         closed = lambda n: "CLOSED"  # noqa: E731
         seen = []
-        for _ in range(5):
+        for _ in range(len(lab.STUDY_ORDER)):
             r = lab.maybe_run(c, cfg, NOW, session=closed)
             seen.append((r["status"], r.get("study")))
         self.assertEqual(seen, [("ran", n) for n in lab.STUDY_ORDER])

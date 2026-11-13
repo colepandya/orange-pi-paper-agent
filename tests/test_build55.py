@@ -404,7 +404,9 @@ class TestWhatHappenedToTheIdeas(unittest.TestCase):
         page = html.unescape(re.sub(r"<[^>]+>", " ", dashboard.outcomes_section(self.world(), T_OPEN)))                  # the page escapes <STOCK>; compare the text a reader sees
         for need in ("What happened to the ideas", "14 decisions", "RISK_REJECTED: why (6)", "42.9%", "83.3%", "weakest holding <STOCK>", "EV net #% below minimum #%"):
             self.assertIn(need, page)
-        self.assertIn("No decisions in the last 24 hours", re.sub(r"<[^>]+>", " ", dashboard.outcomes_section(H.fresh_db(), T_OPEN)))
+        empty = re.sub(r"<[^>]+>", " ", dashboard.outcomes_section(H.fresh_db(), T_OPEN))
+        self.assertIn("What happened to the ideas (last 24 hours)", empty)
+        self.assertIn("No decisions in that time", empty)
         full = dashboard.render(self.world(), DEF(), "overview", {}, {"authed": True})
         self.assertIn("What happened to the ideas", full)
         with unittest.mock.patch.object(funnel, "outcome_breakdown", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("bad record"))):

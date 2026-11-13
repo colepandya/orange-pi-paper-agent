@@ -15,7 +15,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import db, net
+from . import outlets, db, net
 from .timeutil import iso, parse_ts, utcnow
 
 SEC_FORMS = {"8-K", "8-K/A", "6-K", "6-K/A", "S-1", "S-1/A", "F-1", "F-1/A", "10-Q", "10-K", "4", "SC 13D", "SC 13G", "SC 13D/A", "SC 13G/A",
@@ -146,10 +146,10 @@ def parse_response(src: dict, resp: tuple, conn=None) -> Tuple[List[dict], int]:
             raise net.FetchError("GDELT returned non-JSON (rate limited?)")
         out = []
         for a in j.get("articles", []):
-            out.append({"title": a.get("title", ""), "summary": "%s %s" % (a.get("domain", ""), a.get("sourcecountry", "")), "url": a.get("url", ""), "published": a.get("seendate") or ""})
+            out.append({"title": a.get("title", ""), "summary": "%s %s" % (a.get("domain", ""), a.get("sourcecountry", "")), "url": a.get("url", ""), "published": a.get("seendate") or "", "outlet": a.get("domain")})
         return out, status
     if typ == "finnhub_general":
-        return [{"title": a.get("headline", ""), "summary": strip_html(a.get("summary", "")), "url": a.get("url", ""), "published": a.get("datetime") or ""} for a in json.loads(body)[:60]], status
+        return [{"title": a.get("headline", ""), "summary": strip_html(a.get("summary", "")), "url": a.get("url", ""), "published": a.get("datetime") or "", "outlet": a.get("source")} for a in json.loads(body)[:60]], status
     raise ValueError("unknown source type " + typ)
 
 
@@ -166,7 +166,7 @@ def finnhub_company_news(ticker: str, fetch: Callable = net.get, days: int = 2) 
     today = utcnow().date()
     url = "https://finnhub.io/api/v1/company-news?" + urllib.parse.urlencode({"symbol": ticker, "from": (today - dt.timedelta(days=days)).isoformat(), "to": today.isoformat(), "token": key})
     body, _, _ = fetch(url, timeout=15)
-    return [{"title": a.get("headline", ""), "summary": strip_html(a.get("summary", "")), "url": a.get("url", ""), "published": a.get("datetime") or "", "ticker_hint": ticker} for a in json.loads(body)[:15]]
+    return [{"title": a.get("headline", ""), "summary": strip_html(a.get("summary", "")), "url": a.get("url", ""), "published": a.get("datetime") or "", "ticker_hint": ticker, "outlet": a.get("source")} for a in json.loads(body)[:15]]
 
 
 # ------------------------------------------------------------------------------------------ health / scheduling
@@ -224,8 +224,9 @@ def store_items(conn, src: dict, items: List[dict], now: Optional[dt.datetime] =
             url = (it.get("url") or "").strip()
             uid = hashlib.sha256((src["id"] + "|" + url + "|" + title).encode()).hexdigest()
             pub = parse_ts(it.get("published"))
-            cur = conn.execute("INSERT OR IGNORE INTO news(uid,source,title,summary,url,published,ingested,trust) VALUES(?,?,?,?,?,?,?,?)",
-                               (uid, src["name"], title, (it.get("summary") or "")[:1500], url, iso(pub) if pub else "", iso(now), float(src.get("trust", 0.5))))
+            outlet = outlets.outlet_of(it.get("outlet"), url, src["name"])                               # the PUBLISHER: what the feed says it is, else the link's domain, else the feed
+            cur = conn.execute("INSERT OR IGNORE INTO news(uid,source,title,summary,url,published,ingested,trust,outlet) VALUES(?,?,?,?,?,?,?,?,?)",
+                               (uid, src["name"], title, (it.get("summary") or "")[:1500], url, iso(pub) if pub else "", iso(now), float(src.get("trust", 0.5)), outlet))
             new += cur.rowcount
     return new
 

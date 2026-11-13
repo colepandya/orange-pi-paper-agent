@@ -130,7 +130,7 @@ class TestNothingTheDashboardDoesEverWrites(unittest.TestCase):
         n_ask, n_pages = run_everything(path, cfg, ticks)
         after_file, after_tabs = fingerprint(path)
         self.assertGreater(n_ask, 60)
-        self.assertGreater(n_pages, 100)
+        self.assertGreater(n_pages, 90)                                                                  # ten tabs now (the Funnel is part of the Overview): about ten renders each
         self.assertEqual(after_tabs, before_tabs, [t for t in before_tabs if before_tabs[t] != after_tabs.get(t)])      # every table: the same rows
         self.assertEqual(after_file, before_file)                                                                    # and the file itself, byte for byte
         for t in ("redteam_reviews", "reasoning_events", "relations", "company_facts", "option_chain_cache", "events", "decisions", "news", "prediction_paths"):

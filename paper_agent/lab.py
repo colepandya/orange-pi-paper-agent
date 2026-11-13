@@ -27,9 +27,9 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from .timeutil import iso, market_state, parse_ts, utcnow
 
-STUDY_ORDER = ("post_move", "earnings", "big_days", "calibration", "exit_plans")
+STUDY_ORDER = ("post_move", "earnings", "big_days", "calibration", "exit_plans", "news_quality")
 TITLES = {"post_move": "What stocks do after a 5-day move (market-adjusted)", "earnings": "What stocks do after an earnings reaction", "big_days": "What stocks do after a big move on heavy volume (no earnings)",
-          "calibration": "Do the forecast probabilities come true?", "exit_plans": "What a stop-and-target plan earns with NO signal"}
+          "calibration": "Do the forecast probabilities come true?", "exit_plans": "What a stop-and-target plan earns with NO signal", "news_quality": "Does the quality of a story predict whether the stock follows it?"}
 CAVEAT = ("Prices are daily bars, split-adjusted. Every return is against SPY. The t-statistic is taken across DAYS, not stock-days. The last 365 days are held out: a result that holds in only one period is not a result. "
           "Each table contains many comparisons, so some will look significant by chance. A finding here is a reason to test an idea going forward, never a reason to trade it.")
 BUCKETS = ((-9.0, -0.15, "fell more than 15%", -1), (-0.15, -0.08, "fell 8% to 15%", -1), (-0.08, -0.03, "fell 3% to 8%", -1), (-0.03, 0.03, "flat (within 3%)", 0),
@@ -419,7 +419,43 @@ def study_exit_plans(series: Dict[str, Series], spy: Series, cfg: dict, conn=Non
                                     "'Signal must add' is the gross edge per trade a signal has to supply just to break even with that exit plan." % (1e4 * cost)], "tests": len(plans), "stocks": used}
 
 
-STUDIES: Dict[str, Callable] = {"post_move": study_post_move, "earnings": study_earnings, "big_days": study_big_days, "calibration": study_calibration, "exit_plans": study_exit_plans}
+def study_news_quality(series: Dict[str, Series], spy: Series, cfg: dict, conn=None, check=None) -> dict:
+    """The news-intelligence engine's own report card: three sessions after publication, did the stock move the way the story said (market-adjusted)? Grouped by the story's quality score and by its credibility. Needs weeks of events."""
+    tiers_q = (("quality 0.75 or more", 0.75, 9.0), ("quality 0.5 to 0.75", 0.5, 0.75), ("quality below 0.5", -1.0, 0.5))
+    tiers_c = (("credibility 0.9 or more", 0.9, 9.0), ("credibility 0.7 to 0.9", 0.7, 0.9), ("credibility below 0.7", -1.0, 0.7))
+    acc = {nm: DailyAcc() for nm, _lo, _hi in tiers_q + tiers_c}
+    follow = {nm: [0, 0] for nm in acc}
+    n_all = 0
+    if conn is not None:
+        try:
+            rows = conn.execute("SELECT e.published,e.quality,e.credibility,r.signed_ret,r.followed FROM reputation_events r JOIN events e ON e.id=r.event_id WHERE r.followed IS NOT NULL AND r.signed_ret IS NOT NULL").fetchall()
+        except Exception:  # noqa: BLE001 - the tables may not exist yet
+            rows = []
+        for r in rows:
+            try:
+                day = dt.date.fromisoformat(str(r["published"])[:10]).toordinal()
+                x, q, cr = float(r["signed_ret"]), r["quality"], float(r["credibility"])
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(x):
+                continue
+            n_all += 1
+            for nm, lo, hi in tiers_q:
+                if q is not None and lo <= float(q) < hi:
+                    acc[nm].add(day, x)
+                    follow[nm][0] += 1
+                    follow[nm][1] += 1 if r["followed"] else 0
+            for nm, lo, hi in tiers_c:
+                if lo <= cr < hi:
+                    acc[nm].add(day, x)
+                    follow[nm][0] += 1
+                    follow[nm][1] += 1 if r["followed"] else 0
+    rows_out = [{"label": nm, "sign": 1, "follow_pct": (round(100.0 * follow[nm][1] / follow[nm][0], 1) if follow[nm][0] else None), "h": {"3": acc[nm].summary(None)}} for nm, _a, _b in tiers_q + tiers_c]
+    return {"rows": rows_out, "notes": ["Signed, market-adjusted move from the publication day's close to three sessions later, in the direction the story pointed: positive = the stock followed the story. %d measured stories so far." % n_all,
+                                       "If the quality tiers do not separate, the quality score is not predicting anything yet and its weight should stay low; this table is how that is found out."], "tests": len(rows_out)}
+
+
+STUDIES: Dict[str, Callable] = {"post_move": study_post_move, "earnings": study_earnings, "big_days": study_big_days, "calibration": study_calibration, "exit_plans": study_exit_plans, "news_quality": study_news_quality}
 
 
 def run_study(conn, cfg: dict, name: str, series: Dict[str, Series], now=None, check=None) -> dict:

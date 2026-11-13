@@ -65,7 +65,7 @@ DEFAULTS: Dict[str, Any] = {
         "filing_window_days": 120, "filing_rows_per_company": 60, "weekly_facts_companies": 60,
     },
     "intelligence": {
-        "stale_event_hours": 72, "trade_event_max_age_hours": 24, "thesis_entry_min_probability": 0.70, "thesis_entries_per_day": 12,
+        "stale_event_hours": 72, "trade_event_max_age_hours": 24, "news_intel": True, "quality_weight": 0.4, "reputation_apply": True, "reputation_min_n": 30, "reputation_prior_n": 40, "thesis_entry_min_probability": 0.70, "thesis_entries_per_day": 12,
         "allow_thesis_entries": True, "contradiction_hours": 6, "company_refresh_hours": 72,
         "regime_refresh_hours": 6, "learning_min_samples": 20, "learning_mode": "observe", "llm_enabled": False,
         "llm_max_per_cycle": 6, "gdelt_enabled": True,

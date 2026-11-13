@@ -5,7 +5,7 @@ import datetime as dt
 import json
 from typing import Callable, Dict, List, Optional
 
-from . import eventworth, candqueue, db, nlp
+from . import newsintel, eventworth, candqueue, db, nlp
 from .timeutil import UTC, iso, parse_ts, utcnow
 
 RULE_MIN_DIR = 0.12
@@ -107,22 +107,28 @@ def _persist_one(conn, universe, cfg: dict, icfg: dict, rules, chosen: dict, ana
     cluster = None if stale else find_cluster(conn, toks, tickers, a["event_type"], now - dt.timedelta(hours=72))
     novelty = 0.0 if stale else (0.25 if cluster else 1.0)
     source_id = n["source"] or ""
-    cred = source_credibility(conn, source_id, a["event_type"], float(n["trust"] or 0.5))
+    ap = newsintel.appraise(conn, cfg, n, a["event_type"], tickers, universe, source_credibility)   # outlet, origin, text quality and reputation, folded into one credibility
+    cred = ap["cred"]
     power = predictive_power(conn, a["event_type"], a["power"])
     intel_effects: List[dict] = []
     with db.tx(conn):
         cur = conn.execute(
-            "INSERT INTO events(news_uid,created,published,source,source_id,headline,event_type,scope,direction,magnitude,amount_usd,tickers_json,regions_json,tokens,cluster_id,novelty,credibility,age_hours,stale,llm_json) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO events(news_uid,created,published,source,source_id,headline,event_type,scope,direction,magnitude,amount_usd,tickers_json,regions_json,tokens,cluster_id,novelty,credibility,age_hours,stale,llm_json,outlet,origin,quality) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (n["uid"], iso(now), iso(pub), n["source"], source_id, title, a["event_type"], a["scope"], a["direction"], a["magnitude"], a["amount_usd"],
-             json.dumps(tickers), json.dumps(a["regions"]), " ".join(toks), cluster, novelty, cred, age_h, int(stale), llm_json))
+             json.dumps(tickers), json.dumps(a["regions"]), " ".join(toks), cluster, novelty, cred, age_h, int(stale), llm_json, ap["outlet"], ap["origin"], ap["quality"]["score"]))
         eid = cur.lastrowid
+        conn.execute("INSERT OR REPLACE INTO event_quality(event_id,score,components_json,flags_json) VALUES(?,?,?,?)", (eid, ap["quality"]["score"], json.dumps(ap["quality"]["components"]), json.dumps(ap["quality"]["flags"])))
         conn.execute("UPDATE reasoning_events SET event_ref=? WHERE news_uid=? AND event_ref IS NULL", (eid, n["uid"]))      # the reasoning record and the event it concerns are one thing
         if not cluster:
             conn.execute("UPDATE events SET cluster_id=? WHERE id=?", (eid, eid))
             cluster = eid
         elif not stale:
-            conn.execute("UPDATE events SET credibility=MIN(0.98,credibility+0.04) WHERE id=?", (cluster,))  # corroboration
+            independent = (not icfg.get("news_intel", True)) or (not ap["origin"]) or conn.execute("SELECT 1 FROM events WHERE cluster_id=? AND origin=? AND id<>? LIMIT 1", (cluster, ap["origin"], eid)).fetchone() is None
+            if independent:                                                                               # a report from a DIFFERENT origin corroborates; a syndicated copy of the same wire story does not
+                conn.execute("UPDATE events SET credibility=MIN(0.98,credibility+0.04) WHERE id=?", (cluster,))
+            else:
+                stats["syndicated"] = stats.get("syndicated", 0) + 1
             stats["duplicates"] += 1
         stats["events"] += 1
         if stale:
@@ -248,7 +254,7 @@ def process_new_news(conn, universe, cfg: dict, now: Optional[dt.datetime] = Non
     if len(rows) < limit:                                   # then the older backlog, oldest first
         rows += conn.execute("SELECT n.* FROM news n LEFT JOIN events e ON e.news_uid=n.uid WHERE e.id IS NULL AND n.ingested<? ORDER BY n.id LIMIT ?", (recent_cut, limit - len(rows))).fetchall()
     failed: List[tuple] = []
-    stats = {"events": 0, "evidence": 0, "stale": 0, "duplicates": 0, "llm": 0, "errors": 0}
+    stats = {"events": 0, "evidence": 0, "stale": 0, "duplicates": 0, "syndicated": 0, "llm": 0, "errors": 0}
     candidates: List[dict] = []
     # ---- pass 1: cheap deterministic read of everything
     pre = []

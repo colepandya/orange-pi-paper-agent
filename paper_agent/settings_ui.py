@@ -175,6 +175,7 @@ SECTION_META = [
     _sec("news", "Intelligence", "Reading the news", "How news is gathered, how fresh it must be, and how company financials are read.", [
         ("Reading full articles", "", ["reader.mode", "reader.max_per_cycle", "reader.time_budget_seconds", "reader.timeout_seconds"]),
         ("What counts as fresh", "", ["intelligence.stale_event_hours"]),
+        ("How each story is judged", "", ["intelligence.news_intel", "intelligence.quality_weight", "intelligence.reputation_apply", "intelligence.reputation_min_n", "intelligence.reputation_prior_n"]),
         ("Extra news sources", "", ["intelligence.gdelt_enabled", "intelligence.finnhub_company_news_max"]),
         ("Company financials from the SEC", "SEC asks for a contact address in every request.", ["intelligence.max_knowledge_refresh_per_cycle", "runtime.contact_email"])]),
     _sec("kb", "Intelligence", "Company knowledge", "What the bot knows about each company and how it uses it: knowledge-base refresh, event-aware expiry, relationship effects, materiality, event state and market regime. Every mode starts on observe.", [

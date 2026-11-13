@@ -35,7 +35,7 @@ details summary{cursor:pointer;color:var(--acc)}pre{white-space:pre-wrap;backgro
 CSS += """.why{max-width:860px}.why h2{margin:.2em 0}.why h3{margin:1.2em 0 .3em;font-size:15px;border-bottom:1px solid var(--line);padding-bottom:3px}.why blockquote{margin:.4em 0;padding:.5em .8em;background:var(--card);border-left:3px solid var(--acc)}
 .why ul.checks{list-style:none;padding:0}.why ul.checks li{margin:.35em 0}.why table{border-collapse:collapse}.why td,.why th{padding:3px 12px 3px 0;vertical-align:top;text-align:left}.why-good h2{color:var(--ok)}.why-bad h2{color:var(--bad)}.why-wait h2{color:var(--warn)}"""
 CSS += settings_ui.FORM_CSS
-TABS = ["overview", "reports", "performance", "theses", "decisions", "funnel", "risk", "intelligence", "company", "system", "settings"]
+TABS = ["overview", "reports", "performance", "theses", "decisions", "risk", "intelligence", "company", "system", "settings"]          # the Funnel is part of the Overview now (?tab=funnel still opens it)
 
 
 def pct(x, d=1):
@@ -98,7 +98,8 @@ def trades_today_text(c, cfg, now) -> str:
     return ("%d / %d" % (n, tgt)) if tgt > 0 else "%d" % n
 
 
-def page_overview(c, cfg, s):
+def page_overview(c, cfg, s, q=None):
+    hours = hours_of(q)
     eq, reg, snap = s["eq"], s["reg"], s["snap"]
     pnl = eq["equity"] - s["start"]
     last = c.execute("SELECT * FROM cycle_runs ORDER BY id DESC LIMIT 1").fetchone()
@@ -112,7 +113,8 @@ def page_overview(c, cfg, s):
     vals = [r[0] for r in c.execute("SELECT equity FROM daily_values ORDER BY day DESC LIMIT 90")][::-1]
     out.append("<h2>Equity (last %d days)</h2>%s" % (len(vals), spark(vals)))
     out.append(positions_section(c, cfg, s))
-    out.append(outcomes_section(c, s["now"]))
+    out.append(outcomes_section(c, s["now"], hours))
+    out.append(safe_funnel_section(c, cfg, s, hours))
     sig = c.execute("SELECT s.created,p.ticker,s.trigger,s.reason,s.status FROM exit_signals s JOIN positions p ON p.id=s.position_id WHERE s.status='OPEN' ORDER BY s.created DESC LIMIT 10").fetchall()
     out.append("<h2>Open exit signals</h2>" + table(["Time", "Ticker", "Trigger", "Reason"], [[to_nz(r["created"]), r["ticker"], r["trigger"], r["reason"]] for r in sig]))
     return "".join(out)
@@ -205,20 +207,21 @@ def dm(v) -> str:
     return ("-$%s" % format(abs(v), ",.0f")) if v < 0 else ("$%s" % format(v, ",.0f"))
 
 
-def outcomes_section(c, now) -> str:
+def outcomes_section(c, now, hours: float = 24.0) -> str:
     """What happened to the ideas in the last 24 hours, by outcome and by the stated reason, so the pile of rejections is never a mystery. One malformed record must never take the Overview down."""
     try:
-        return _outcomes_section(c, now)
+        return _outcomes_section(c, now, hours)
     except Exception:  # noqa: BLE001
         return "<h2>What happened to the ideas</h2><p class=mut>This could not be displayed: a record looks malformed. Nothing else is affected.</p>"
 
 
-def _outcomes_section(c, now) -> str:
+def _outcomes_section(c, now, hours: float = 24.0) -> str:
     from . import funnel
-    b = funnel.outcome_breakdown(c, now, 24.0, 8)
+    b = funnel.outcome_breakdown(c, now, hours, 8)
+    span = "%g hours" % hours
     if not b["total"]:
-        return "<h2>What happened to the ideas (last 24 hours)</h2><p class=mut>No decisions in the last 24 hours.</p>"
-    out = ["<h2>What happened to the ideas (last 24 hours)</h2><p class=mut>%d decisions. The reasons are the first thing each decision recorded.</p>" % b["total"],
+        return "<h2>What happened to the ideas (last %s)</h2><p class=mut>No decisions in that time.</p>" % span
+    out = ["<h2>What happened to the ideas (last %s)</h2><p class=mut>%d decisions. The reasons are the first thing each decision recorded.</p>" % (span, b["total"]),
            table(["Outcome", "Decisions", "Share"], [[s, k, "%.1f%%" % p] for s, k, p in b["status"]])]
     for st in ("RISK_REJECTED", "AWAITING_CAPACITY", "CAPACITY_DEFERRED", "REJECTED", "VETOED", "DUPLICATE", "EXPIRED"):
         r = b["reasons"].get(st)
@@ -410,10 +413,28 @@ def page_reports(c, cfg, s, q):
     return "".join(out)
 
 
-def page_funnel(c, cfg, s, q):
-    hours = float((q.get("hours") or ["24"])[0] or 24) if (q.get("hours") or ["24"])[0].replace(".", "").isdigit() else 24.0
+def hours_of(q) -> float:
+    """The window the Overview reports on (6 / 24 / 72 hours): a number in the address, else 24."""
+    try:
+        v = (q or {}).get("hours") or ["24"]
+        h = float(v[0] if isinstance(v, (list, tuple)) else v)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return 24.0
+    return h if (h == h and 1.0 <= h <= 100000.0) else 24.0
+
+
+def safe_funnel_section(c, cfg, s, hours) -> str:
+    """The funnel is one section of the Overview: a malformed record in the news or events must cost this section, never the page."""
+    try:
+        return funnel_section(c, cfg, s, hours)
+    except Exception:  # noqa: BLE001
+        return "<h2 id=flow>How ideas flow: news to decisions</h2><p class=mut>This section could not be displayed: a news or event record looks malformed. The rest of the page is unaffected.</p>"
+
+
+def funnel_section(c, cfg, s, hours):
+    """How news became decisions: ingested, events, candidates, decisions, the reasons ideas stopped, mergers. (It was the Funnel tab; it is part of the Overview now.)"""
     r = funnel_engine.report(c, hours, s["now"])
-    out = ["<p class=mut>Window: " + " ".join('<a href="?tab=funnel&hours=%d">%dh</a>' % (h, h) for h in (6, 24, 72)) + " &middot; US market now: <b>%s</b></p>" % E(r["market"])]
+    out = ["<h2 id=flow>How ideas flow: news to decisions</h2><p class=mut>Window: " + " ".join('<a href="?tab=overview&hours=%d#flow">%dh</a>' % (h, h) for h in (6, 24, 72)) + " &middot; US market now: <b>%s</b></p>" % E(r["market"])]
     out.append('<div class=grid>%s%s%s%s%s</div>' % (card("News ingested", r["news"]), card("Events", r["events"]), card("Trade candidates", r["candidates"]), card("Decisions", r["decisions_total"]), card("Trades opened", r["executed"])))
     out.append("<p class=mut>Cycles: %s &middot; last cycle %s &middot; last decision %s</p>" % (E(", ".join("%s=%d" % kv for kv in sorted(r["cycles"].items())) or "none"), E(to_nz(r["last_cycle"]) if r["last_cycle"] else "never"), E(to_nz(r["last_decision"]) if r["last_decision"] else "never")))
     ar = r.get("articles") or {}
@@ -429,7 +450,6 @@ def page_funnel(c, cfg, s, q):
         ex = r["samples"].get(g, [])
         rows.append([n, g, funnel_engine.GATE_LABELS.get(g, ""), Raw("<br>".join(E("[%s %s] %s" % (x["type"], ",".join(x["tickers"]) or "-", x["headline"])) for x in ex[:2]))])
     out.append("<h2>Why events did or did not become candidates</h2>" + table(["Events", "Reason", "Meaning", "Examples"], rows))
-    out.append("<h2>Decisions by outcome</h2>" + table(["Status", "Count"], [[k, v] for k, v in sorted(r["decisions"].items(), key=lambda kv: -kv[1])]))
     out.append("<h2>Recent merger / acquisition events</h2>" + table(["Seen", "Reason / gate", "Decision", "Companies", "Headline"], [[to_nz(m["seen"], "%d %b %H:%M"), m["gate"], m["decision"], ", ".join(m["tickers"]) or "none recognised", m["headline"]] for m in r["mna"]]))
     return "".join(out)
 
@@ -532,6 +552,39 @@ def scorecard_panel(c, cfg) -> str:
     return "".join(h)
 
 
+def news_intel_section(c, cfg, now=None) -> str:
+    """Where news comes from and how far it is believed: by outlet, the stories, their quality, and what has been measured. One malformed record must never take the Intelligence tab down."""
+    try:
+        return _news_intel_section(c, cfg, now or utcnow())
+    except Exception:  # noqa: BLE001
+        return "<h2>News quality and sources</h2><p class=mut>This could not be displayed: a record looks malformed. Nothing else is affected.</p>"
+
+
+def _news_intel_section(c, cfg, now) -> str:
+    from . import outlets, reputation
+    ic = cfg.get("intelligence") or {}
+    on = bool(ic.get("news_intel", True))
+    out = ["<h2>News quality and sources</h2><p class=mut>Each story is credited by its real publisher, by the quality of its text, and (once enough of an outlet's stories have been measured against the market three sessions later) by that outlet's record. "
+           "Stories copied from one wire count once. Engine: <b>%s</b>; quality weight %s; an outlet's record counts after %s measured stories and never moves it more than 15%%.</p>" % ("on" if on else "OFF (one hand-set number per feed)", ic.get("quality_weight", 0.4), ic.get("reputation_min_n", 30))]
+    since = (now - dt.timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S")
+    rows = c.execute("SELECT COALESCE(NULLIF(outlet,''),source) k,COUNT(*) n,AVG(quality) q,AVG(credibility) cr,SUM(CASE WHEN quality<0.5 THEN 1 ELSE 0 END) low FROM events WHERE created>? AND quality IS NOT NULL AND stale=0 GROUP BY k ORDER BY n DESC LIMIT 15", (since,)).fetchall()
+    if not rows:
+        return "".join(out) + "<p class=mut>No story has been scored yet.</p>"
+    rep = {r["key"]: r for r in reputation.table(c, 500)}
+    body = []
+    for r in rows:
+        tier = outlets.tier_of(r["k"])[0] or "unknown"
+        m = rep.get(r["k"])
+        measured = "none yet" if not m else "%d stories: %d%% followed, %+.2f%% avg" % (m["n"], round(100.0 * (m["follow_n"] or 0) / max(1, m["n"])), 100.0 * (m["mean_ret"] or 0.0))
+        body.append([r["k"], tier, r["n"], "%.2f" % (r["q"] or 0.0), "%d%%" % round(100.0 * (r["low"] or 0) / max(1, r["n"])), "%.2f" % (r["cr"] or 0.0), measured, "x%.2f" % reputation.factor(c, cfg, r["k"])])
+    out.append(table(["Outlet", "Kind", "Stories (7 days)", "Avg quality", "Low quality", "Avg credibility", "Measured against the market", "Record applied"], body))
+    for title, order in (("Highest-quality stories (24 hours)", "DESC"), ("Lowest-quality stories (24 hours)", "ASC")):
+        ex = c.execute("SELECT e.headline,e.quality,e.outlet,q.flags_json FROM events e JOIN event_quality q ON q.event_id=e.id WHERE e.created>? AND e.stale=0 ORDER BY e.quality %s LIMIT 5" % order, ((now - dt.timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S"),)).fetchall()
+        if ex:
+            out.append("<h3>%s</h3>" % title + table(["Quality", "Outlet", "Headline", "Why"], [["%.2f" % r["quality"], r["outlet"] or "", (r["headline"] or "")[:140], ", ".join(json.loads(r["flags_json"] or "[]")) if r["flags_json"] else ""] for r in ex]))
+    return "".join(out)
+
+
 def research_section(c, cfg) -> str:
     """The research lab, read-only. One malformed saved result must never take the Intelligence tab down."""
     try:
@@ -611,6 +664,7 @@ def page_intel(c, cfg, s, q=None):
     out.append("<h2>Calibration</h2>" + table(["Predicted range", "N", "Predicted", "Actual"], [[b["range"], b["n"], pct(b["predicted"], 0), pct(b["actual"], 0)] for b in m["bins"]]))
     for key, label in (("event_types", "Event-type accuracy"), ("sources", "Source accuracy"), ("theses", "Thesis accuracy")):
         out.append("<h2>%s</h2>" % label + table(["Name", "N", "Hit rate", "Brier"], [[k, v["n"], pct(v["hit"], 0), "%.3f" % v["brier"]] for k, v in sorted(m[key].items(), key=lambda x: -x[1]["n"])[:15]]))
+    out.append(news_intel_section(c, cfg, s["now"]))
     out.append(research_section(c, cfg))
     out.append(shadow_section(c, cfg))
     out.append("<h2>Regime features</h2>" + table(["Feature", "Value"], [[k, "n/a" if v is None else "%.4f" % v] for k, v in sorted((s["reg"].get("features") or {}).items())]))
@@ -732,8 +786,8 @@ def render(c, cfg, tab: str, q: Dict, ctx: Optional[dict] = None) -> str:
             health = {r["source_id"]: dict(r) for r in c.execute("SELECT source_id,last_status,failures,last_success FROM source_health")}
             inner = settings_ui.page_settings(cfg, base, dict(ctx, query=q), pipeline.load_sources(base), ctx.get("units") or {}, ctx.get("secret_status") or S.secret_status(), health)
         return layout(inner, tab, cfg, ctx)
-    fn = {"overview": lambda: page_overview(c, cfg, s), "theses": lambda: page_theses(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_funnel(c, cfg, s, q), "reports": lambda: page_reports(c, cfg, s, q), "performance": lambda: page_performance(c, cfg, s, q),
-          "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s, q), "company": lambda: page_company(c, cfg, q), "system": lambda: page_system(c, cfg, s, q)}.get(tab, lambda: page_overview(c, cfg, s))
+    fn = {"overview": lambda: page_overview(c, cfg, s, q), "theses": lambda: page_theses(c, cfg, s, q), "decisions": lambda: page_decisions(c, cfg, s, q), "funnel": lambda: page_overview(c, cfg, s, q), "reports": lambda: page_reports(c, cfg, s, q), "performance": lambda: page_performance(c, cfg, s, q),
+          "risk": lambda: page_risk(c, cfg, s), "intelligence": lambda: page_intel(c, cfg, s, q), "company": lambda: page_company(c, cfg, q), "system": lambda: page_system(c, cfg, s, q)}.get(tab, lambda: page_overview(c, cfg, s, q))
     return layout((settings_ui.flash_html(ctx.get("flash")) if ctx.get("flash") else "") + fn(), tab, cfg, ctx)
 
 

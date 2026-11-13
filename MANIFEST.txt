@@ -92,11 +92,14 @@ paper_agent/marketdata.py
 paper_agent/monitor.py
 paper_agent/narrative.py
 paper_agent/net.py
+paper_agent/newsintel.py
+paper_agent/newsquality.py
 paper_agent/nlp.py
 paper_agent/notify.py
 paper_agent/opportunity.py
 paper_agent/options.py
 paper_agent/optionsdata.py
+paper_agent/outlets.py
 paper_agent/parallel.py
 paper_agent/pathways.py
 paper_agent/performance.py
@@ -112,6 +115,7 @@ paper_agent/recall.py
 paper_agent/redteam.py
 paper_agent/regime.py
 paper_agent/report.py
+paper_agent/reputation.py
 paper_agent/revisions.py
 paper_agent/settings.py
 paper_agent/settings_ui.py
@@ -180,6 +184,7 @@ tests/test_build53.py
 tests/test_build54.py
 tests/test_build55.py
 tests/test_build56.py
+tests/test_build57.py
 tests/test_cleanup.py
 tests/test_dashboard_style.py
 tests/test_deploy_settings.py
