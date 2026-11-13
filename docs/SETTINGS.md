@@ -122,3 +122,9 @@ Every mode below starts on **observe**. Observe records and measures what a part
 | risk.position_slots | 40 (was 20) | No new position may take more than the invested limit divided by this. |
 | portfolio.daily_trade_target | 30 (was 10) | Shown on the Overview. A target, not a quota. |
 | risk.low_edge_breaker_trades / _pct | 30 / 0.5% | The small-trade tier pauses when its last N closed trades lost more than this share of equity. 0 = never pause. |
+
+## Exits on new evidence (Build 56)
+| Setting | Default | Meaning |
+|---|---|---|
+| strategy.escalation_grace_minutes | 60 | A new position waits this long before a "risk escalated" (evidence) exit applies. 0 = act at once. |
+| strategy.escalation_grace_loss_pct | 1% | ...unless it has already lost at least this much. |

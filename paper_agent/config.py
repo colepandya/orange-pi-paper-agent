@@ -35,7 +35,7 @@ DEFAULTS: Dict[str, Any] = {
     "strategy": {   # SWING profile: in and out within ~1-3 sessions, small repeatable gains, tight risk. swing_enabled=False restores the older multi-week behaviour.
         "swing_enabled": True, "max_hold_days": 3, "stop_vol_mult": 1.0, "stop_min_pct": 0.012, "stop_max_pct": 0.03, "target_min_pct": 0.012, "target_max_pct": 0.04,
         "min_reward_risk": 0.4, "partial_exit_pct": 0.6, "min_daily_vol_pct": 0.008, "runner_cap_pct": 0.06, "breakeven_trigger_pct": 0.01, "breakeven_lock_pct": 0.0015, "trail_pct": 0.01,
-        "avoid_earnings": True, "earnings_exit_minutes_before_close": 45, "flatten_at_close": False, "flatten_minutes_before_close": 10,
+        "avoid_earnings": True, "earnings_exit_minutes_before_close": 45, "escalation_grace_minutes": 60, "escalation_grace_loss_pct": 0.01, "flatten_at_close": False, "flatten_minutes_before_close": 10,
         "plan_consistent_ev": True, "plan_gap_allowance": 0.5},
     # Which instruments the bot may trade (all paper money). Shorts and options start with SMALL caps so a bad idea cannot hurt the long book, and every result is reported per instrument.
     "instruments": {"shorts_enabled": True, "short_max_gross_pct": 0.25, "short_size_mult": 0.6, "short_min_price": 5.0, "short_min_market_cap": 2_000_000_000, "short_min_adv_usd": 20_000_000,

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from typing import Callable, Dict, Optional
 
 from . import db, earnings, learning, quotes, revisions
@@ -62,10 +63,30 @@ def ratchet_stop(conn, p, plan, price: float, cfg: dict, now) -> float:
     return max(stop, new) if sg > 0 else min(stop, new)
 
 
+def escalation_waits(p, price, cfg: Optional[dict], now) -> bool:
+    """Should a RISK_ESCALATION exit wait? That trigger is a judgement about the EVIDENCE (new adverse news, a strong thesis against the position), not about price, so it used to close a position that was down a few dollars the moment it was
+    raised. A young position now gets `escalation_grace_minutes` before it applies, unless the loss has already reached `escalation_grace_loss_pct`. The monitor clears a signal that is not re-raised within about 12 minutes, so a flicker
+    disappears by itself and only a persistent signal survives the wait; the stop and every other exit are untouched. 0 minutes restores the old behaviour."""
+    if cfg is None:
+        return False                                                                                     # no configuration: the old behaviour
+    sw = (cfg or {}).get("strategy") or {}
+    try:
+        mins, loss = float(sw.get("escalation_grace_minutes", 60)), float(sw.get("escalation_grace_loss_pct", 0.01))
+        age = (now - parse_ts(p["opened"])).total_seconds() / 60.0
+        entry, px = float(p["entry_price"]), float(price)
+    except (TypeError, ValueError, KeyError, AttributeError, OverflowError):
+        return False
+    if not (math.isfinite(mins) and mins > 0 and math.isfinite(age) and entry > 0 and px > 0):
+        return False
+    position_return = sg_of(p) * (px / entry - 1.0)                                                      # negative = losing, from the POSITION's side (a short loses when the price rises)
+    return age < mins and position_return > -loss
+
+
 def choose_trigger(conn, p, plan, q: dict, held: int, phase: str, cfg: Optional[dict] = None, now=None) -> tuple:
     price = q["price"]
-    sig = conn.execute("SELECT * FROM exit_signals WHERE position_id=? AND status='OPEN' ORDER BY severity DESC LIMIT 1", (p["id"],)).fetchone()
-    if sig:
+    for sig in conn.execute("SELECT * FROM exit_signals WHERE position_id=? AND status='OPEN' ORDER BY severity DESC", (p["id"],)).fetchall():
+        if sig["trigger"] == "RISK_ESCALATION" and escalation_waits(p, price, cfg, now or utcnow()):
+            continue                                                                                     # wait: it acts only if it persists, or the loss grows, or the grace ends
         return {"THESIS_BROKEN": "THESIS_INVALIDATED", "RISK_ESCALATION": "RISK_ESCALATION", "SUPERIOR_OPPORTUNITY": "SUPERIOR_OPPORTUNITY"}[sig["trigger"]], sig["reason"], sig["id"]
     stop, target = float(plan["stop_price"]), float(plan["target_price"])
     if cfg is not None:

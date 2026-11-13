@@ -149,7 +149,8 @@ SECTION_META = [
         ("Profit targets", "", ["strategy.target_min_pct", "strategy.target_max_pct", "strategy.partial_exit_pct", "strategy.runner_cap_pct"]),
         ("Stop losses", "", ["strategy.stop_vol_mult", "strategy.stop_min_pct", "strategy.stop_max_pct"]),
         ("Protecting profit as a trade works", "", ["strategy.breakeven_trigger_pct", "strategy.breakeven_lock_pct", "strategy.trail_pct"]),
-        ("Earnings reports", "", ["strategy.avoid_earnings", "strategy.earnings_exit_minutes_before_close"])]),
+        ("Earnings reports", "", ["strategy.avoid_earnings", "strategy.earnings_exit_minutes_before_close"]),
+        ("Exits on new evidence", "", ["strategy.escalation_grace_minutes", "strategy.escalation_grace_loss_pct"])]),
     _sec("shorts", "Instruments", "Short selling", "Profiting from falls. The strict rules about which stocks may be shorted are here.", [
         ("Switch", "", ["instruments.shorts_enabled"]),
         ("How much and how big", "", ["instruments.short_max_gross_pct", "instruments.short_size_mult"]),
