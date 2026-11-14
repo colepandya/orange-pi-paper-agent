@@ -38,6 +38,7 @@ DEFAULTS: Dict[str, Any] = {
         "avoid_earnings": True, "earnings_exit_minutes_before_close": 45, "escalation_grace_minutes": 60, "escalation_grace_loss_pct": 0.01, "flatten_at_close": False, "flatten_minutes_before_close": 10,
         "plan_consistent_ev": True, "plan_gap_allowance": 0.5},
     # Which instruments the bot may trade (all paper money). Shorts and options start with SMALL caps so a bad idea cannot hurt the long book, and every result is reported per instrument.
+    "momentum": {"enabled": True, "names": 50, "leverage": 2.0, "start_capital": 1000000.0, "rebalance_days": 21, "finance_rate": 0.05, "cost_pct": 0.0015, "brake_soft_dd": 0.25, "brake_hard_dd": 0.40},
     "instruments": {"shorts_enabled": True, "short_max_gross_pct": 0.25, "short_size_mult": 0.6, "short_min_price": 5.0, "short_min_market_cap": 2_000_000_000, "short_min_adv_usd": 20_000_000,
                     "short_squeeze_5d_pct": 0.20, "short_borrow_fee_pct": 0.5, "short_collateral_pct": 1.5,
                     "options_enabled": True, "options_max_premium_pct": 0.05, "options_per_trade_pct": 0.012, "options_min_ev": 0.03, "options_max_horizon_days": 5, "options_min_adv_usd": 50_000_000,

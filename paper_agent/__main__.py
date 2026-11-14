@@ -49,6 +49,9 @@ def main(argv=None) -> int:
     sp.add_argument("what", nargs="?", default="report", choices=["report", "status", "sync", "measure"])
     sp.add_argument("--horizon", type=int, default=3, choices=[1, 3, 5, 10], help="sessions to hold in the shown outcomes")
     sp.add_argument("--json", action="store_true")
+    mp = sub.add_parser("momentum", help="the momentum sleeve: report | run | rank")
+    mp.add_argument("what", nargs="?", default="report", choices=["report", "run", "rank"])
+    mp.add_argument("--limit", type=int, default=20)
     rp = sub.add_parser("research", help="the research lab: report | status | run | history (tests the engine's assumptions on stored prices; observation only)")
     rp.add_argument("what", nargs="?", default="report", choices=["report", "status", "run", "history"])
     rp.add_argument("--study", choices=["post_move", "earnings", "big_days", "calibration", "exit_plans"], help="run just one study")
@@ -255,7 +258,7 @@ def main(argv=None) -> int:
         except Exception:  # noqa: BLE001 - the growth record is a nicety; the backup itself succeeded
             pass
         return 0
-    if args.cmd in ("kb", "company", "eval", "shadow", "research"):                                     # the company knowledge base and the evaluation: heavy work is run from here, never inside the trading cycle
+    if args.cmd in ("kb", "company", "eval", "shadow", "research", "momentum"):                                     # the company knowledge base and the evaluation: heavy work is run from here, never inside the trading cycle
         from . import kbcli
         import sqlite3
         try:
@@ -270,6 +273,9 @@ def main(argv=None) -> int:
             if args.cmd == "shadow":
                 from . import shadow as shadow_mod
                 return shadow_mod.run_cli(args, conn, cfg)
+            if args.cmd == "momentum":
+                from . import momentum as momentum_mod
+                return momentum_mod.run_cli(args, conn, cfg)
             if args.cmd == "research":
                 from . import lab as lab_mod
                 return lab_mod.run_cli(args, conn, cfg)

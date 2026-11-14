@@ -158,6 +158,8 @@ def run_cycle(conn, cfg: dict, universe: Optional[Universe] = None, srcs: Option
     quote_fn = deps.quote_fn or (lambda c, t, purpose: quotes.get_quote(c, t, cfg, purpose, now=now, fetch=deps.fetch_json, prefetched=warm))
     thesis.seed(conn)
     report["strategy"] = _stage(report, "strategy", stamp.record, conn, cfg, now)
+    from . import momentum as _momentum
+    _stage(report, "momentum", _momentum.run_stage, conn, cfg, now)                                      # the momentum sleeve: its own virtual account, once per 6 hours, can never break a cycle
     icfg = cfg["intelligence"]
     influence = str(icfg.get("influence", "guard"))                                                      # how much the deterministic reasoning engine may affect trading (it is the ONLY engine); NOT `mode`, which is the cycle mode
     analyst = None if influence == "off" else (deps.analyst or reasoning.make_analyst(conn, cfg, universe))

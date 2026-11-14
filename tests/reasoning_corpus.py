@@ -1,0 +1,93 @@
+"""A labelled evaluation set for the reasoning engine. Each case: a headline (and optional summary), the companies the entity matcher would have found, and what a careful analyst would conclude.
+Expected keys: abstain (True: the engine should say nothing), side {ticker: '+'|'-'} (first-order direction), not_side {ticker: '+'|'-'} (must NOT be on that side), state (the event's state), min_cert/max_cert.
+It exists to MEASURE the engine (precision on direction, abstention on non-events, roles in deals and lawsuits) so that rules are changed on evidence, not on taste."""
+
+A = ["ACME"]
+AB = ["ACME", "BETA"]
+CASES = [
+    # ---- results, guidance, capital returns: the direction for the company
+    ("results", "NVIDIA beats earnings estimates and raises full-year guidance", "", ["NVDA"], {"side": {"NVDA": "+"}}),
+    ("results", "NVIDIA misses revenue estimates and cuts its outlook", "", ["NVDA"], {"side": {"NVDA": "-"}}),
+    ("results", "Acme posts record quarterly profit, topping forecasts", "", A, {"side": {"ACME": "+"}}),
+    ("results", "Acme reports a quarterly loss wider than analysts expected", "", A, {"side": {"ACME": "-"}}),
+    ("results", "Acme lowers full-year forecast citing weak demand", "", A, {"side": {"ACME": "-"}}),
+    ("results", "Acme raises its full-year revenue guidance", "", A, {"side": {"ACME": "+"}}),
+    ("results", "Acme shares surge after strong third-quarter results", "", A, {"side": {"ACME": "+"}}),
+    ("results", "Acme stock plunges on disappointing guidance", "", A, {"side": {"ACME": "-"}}),
+    ("results", "Acme revenue rises 12% to $5 billion, beating estimates", "", A, {"side": {"ACME": "+"}}),
+    ("results", "Acme announces a $5 billion share buyback", "", A, {"side": {"ACME": "+"}}),
+    ("results", "Acme raises its quarterly dividend by 10%", "", A, {"side": {"ACME": "+"}}),
+    ("results", "Acme cuts its dividend to preserve cash", "", A, {"side": {"ACME": "-"}}),
+    ("results", "Acme slashes its profit forecast and warns of job cuts", "", A, {"side": {"ACME": "-"}}),
+    ("mixed", "Acme reports results", "Earnings per share of $1.20 beat the $1.00 consensus estimate. The company lowered its full-year revenue outlook to $4.0 billion from $4.5 billion.", A, {"mixed": True}),
+    # ---- negation, hedging, history: the traps for a word counter
+    ("negation", "Acme did not cut its dividend as investors feared", "", A, {"not_side": {"ACME": "-"}}),
+    ("negation", "No evidence Acme faces an investigation, the regulator says", "", A, {"not_side": {"ACME": "-"}}),
+    ("negation", "Acme avoids bankruptcy after a last-minute debt deal", "", A, {"not_side": {"ACME": "-"}}),
+    ("negation", "Acme says it has no plans to cut guidance", "", A, {"not_side": {"ACME": "-"}}),
+    ("hedged", "Acme may raise guidance, analysts say", "", A, {"max_cert": 0.7}),
+    ("hedged", "Acme could face a recall if tests fail, the company warns", "", A, {"max_cert": 0.7}),
+    ("history", "A year ago Acme cut its dividend; it has since fully recovered", "", A, {"not_side": {"ACME": "-"}}),
+    ("history", "Acme, which warned on profits last spring, reports steady sales", "", A, {"not_side": {"ACME": "-"}}),
+    # ---- the state of the story
+    ("state", "Acme reportedly in talks to acquire Beta, people familiar say", "", AB, {"state": "rumored", "max_cert": 0.75}),
+    ("state", "Acme denies report of takeover interest in Beta", "", AB, {"state": "denied"}),
+    ("state", "Acme completes its acquisition of Beta", "", AB, {"state": "completed"}),
+    ("state", "Acme signs a definitive agreement to buy Beta for $5 billion", "", AB, {"state": "agreed"}),
+    ("state", "Regulator blocks Acme's deal for Beta", "", AB, {"state": "rejected"}),
+    ("state", "FDA approves Acme's new drug", "", A, {"state": "approved", "side": {"ACME": "+"}}),
+    ("state", "Acme's takeover of Beta is pending regulatory approval", "", AB, {"state": "pending"}),
+    # ---- who gains and who loses
+    ("roles", "Acme to acquire Beta for $5 billion in cash", "", AB, {"side": {"BETA": "+"}, "not_side": {"ACME": "+"}}),
+    ("roles", "Acme agrees to buy Beta in a $3 billion deal", "", AB, {"side": {"BETA": "+"}, "not_side": {"ACME": "+"}}),
+    ("roles", "Acme sues Beta over patent infringement", "", AB, {"side": {"BETA": "-"}, "not_side": {"ACME": "-"}}),
+    ("roles", "Acme wins patent lawsuit against Beta", "", AB, {"side": {"ACME": "+", "BETA": "-"}}),
+    ("roles", "Regulators fine Beta over pricing practices", "", ["BETA"], {"side": {"BETA": "-"}}),
+    ("roles", "Acme loses a key supply contract with Beta", "", AB, {"side": {"ACME": "-"}}),
+    ("roles", "Beta wins a $2 billion contract previously held by Acme", "", AB, {"side": {"BETA": "+"}}),
+    # ---- events at one company
+    ("event", "Acme wins a $2 billion Pentagon contract", "", A, {"side": {"ACME": "+"}}),
+    ("event", "Acme recalls 100,000 vehicles over a brake defect", "", A, {"side": {"ACME": "-"}}),
+    ("event", "Acme hit by a cyberattack, systems offline", "", A, {"side": {"ACME": "-"}}),
+    ("event", "Acme faces an antitrust probe from regulators", "", A, {"side": {"ACME": "-"}}),
+    ("event", "Acme unveils a new chip and shares jump", "", A, {"side": {"ACME": "+"}}),
+    ("event", "Acme CEO resigns amid an accounting probe", "", A, {"side": {"ACME": "-"}}),
+    ("event", "Acme's factory fire halts production", "", A, {"side": {"ACME": "-"}}),
+    ("event", "Goldman upgrades Acme to buy with a higher price target", "", A, {"side": {"ACME": "+"}}),
+    ("event", "Morgan Stanley downgrades Acme to underweight", "", A, {"side": {"ACME": "-"}}),
+    # ---- not events: opinion, advertising, recaps, questions, roundups: it should say nothing
+    ("opinion", "3 Reasons to Buy Acme Stock Right Now", "", A, {"abstain": True}),
+    ("opinion", "Is Acme a Buy After Its Recent Rally?", "", A, {"abstain": True}),
+    ("opinion", "Acme stock: should you buy the dip?", "", A, {"abstain": True}),
+    ("opinion", "Why Acme Stock Soared Today", "", A, {"abstain": True}),
+    ("opinion", "Here is why I am bullish on Acme", "", A, {"abstain": True}),
+    ("opinion", "Will Acme raise guidance this quarter?", "", A, {"abstain": True}),
+    ("recap", "Stocks making the biggest moves midday: Acme, Beta, Gamma", "", ["ACME", "BETA", "GAMMA"], {"abstain": True}),
+    ("recap", "Wall Street roundup: Acme up, Beta down as markets close", "", AB, {"abstain": True}),
+    ("recap", "Acme, Beta, Gamma, Delta and Epsilon shares rise as markets rally", "", ["ACME", "BETA", "GAMMA", "DELTA", "EPS"], {"abstain": True}),
+    ("promo", "Acme CEO says the company is well positioned for growth", "", A, {"abstain": True}),
+    # ---- filings
+    ("filing", "8-K - Acme Corp (0001234) (Filer)", "Item 1.03: Bankruptcy or Receivership", A, {"side": {"ACME": "-"}}),
+    ("filing", "8-K - Acme Corp (0001234) (Filer)", "Item 5.02: Departure of Directors or Certain Officers Item 9.01", A, {"abstain": True}),
+    ("filing", "8-K - Acme Corp (0001234) (Filer)", "Item 1.05: Material Cybersecurity Incidents", A, {"side": {"ACME": "-"}}),
+    ("filing", "NT 10-K - Acme Corp (0001234) (Filer)", "", A, {"side": {"ACME": "-"}}),
+    # ---- outside drivers: oil, rates, gold, copper, conflict
+    ("macro", "Oil prices surge after a pipeline attack", "", [], {"macro": {"XOM": "+", "DAL": "-"}}),
+    ("macro", "Oil prices plunge as demand fears grow", "", [], {"macro": {"XOM": "-", "DAL": "+"}}),
+    ("macro", "Crude oil jumps to a three-month high", "", [], {"macro": {"XOM": "+", "DAL": "-"}}),
+    ("macro", "Fed signals interest rates will stay higher for longer", "", [], {"macro": {"DHI": "-"}}),
+    ("macro", "Interest rates fall as inflation cools", "", [], {"macro": {"DHI": "+"}}),
+    ("macro", "Gold hits a record high", "", [], {"macro": {"NEM": "+"}}),
+    ("macro", "Copper prices fall to a two-year low", "", [], {"macro": {"FCX": "-"}}),
+    ("macro", "Missile strikes escalate the war in the region", "", [], {"macro": {"LMT": "+"}}),
+    ("macro", "Markets are quiet ahead of the holiday", "", [], {"abstain": True}),
+    # ---- found in the owner's real data: the entity matcher guesses, and the story is not always about who it names
+    ("grounding", "Budget 2026 live: Healey announces a 100 pound energy payment for millions", "", ["MLM"], {"not_side": {"MLM": "-"}, "max_cert": 0.7}),
+    ("grounding", "Toblerone owner sues British vegan chocolate brand over chunky shape", "", ["BTI"], {"not_side": {"BTI": "+"}}),
+    ("grounding", "Vodafone eyes a satellite spectrum bid, is the 3% discount enough?", "", ["VOD", "LSE"], {"not_side": {"LSE": "+"}}),
+    ("grounding", "Reindeer joins the Microsoft for Startups Pegasus Program and launches on Microsoft Marketplace", "", ["MSFT"], {"max_cert": 0.7}),
+    ("grounding", "Why Is Microsoft Offering Buyouts To 60,000 Employees?", "", ["MSFT"], {"abstain": True}),
+    ("grounding", "Global Product Take-Back Program Market Report 2026: capitalize on a 10.7% CAGR", "", ["MSFT"], {"abstain": True}),
+    ("grounding", "AI Spending Is Nearing $1 Trillion. These 2 Stocks Are Most at Risk If It Slows", "", ["NVDA", "AMD"], {"abstain": True}),
+    ("grounding", "Amazon could buy Viasat as AST SpaceMobile tries a rival bid, a consultant says", "", ["AMZN", "VSAT"], {"state": "rumored"}),
+]

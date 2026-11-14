@@ -186,6 +186,8 @@ def is_read_only(args) -> bool:
         return getattr(args, "what", None) in (None, "report", "status")
     if args.cmd == "research":
         return getattr(args, "what", None) in (None, "report", "status")
+    if args.cmd == "momentum":
+        return False                                                                   # even `report` creates its tables on first use, so it needs the bot's own user
     if args.cmd == "eval":
         return not getattr(args, "save", False)
     what = getattr(args, "what", None)

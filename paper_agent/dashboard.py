@@ -610,6 +610,22 @@ def _news_intel_section(c, cfg, now) -> str:
     return "".join(out)
 
 
+def momentum_section(c, cfg) -> str:
+    """The momentum sleeve (its own virtual account), read-only. Never takes the tab down."""
+    try:
+        from . import momentum
+        r = momentum.report(c, cfg)
+    except Exception:  # noqa: BLE001
+        return ""
+    if not r.get("days"):
+        return "<h2>Momentum core</h2><p class=mut>Not started yet: it runs with the next cycle, or now with <code>python3 -m paper_agent momentum run</code>.</p>"
+    top = [[h["ticker"], "%+.0f%%" % ((h["score"] or 0) * 100), h["opened"]] for h in r["holdings"][:10]]
+    return ("<h2>Momentum core (own virtual account, %.1fx cap)</h2>" % r["leverage_setting"] + "<div class=grid>" + card("Value", money(r["nav"])) + card("Return", "%+.1f%%" % r["return_pct"]) + card("Leverage now", "%.2fx" % r["leverage_now"])
+            + card("Drawdown", "%.1f%%" % r["drawdown_pct"]) + card("Stocks held", len(r["holdings"])) + "</div>"
+            + "<p class=mut>Buys the %d strongest stocks by 12-1 month momentum, rebalances about monthly, cuts to 1x at -25%% and to cash at -40%%. Since %s (%d days). Separate from the news engine's account.</p>" % (r["names"], r["since"], r["days"])
+            + table(["Top holdings", "12-1 momentum", "Since"], top))
+
+
 def research_section(c, cfg) -> str:
     """The research lab, read-only. One malformed saved result must never take the Intelligence tab down."""
     try:
@@ -690,6 +706,7 @@ def page_intel(c, cfg, s, q=None):
     for key, label in (("event_types", "Event-type accuracy"), ("sources", "Source accuracy"), ("theses", "Thesis accuracy")):
         out.append("<h2>%s</h2>" % label + table(["Name", "N", "Hit rate", "Brier"], [[k, v["n"], pct(v["hit"], 0), "%.3f" % v["brier"]] for k, v in sorted(m[key].items(), key=lambda x: -x[1]["n"])[:15]]))
     out.append(news_intel_section(c, cfg, s["now"]))
+    out.append(momentum_section(c, cfg))
     out.append(research_section(c, cfg))
     out.append(shadow_section(c, cfg))
     out.append("<h2>Regime features</h2>" + table(["Feature", "Value"], [[k, "n/a" if v is None else "%.4f" % v] for k, v in sorted((s["reg"].get("features") or {}).items())]))
