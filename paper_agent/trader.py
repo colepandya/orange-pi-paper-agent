@@ -191,6 +191,14 @@ def process_candidate(conn, cfg: dict, universe, c: dict, regime: dict, now, quo
 
     if score < cfg["portfolio"]["entry_score"]:
         return finish("REJECTED", "eligibility %.2f < %.2f" % (score, float(cfg["portfolio"]["entry_score"])), action="NO_TRADE")
+    if c.get("origin") == "graph" or c.get("chain_order") or c.get("mechanism"):
+        return finish("REJECTED", "relationship-derived idea: recorded and measured, but it does not trade (second-hand ideas lost money; they are research only)", action="NO_TRADE")
+    _hrs = float(cfg["risk"].get("reentry_cooldown_hours", 24.0) or 0.0)
+    if _hrs > 0:
+        _since = iso(now - dt.timedelta(hours=_hrs))
+        _p = conn.execute("SELECT id,closed,review_code FROM positions WHERE ticker=? AND closed>? AND pnl<=0 ORDER BY closed DESC LIMIT 1", (t, _since)).fetchone()
+        if _p:
+            return finish("REJECTED", "re-entry cooldown: #%s in %s closed at a loss (%s) within %.0f hours; the same idea is not bought again straight away" % (_p["id"], t, _p["review_code"], _hrs), action="NO_TRADE")
     if f["verdict"] not in ("BUY", "SHORT"):
         if options.rescuable(f, cfg):
             reason["rescue"] = {"stock_verdict": f["verdict"], "stock_blocked_by": list(f["why"])}             # the STOCK rules said no for stock-only reasons: take a second look as a put (the forecast row keeps the original verdict)

@@ -138,6 +138,23 @@ def store_tripwires(conn, position_id: int, entry: float, rv: Optional[dict], no
     return n
 
 
+_NOT_NEWS = ("what analyst", "analyst projection", "analyst target", "price target", "fair value", "what to expect", "ahead of earnings", "earnings preview", "key metrics", "could ", "may ", "should you", "is it time", "stock sees", "stock edges")
+
+
+def headline_is_about(headline, ticker, name) -> bool:
+    """A contradicting-news tripwire may only fire on a story that is really about THIS company (ticker or company name in the headline) and states a fact, not an
+    analyst preview or opinion. Builds up to 59 closed shorts on a Musk story (NVDA), a Fed note (BAC) and a story about another firm (JPM)."""
+    import re as _re
+    h = str(headline or "")
+    hl = h.lower()
+    if not h or any(x in hl for x in _NOT_NEWS):
+        return False
+    if _re.search(r"(?<![A-Za-z])\(?" + _re.escape(str(ticker)) + r"\)?(?![A-Za-z])", h):
+        return True
+    toks = [w for w in _re.split(r"[^A-Za-z0-9]+", str(name or "")) if len(w) > 2 and w.lower() not in ("inc", "corp", "corporation", "company", "the", "holdings", "group", "ltd", "plc", "co")]
+    return bool(toks) and toks[0].lower() in hl
+
+
 def check_tripwires(conn, now) -> List[dict]:
     fired = []
     for tw in conn.execute("SELECT t.*,p.ticker,p.status pstatus FROM tripwires t JOIN positions p ON p.id=t.position_id WHERE t.status='OPEN'").fetchall():
@@ -152,8 +169,13 @@ def check_tripwires(conn, now) -> List[dict]:
             elif q and tw["kind"] == "price_above" and q["price"] >= tw["threshold"]:
                 hit, why = True, "price %.2f >= tripwire %.2f" % (q["price"], tw["threshold"])
         else:
-            e = conn.execute("SELECT headline FROM events WHERE event_type=? AND direction" + (">0" if tw["kind"] == "event_up" else "<0") + " AND stale=0 AND novelty>=0.9 AND created>? AND tickers_json LIKE ? ORDER BY id DESC LIMIT 1",
-                             (tw["event_type"], tw["created"], '%"' + tw["ticker"] + '"%')).fetchone()
+            e = None
+            nm = (conn.execute("SELECT name FROM companies WHERE ticker=?", (tw["ticker"],)).fetchone() or [""])[0]
+            for cand in conn.execute("SELECT headline FROM events WHERE event_type=? AND direction" + (">0" if tw["kind"] == "event_up" else "<0") + " AND stale=0 AND novelty>=0.9 AND created>? AND tickers_json LIKE ? ORDER BY id DESC LIMIT 8",
+                                     (tw["event_type"], tw["created"], '%"' + tw["ticker"] + '"%')).fetchall():
+                if headline_is_about(cand["headline"], tw["ticker"], nm):
+                    e = cand
+                    break
             if e:
                 hit, why = True, "event %s: %s" % (tw["event_type"], e["headline"][:100])
         if hit:

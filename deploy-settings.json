@@ -1,0 +1,4 @@
+{
+  "_comment": "Release settings. Each entry: {id (unique), key (a Settings path), value (native units; percent settings are fractions), released (ISO time), force (default false), note}. Never overwrites a setting you changed unless force=true, and then only once per id. Otherwise it appears as a suggestion in Settings.",
+  "entries": []
+}
