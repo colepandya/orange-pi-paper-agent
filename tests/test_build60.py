@@ -38,6 +38,15 @@ class Momentum(unittest.TestCase):
         self.assertNotIn("W9", t)
         self.assertNotIn("SPY", t)
 
+    def test_a_thinly_covered_latest_day_does_not_shrink_the_ranking(self):
+        conn, days = make_db(syms=UNI)
+        conn.execute("DELETE FROM market_series WHERE day=? AND symbol NOT IN ('W0','W1')", (days[-1],))          # the bot refreshed only two stocks today
+        conn.commit()
+        self.assertEqual(momentum.usable_day(conn, days), days[-2])
+        self.assertGreaterEqual(len(momentum.rank(conn, CFG, days[-1])), 9)
+        out = momentum.run(conn, {"momentum": {"enabled": True, "names": 50}})                                   # more names wanted than can be ranked: no trade on a thin list
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM momentum_trades").fetchone()[0], 0)
+
     def test_rank_uses_no_future_data(self):
         conn, days = make_db(syms=UNI)
         a = momentum.rank(conn, CFG, days[-30])

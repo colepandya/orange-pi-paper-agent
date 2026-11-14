@@ -17,6 +17,8 @@ DEFAULTS = {"enabled": True, "names": 50, "leverage": 2.0, "start_capital": 1_00
             "min_price": 5.0, "min_adv_usd": 2_000_000.0, "max_stale_days": 6, "finance_rate": 0.05, "cost_pct": 0.0015,
             "brake_soft_dd": 0.25, "brake_soft_clear_dd": 0.15, "brake_hard_dd": 0.40, "hard_pause_days": 21}
 
+VERSION = 2                                              # bump to force one fresh rebalance after a ranking fix
+
 DDL = ["CREATE TABLE IF NOT EXISTS momentum_state(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
        "CREATE TABLE IF NOT EXISTS momentum_holdings(ticker TEXT PRIMARY KEY,shares REAL NOT NULL,entry_price REAL NOT NULL,opened TEXT NOT NULL,score REAL)",
        "CREATE TABLE IF NOT EXISTS momentum_nav(day TEXT PRIMARY KEY,nav REAL NOT NULL,cash REAL NOT NULL,gross REAL NOT NULL,leverage REAL NOT NULL,drawdown REAL NOT NULL,cap REAL NOT NULL,note TEXT)",
@@ -55,39 +57,63 @@ def trading_days(conn) -> List[str]:
     return [r[0] for r in rows]
 
 
-def _excluded(conn) -> set:
-    """Funds, ETFs, SPACs and preferred shares are not stocks with momentum to follow."""
+def _allowed(conn) -> Optional[set]:
+    """When the company knowledge base is loaded, only operating companies qualify (no funds, ETFs, SPACs, preferred shares, futures or indices). None = no knowledge base: filter by name only."""
     try:
-        return {r[0] for r in conn.execute("SELECT i.value FROM kb_identifiers i JOIN kb_entities e ON e.entity_id=i.entity_id WHERE i.kind='ticker' AND e.entity_kind IN ('etf','fund','spac','preferred')")}
-    except Exception:  # noqa: BLE001 - no knowledge base yet: nothing is excluded by name
-        return set()
+        ok = {r[0] for r in conn.execute("SELECT i.value FROM kb_identifiers i JOIN kb_entities e ON e.entity_id=i.entity_id WHERE i.kind='ticker' AND e.entity_kind='operating_equity'")}
+    except Exception:  # noqa: BLE001
+        return None
+    return ok if len(ok) > 500 else None
+
+
+def usable_day(conn, days: List[str]) -> str:
+    """The newest day on which most stocks have a bar. The bot refreshes a few stocks at a time, so the very latest day can have bars for only a handful: ranking on it would rank a tiny, random list."""
+    if len(days) < 30:
+        return days[-1]
+    ref = conn.execute("SELECT COUNT(*) FROM market_series WHERE day=?", (days[-22],)).fetchone()[0]
+    for d in reversed(days[-15:]):
+        if conn.execute("SELECT COUNT(*) FROM market_series WHERE day=?", (d,)).fetchone()[0] >= 0.6 * ref:
+            return d
+    return days[-1]
+
+
+def _bar(conn, sym: str, day: str, max_gap_days: int = 6):
+    """The symbol's own last bar on or before ``day``, if it is not older than max_gap_days."""
+    r = conn.execute("SELECT day,close,volume FROM market_series WHERE symbol=? AND day<=? AND close>0 ORDER BY day DESC LIMIT 1", (sym, day)).fetchone()
+    if not r:
+        return None
+    import datetime as _dt
+    try:
+        if (_dt.date.fromisoformat(day) - _dt.date.fromisoformat(r[0])).days > max_gap_days:
+            return None
+    except ValueError:
+        return None
+    return float(r[1]), float(r[2] or 0.0)
 
 
 def rank(conn, cfg: dict, as_of_day: str) -> List[dict]:
-    """12-1 momentum as of ``as_of_day`` (inclusive): return from lookback_days ago to skip_days ago, among liquid, fresh, non-fund stocks. Highest first."""
+    """12-1 momentum as of the newest well-covered day on or before ``as_of_day``: return from lookback_days ago to skip_days ago, among liquid, fresh operating companies. Highest first."""
     s = settings(cfg)
     days = [d for d in trading_days(conn) if d <= as_of_day]
     lb, sk = int(s["lookback_days"]), int(s["skip_days"])
-    if len(days) < lb + 5:
+    if len(days) < lb + 25:
         return []
-    d_now, d_skip, d_back = days[-1], days[-1 - sk], days[-1 - lb]
-    stale_from = days[max(0, len(days) - 1 - int(s["max_stale_days"]))]
-    skip = _excluded(conn) | {"SPY"}
-    rows = conn.execute("SELECT symbol,day,close,volume FROM market_series WHERE day IN (?,?,?) AND close>0", (d_now, d_skip, d_back)).fetchall()
-    px: Dict[str, dict] = {}
-    for sym, day, close, vol in rows:
-        px.setdefault(sym, {})[day] = (float(close), float(vol or 0))
+    d_now = usable_day(conn, days)
+    days = [d for d in days if d <= d_now]
+    d_skip, d_back = days[-1 - sk], days[-1 - lb]
+    allowed = _allowed(conn)
+    syms = [r[0] for r in conn.execute("SELECT DISTINCT symbol FROM market_series WHERE day=?", (d_now,)).fetchall()]
     out = []
-    for sym, p in px.items():
-        if sym in skip or d_now not in p or d_skip not in p or d_back not in p:
+    for sym in syms:
+        if sym == "SPY" or any(ch in sym for ch in "=^") or (allowed is not None and sym not in allowed):
             continue
-        last, _v = p[d_now]
-        if last < float(s["min_price"]):
+        a_, b_, n_ = _bar(conn, sym, d_skip), _bar(conn, sym, d_back), _bar(conn, sym, d_now)
+        if not (a_ and b_ and n_) or n_[0] < float(s["min_price"]):
             continue
         adv = conn.execute("SELECT AVG(close*volume) FROM (SELECT close,volume FROM market_series WHERE symbol=? AND day<=? ORDER BY day DESC LIMIT 20)", (sym, d_now)).fetchone()[0] or 0.0
         if adv < float(s["min_adv_usd"]):
             continue
-        out.append({"ticker": sym, "score": p[d_skip][0] / p[d_back][0] - 1.0, "price": last})
+        out.append({"ticker": sym, "score": a_[0] / b_[0] - 1.0, "price": n_[0]})
     out.sort(key=lambda r: (-r["score"], r["ticker"]))
     return out
 
@@ -121,6 +147,8 @@ def cap_for(drawdown: float, state_cap: float, s: dict) -> float:
 def _rebalance(conn, s: dict, day: str, nav: float, cap: float, reason: str) -> dict:
     cash, gross, hs = _book(conn, day)
     ranked = rank(conn, {"momentum": s}, day)
+    if len(ranked) < int(s["names"]):                                              # too few rankable stocks (prices not caught up yet): never trade a thin list
+        return {"names": 0, "skipped": "only %d stocks could be ranked, %d wanted" % (len(ranked), int(s["names"])), "ranked": len(ranked)}
     target = ranked[: int(s["names"])]
     lev = cap
     want: Dict[str, float] = {}
@@ -153,6 +181,7 @@ def _rebalance(conn, s: dict, day: str, nav: float, cap: float, reason: str) -> 
                 conn.execute("INSERT INTO momentum_holdings(ticker,shares,entry_price,opened,score) VALUES(?,?,?,?,?)", (t, want[t], p, day, sc))
     _put(conn, "cash", cash)
     _put(conn, "last_rebalance", day)
+    _put(conn, "version", VERSION)
     return {"names": len(want), "turnover": round(turnover, 2), "cost": round(cost_total, 2), "ranked": len(ranked)}
 
 
@@ -166,7 +195,7 @@ def run(conn, cfg: dict, now=None, as_of: Optional[str] = None) -> dict:
     if not days:
         return {"status": "no_prices"}
     day = days[-1]
-    if _get(conn, "last_day") == day:
+    if _get(conn, "last_day") == day and _get(conn, "version") == VERSION:
         return {"status": "up_to_date", "day": day}
     if _get(conn, "cash") is None:
         _put(conn, "cash", float(s["start_capital"]))
@@ -204,7 +233,7 @@ def run(conn, cfg: dict, now=None, as_of: Optional[str] = None) -> dict:
     else:
         last = _get(conn, "last_rebalance")
         since = None if not last else sum(1 for d in days if last < d <= day)
-        if last is None or since >= int(s["rebalance_days"]) or cap > cap_before:
+        if last is None or since >= int(s["rebalance_days"]) or cap > cap_before or _get(conn, "version") != VERSION:
             did = _rebalance(conn, s, day, nav, cap, "scheduled rebalance" if last else "first rebalance")
             note.append("rebalanced")
     cash, gross, hs = _book(conn, day)
@@ -233,10 +262,38 @@ def report(conn, cfg: dict) -> dict:
             "holdings": [dict(h) for h in holds], "trades": conn.execute("SELECT COUNT(*) FROM momentum_trades").fetchone()[0]}
 
 
+def refresh_bars(conn, cfg: dict, now=None, limit: int = 12, seconds: float = 6.0) -> int:
+    """Catch the stored daily bars up a few stocks at a time (held stocks first), within a small time budget, so the ranking can use current prices. Failures are ignored."""
+    import time as _t
+    from . import marketdata as md
+    days = trading_days(conn)
+    if not days:
+        return 0
+    held = [r[0] for r in conn.execute("SELECT ticker FROM momentum_holdings")]
+    stale = [r[0] for r in conn.execute("SELECT symbol FROM series_state WHERE last_day IS NULL OR last_day<? ORDER BY fetched_at LIMIT ?", (days[-1], limit * 3))]
+    t0, n = _t.time(), 0
+    for sym in dict.fromkeys(held + stale):
+        if n >= limit or _t.time() - t0 > seconds:
+            break
+        try:
+            md.refresh_symbol(conn, sym, 18, "1mo", None, now)
+            n += 1
+        except Exception:  # noqa: BLE001
+            pass
+    return n
+
+
 def run_stage(conn, cfg: dict, now=None) -> dict:
     """Pipeline hook: at most once every 6 hours, and never able to break the trading cycle."""
     from . import db
-    if not settings(cfg)["enabled"] or not db.due(conn, "momentum", 6.0, now):
+    if not settings(cfg)["enabled"]:
+        return {"status": "skipped"}
+    ensure(conn)
+    try:
+        refresh_bars(conn, cfg, now)
+    except Exception:  # noqa: BLE001
+        pass
+    if not db.due(conn, "momentum", 6.0, now):
         return {"status": "skipped"}
     out = run(conn, cfg, now)
     db.mark_run(conn, "momentum", json.dumps({k: out.get(k) for k in ("status", "day", "nav")}), now)
